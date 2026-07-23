@@ -19,6 +19,7 @@ import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendA
 import { markExpected as markReactionEchoExpected } from './reaction-echo-cache.js';
 import { getUserFullName } from './chat-helpers.js';
 import { downloadMediaToTemp, extractZaloMsgId } from './chat-media-helpers.js';
+import { parseAppointmentFromText } from '../ai/ai-service.js';
 
 interface ResolvedMessageRefs {
   messageId: string;
@@ -358,6 +359,37 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
       const io = (app as any).io as Server;
       io?.emit('chat:deleted', { conversationId: id, messageId: refs.messageId, zaloMsgId: refs.zaloMsgId });
       return { success: true };
+    } catch (err) { return handleError(err, reply); }
+  });
+
+  // ── POST /messages/:msgId/ai-parse-appointment ────────────────────────────────
+  // 2026-07-23 — "Gợi ý lịch hẹn trong chat": nút 🤖 trên 1 tin nhắn (KH gửi HOẶC
+  // sale gửi) trong hội thoại thật → parse NGUYÊN VĂN tin đó (không gộp context quanh) thành gợi ý
+  // lịch hẹn, y hệt cascade rule-based → AI đã dùng cho Ghi chú (notes-routes.ts).
+  // KHÔNG tạo appointment ở đây — trả về prefill để FE mở AppointmentEditor, sale
+  // xác nhận rồi mới POST /appointments riêng (giữ nguyên contract với FE).
+  app.post('/api/v1/conversations/:id/messages/:msgId/ai-parse-appointment', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id, msgId } = request.params as { id: string; msgId: string };
+
+    const conv = await getConversation(id, user.orgId, reply);
+    if (!conv) return;
+
+    const message = await prisma.message.findFirst({
+      where: { id: msgId, conversationId: id },
+      select: { id: true, content: true },
+    });
+    if (!message) return reply.status(404).send({ error: 'Message not found' });
+    if (!message.content?.trim()) {
+      return { parsed: null, reason: 'Tin nhắn không có nội dung để phân tích' };
+    }
+
+    try {
+      const parsed = await parseAppointmentFromText({ orgId: user.orgId, text: message.content });
+      if (!parsed || !parsed.hasIntent) {
+        return { parsed: null, reason: 'Không phát hiện ý định hẹn rõ ràng trong tin nhắn này' };
+      }
+      return { parsed, source: parsed.source };
     } catch (err) { return handleError(err, reply); }
   });
 

@@ -58,6 +58,19 @@
           <span class="ctx-item__label">Chuyển tiếp</span>
         </button>
 
+        <!-- AI lịch hẹn (2026-07-23, mở rộng cả 2 chiều) — tin sale gửi lẫn KH gửi,
+             miễn có nội dung text, parse thành gợi ý lịch hẹn (ngày/giờ/địa điểm),
+             giống hệt nút ở Ghi chú. -->
+        <button
+          v-if="message?.contentType === 'text'"
+          class="ctx-item is-primary"
+          role="menuitem"
+          @click="onAction('ai-appointment')"
+        >
+          <span class="ctx-item__icon emoji">🤖</span>
+          <span class="ctx-item__label">AI lịch hẹn</span>
+        </button>
+
         <!-- Lưu vào Media (chỉ tin có media: ảnh/video/tệp) — Phase Media Library 2026-06-11 -->
         <!-- Có submenu: Kho cá nhân Riêng tư (mặc định) / Kho chung Công khai (G3) -->
         <div v-if="isMediaMessage" class="ctx-sub" @mouseenter="saveSubOpen = true" @mouseleave="saveSubOpen = false">
@@ -136,6 +149,7 @@ const emit = defineEmits<{
   undo: [];
   forward: [];
   copy: [];
+  'ai-appointment': [];
   'save-media': [visibility: 'private' | 'public'];
   'favorite-media': [];
   'download-media': [];
@@ -234,7 +248,7 @@ onBeforeUnmount(() => {
 function close() {
   emit('update:modelValue', false);
 }
-function onAction(name: 'reply' | 'edit' | 'forward' | 'undo' | 'delete' | 'favorite-media' | 'download-media') {
+function onAction(name: 'reply' | 'edit' | 'forward' | 'undo' | 'delete' | 'favorite-media' | 'download-media' | 'ai-appointment') {
   // Switch để TS narrow đúng từng emit signature (union không inferr được)
   switch (name) {
     case 'reply':          emit('reply');          break;
@@ -244,6 +258,7 @@ function onAction(name: 'reply' | 'edit' | 'forward' | 'undo' | 'delete' | 'favo
     case 'delete':         emit('delete');         break;
     case 'favorite-media': emit('favorite-media'); break;
     case 'download-media': emit('download-media'); break;
+    case 'ai-appointment': emit('ai-appointment'); break;
   }
   close();
 }

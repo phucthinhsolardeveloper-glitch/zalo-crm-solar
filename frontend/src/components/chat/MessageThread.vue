@@ -571,7 +571,7 @@
             :class="{ active: showAppointmentDialog }"
             title="Tạo nhắc hẹn cho KH này"
             :disabled="!conversation.contact"
-            @click="showAppointmentDialog = true"
+            @click="aiApptPrefill = null; showAppointmentDialog = true"
           >
             <CalendarClockIcon :size="18" :stroke-width="1.5" />
           </button>
@@ -717,6 +717,7 @@
             zaloUid: conversation.contact.zaloUid ?? null,
             zaloUsername: (conversation.contact as any).zaloUsername ?? null,
           } : null"
+          :ai-prefill="aiApptPrefill"
           :current-user-id="currentUserId"
           @created="onAppointmentCreated"
         />
@@ -760,6 +761,7 @@
       @favorite-media="onFavoriteFromChat"
       @download-media="onDownloadMedia"
       @copy="() => {}"
+      @ai-appointment="onAiParseAppointment"
     />
 
     <!-- Menu chuột phải cho ảnh trong ALBUM (3 mức: 1 tấm / cả album / chọn nhiều) -->
@@ -896,6 +898,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue';
 import type { Conversation, Message } from '@/composables/use-chat';
+import type { AiPrefill } from '@/composables/appointment-helpers';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
 import { saveFromChat, saveFromChatBatch, toggleFavorite } from '@/api/media';
@@ -2411,11 +2414,51 @@ function toggleFormat() {
 
 // ── Appointment quick-create từ icon 📅 trong toolbar — đồng bộ flow với cột 4.
 const showAppointmentDialog = ref(false);
+const aiApptPrefill = ref<AiPrefill | null>(null);
 function onAppointmentCreated() {
+  aiApptPrefill.value = null;
   // Notify parent reload thread + dispatch global event để cột 4 (ChatContactPanel)
   // refresh Activity tab + bump badge count (cùng pattern với zalo-labels-synced).
   emit('refresh-thread');
   window.dispatchEvent(new CustomEvent('appointment-created'));
+}
+
+// ── "🤖 AI lịch hẹn" từ menu chuột phải 1 tin nhắn KH gửi (2026-07-23) — parse tin
+// đó thành gợi ý lịch hẹn, mở LẠI cùng AppointmentEditor phía trên (prefill AI),
+// giống hệt flow ở tab Ghi chú (CustomerTimelineSection.vue: onAiParse).
+async function onAiParseAppointment() {
+  const msg = contextMsg.value;
+  const convId = props.conversation?.id;
+  if (!msg || !convId) return;
+  toast.push('🤖 AI đang phân tích…');
+  try {
+    const { data } = await api.post(`/conversations/${convId}/messages/${msg.id}/ai-parse-appointment`);
+    const parsed = data?.parsed as (AiPrefill & { hasIntent: boolean; summary: string; source?: 'ai' | 'fallback' }) | null;
+    if (!parsed) {
+      toast.push(data?.reason || 'Không phát hiện ý định hẹn rõ ràng trong tin nhắn này');
+      return;
+    }
+    const name = (props.conversation?.contact?.fullName || '').trim();
+    let title = (parsed.summary || '').trim();
+    if (title && name && !title.toLowerCase().includes(name.toLowerCase())) {
+      title = `${title} [${name}]`;
+    }
+    aiApptPrefill.value = {
+      date: parsed.date,
+      time: parsed.time,
+      type: parsed.type,
+      location: parsed.location,
+      title: title || null,
+      notes: msg.content || null,
+    };
+    showAppointmentDialog.value = true;
+    if (parsed.source === 'fallback') {
+      toast.push('⚙️ AI hết quota — đã phân tích bằng quy tắc local');
+    }
+  } catch (err) {
+    console.error('[chat] AI parse appointment error', err);
+    toast.push('Có lỗi khi phân tích tin nhắn bằng AI');
+  }
 }
 
 // ── Display item types (album grouping + date dividers) ─────────────────────
