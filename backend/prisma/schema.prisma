@@ -180,6 +180,7 @@ model Organization {
   mediaAssets             MediaAsset[]
   mediaAlbums             MediaAlbum[]
   mediaUsageEvents        MediaUsageEvent[]
+  callRecords             CallRecord[]
 
   @@map("organizations")
 }
@@ -312,6 +313,7 @@ model User {
   createdMediaAssets        MediaAsset[]                 @relation("MediaAssetCreatedBy")
   ownedMediaAlbums          MediaAlbum[]                 @relation("MediaAlbumOwner")
   createdMediaAlbums        MediaAlbum[]                 @relation("MediaAlbumCreatedBy")
+  callRecordsCreated        CallRecord[]
 
   @@map("users")
 }
@@ -428,6 +430,7 @@ model ZaloAccount {
   // 2026-06-21 (E1 quét group) — roster member quét ra + lịch sử lần quét per-nick.
   groupMembers                     GroupMember[]
   groupScans                       GroupScan[]
+  callRecords                      CallRecord[]
 
   @@map("zalo_accounts")
 }
@@ -737,7 +740,56 @@ model Contact {
   @@index([orgId, leadScore(sort: Desc)])
   @@index([orgId, stuckSinceAggregate])
   @@index([orgId, aggregateScoreUpdatedAt(sort: Desc)])
+  callRecords       CallRecord[]
   @@map("contacts")
+}
+
+// CallRecord — 1 dòng / 1 cuộc gọi Zalo (thật hoặc log tay). zca-js không có API
+// gọi/ghi âm thật (xem docs/superpowers/specs/2026-07-23-zalo-call-log-recording-design.md)
+// nên đây chỉ là: (a) log click-to-call thủ công, (b) auto-detect từ tin nhắn hệ
+// thống Zalo (contentType='call'), (c) nơi gắn file ghi âm sale tự upload.
+model CallRecord {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  contactId      String   @map("contact_id")
+  friendId       String?  @map("friend_id")
+  zaloAccountId  String   @map("zalo_account_id")
+  conversationId String?  @map("conversation_id")
+
+  direction   String // 'outbound' | 'inbound'
+  callType    String // 'voice' | 'video'
+  status      String // 'manual' | 'connected' | 'missed'
+  durationSec Int?     @map("duration_sec")
+  occurredAt  DateTime @map("occurred_at")
+
+  // Link tới Message nếu auto-detect từ tin nhắn hệ thống Zalo. Unique: 1 message
+  // chỉ tạo ra tối đa 1 CallRecord (chống double-insert khi listener replay).
+  sourceMessageId String? @map("source_message_id")
+
+  recordingKey       String? @map("recording_key")
+  recordingUrl       String? @map("recording_url")
+  recordingMimeType  String? @map("recording_mime_type")
+  recordingSizeBytes Int?    @map("recording_size_bytes")
+
+  note            String?
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  friend       Friend?       @relation(fields: [friendId], references: [id], onDelete: SetNull)
+  zaloAccount  ZaloAccount   @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  sourceMessage Message?     @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  createdBy    User?         @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, contactId, occurredAt(sort: Desc)])
+  @@index([orgId, occurredAt(sort: Desc)])
+  // sourceMessageId nullable → Postgres cho nhiều NULL, chỉ chặn trùng khi CÙNG 1
+  // message auto-detect ra 2 CallRecord (chống race/replay listener).
+  @@unique([sourceMessageId])
+  @@map("call_records")
 }
 
 // Status (Trạng thái KH) — per-org config replacing Contact.status enum cũ.
@@ -798,6 +850,7 @@ model Conversation {
   pins          PinnedConversation[]
   // 2026-06-18 — Cầu Telegram: 1 hội thoại = 1 forum topic (định tuyến reply).
   telegramTopic TelegramTopicMap?
+  callRecords   CallRecord[]
 
   @@unique([zaloAccountId, externalThreadId])
   @@index([orgId, zaloAccountId, isReplied, lastMessageAt])
@@ -883,6 +936,7 @@ model Message {
   conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   repliedBy    User?             @relation("RepliedMessages", fields: [repliedByUserId], references: [id])
   reactions    MessageReaction[]
+  callRecord CallRecord?
 
   @@unique([conversationId, zaloMsgId])
   // BE-3 idempotency — 1 echoId duy nhất / conversation. Multiple NULL cho phép (tin cũ).
@@ -1985,8 +2039,9 @@ model Friend {
   zaloAccount ZaloAccount  @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
 
   // Phase Tag Taxonomy v2 2026-05-31 (M57) — junction FriendTag (Big-Bang Refactor).
-  // Chạy song song Friend.crmTagsPerNick + zaloLabels + autoTags cho dual-write Wave 3-4.
+  // Chạy song parallel Friend.crmTagsPerNick + zaloLabels + autoTags cho dual-write Wave 3-4.
   tagAssignments FriendTag[]
+  callRecords CallRecord[]
 
   // KHÔNG unique theo (zaloAccountId, contactId) vì 1 Contact (KH Cha) có thể có
   // nhiều Friend per cùng zaloAccount khi merge từ các Zalo identity khác nhau
