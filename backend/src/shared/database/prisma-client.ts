@@ -9,10 +9,15 @@
  * normalizePhone() — đảm bảo mọi nguồn (CRM UI, import CSV, Zalo sync, automation,
  * webhook ...) đều có canonical phone, dedup chính xác cross-format. KHÔNG cần
  * 16 call sites tự nhớ set phoneNormalized.
+ *
+ * Cùng cơ chế: AUTO-derive `fullNameNoAccent`/`crmNameNoAccent` từ `fullName`/
+ * `crmName` qua stripVietnameseDiacritics() — cho tìm kiếm không cần gõ dấu
+ * (2026-07-23).
  */
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { normalizePhone } from '../utils/phone.js';
+import { stripVietnameseDiacritics } from '../utils/text-normalize.js';
 import { checkTenantGuard } from '../tenant/tenant-guard.js';
 import { getTenantContext, runWithRlsApplied } from '../tenant/tenant-context.js';
 import { config } from '../../config/index.js';
@@ -23,11 +28,22 @@ const globalForPrisma = globalThis as unknown as { prisma: ExtendedPrisma };
 
 function deriveContactPhoneNormalized<T extends Record<string, unknown>>(data: T): T {
   if (!data || typeof data !== 'object') return data;
-  // Chỉ động chạm khi caller pass `phone` (kể cả null để clear). Không pass phone
-  // → giữ phoneNormalized hiện tại (no-op).
-  if (!('phone' in data)) return data;
-  const phoneVal = data.phone as string | null | undefined;
-  return { ...data, phoneNormalized: normalizePhone(phoneVal) };
+  let out = data;
+  // Chỉ động chạm khi caller pass field tương ứng (kể cả null để clear). Không
+  // pass → giữ giá trị derive hiện tại (no-op), y hệt cơ chế phoneNormalized.
+  if ('phone' in out) {
+    const phoneVal = out.phone as string | null | undefined;
+    out = { ...out, phoneNormalized: normalizePhone(phoneVal) };
+  }
+  if ('fullName' in out) {
+    const fullNameVal = out.fullName as string | null | undefined;
+    out = { ...out, fullNameNoAccent: stripVietnameseDiacritics(fullNameVal) };
+  }
+  if ('crmName' in out) {
+    const crmNameVal = out.crmName as string | null | undefined;
+    out = { ...out, crmNameNoAccent: stripVietnameseDiacritics(crmNameVal) };
+  }
+  return out;
 }
 
 /**

@@ -534,6 +534,11 @@ model Contact {
   email            String?   @map("email")
   fullName         String?   @map("full_name")
   crmName          String?   @map("crm_name")
+  // Bản bỏ dấu + lowercase của fullName/crmName — auto-derive qua Prisma extension
+  // (prisma-client.ts, cùng cơ chế phoneNormalized) trên MỌI write path. Cho phép
+  // tìm kiếm không cần gõ dấu tiếng Việt (vd "thu thuy" vẫn ra "Thu Thuỷ").
+  fullNameNoAccent String?   @map("full_name_no_accent")
+  crmNameNoAccent  String?   @map("crm_name_no_accent")
   avatarUrl        String?   @map("avatar_url")
   source           String? // FB, TT, GT, CN, phone_import, etc.
   sourceDate       DateTime? @map("source_date")

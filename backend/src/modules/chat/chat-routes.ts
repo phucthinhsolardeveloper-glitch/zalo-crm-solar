@@ -19,6 +19,7 @@ import type { Server } from 'socket.io';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { applyContactAggregateFromMessage, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
+import { stripVietnameseDiacritics } from '../../shared/utils/text-normalize.js';
 // M53 2026-05-30 — AI Trợ Lý cho Virtual Chat (KH no-Zalo)
 import { triggerVirtualChatAiReply } from '../ai/ai-virtual-chat-service.js';
 // M55 2026-05-30 — Auto-attach collaborator khi sale gửi tin virtual conv
@@ -511,10 +512,21 @@ export async function chatRoutes(app: FastifyInstance) {
     // Contact-level filter — gộp vào where.contact nested
     const contactWhere: Record<string, unknown> = {};
     if (search) {
+      // 2026-07-23 — thêm nhánh OR so trên fullNameNoAccent/crmNameNoAccent (đã
+      // bỏ dấu + lowercase sẵn, auto-derive qua prisma-client.ts) để tìm ra kết
+      // quả cả khi sale gõ KHÔNG dấu (vd "thu thuy" vẫn ra "Thu Thuỷ"). Giữ
+      // nguyên 3 nhánh cũ — chỉ CỘNG THÊM, không thay đổi hành vi tìm có dấu.
+      const searchNoAccent = stripVietnameseDiacritics(search);
       contactWhere.OR = [
         { fullName: { contains: search, mode: 'insensitive' } },
         { crmName: { contains: search, mode: 'insensitive' } },
         { phone: { contains: search } },
+        ...(searchNoAccent
+          ? [
+              { fullNameNoAccent: { contains: searchNoAccent } },
+              { crmNameNoAccent: { contains: searchNoAccent } },
+            ]
+          : []),
       ];
     }
     if (statusId) contactWhere.statusId = statusId;
