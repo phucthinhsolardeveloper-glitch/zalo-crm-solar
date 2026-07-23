@@ -49,3 +49,6 @@ secrets/
 # Telegram
 public-key-telegram
 public-key-telegram-product
+
+# Playwright MCP debug artifacts
+.playwright-mcp/
