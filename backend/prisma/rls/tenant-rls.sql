@@ -580,3 +580,32 @@ DROP POLICY IF EXISTS tenant_isolation ON "zalo_lead_events";
 CREATE POLICY tenant_isolation ON "zalo_lead_events"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+-- call_records
+ALTER TABLE "call_records" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "call_records" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "call_records";
+CREATE POLICY tenant_isolation ON "call_records"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- AI Zalo chatbot RAG
+ALTER TABLE "ai_knowledge_docs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ai_knowledge_docs" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "ai_knowledge_docs";
+CREATE POLICY tenant_isolation ON "ai_knowledge_docs"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE "ai_knowledge_chunks" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ai_knowledge_chunks" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "ai_knowledge_chunks";
+CREATE POLICY tenant_isolation ON "ai_knowledge_chunks"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE "ai_chatbot_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ai_chatbot_logs" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "ai_chatbot_logs";
+CREATE POLICY tenant_isolation ON "ai_chatbot_logs"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');

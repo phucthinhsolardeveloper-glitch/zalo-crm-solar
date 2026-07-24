@@ -53,6 +53,9 @@ model Organization {
   aiConfig                    AiConfig?
   aiSuggestions               AiSuggestion[]
   aiSuggestionsApplied        AiSuggestionApplied[]
+  aiKnowledgeDocs             AiKnowledgeDoc[]
+  aiKnowledgeChunks           AiKnowledgeChunk[]
+  aiChatbotLogs               AiChatbotLog[]
   pinnedConversations         PinnedConversation[]
   groupPolls                  GroupPoll[]
   // 2026-06-21 (E1 quét group) — roster member + lịch sử lần quét cấp org.
@@ -1678,12 +1681,85 @@ model AiConfig {
   aiAssistantEnabled          Boolean  @default(true) @map("ai_assistant_enabled")
   aiAssistantPromptTemplate   String?  @map("ai_assistant_prompt_template") @db.Text
   aiAssistantSkipNoisePattern String   @default("^(ok|oke|okay|uhm|um|ờ|à|ừ|a|o|yes|no|y|n|\\.|\\.\\.|\\.\\.\\.)\\s*$") @map("ai_assistant_skip_noise_pattern")
+  // Zalo AI Chatbot: mặc định OFF, chỉ tự gửi khi có knowledge document sẵn sàng.
+  zaloChatbotEnabled          Boolean  @default(false) @map("zalo_chatbot_enabled")
+  zaloChatbotModel            String   @default("gpt-4.1-mini") @map("zalo_chatbot_model")
+  zaloChatbotPromptTemplate   String?  @map("zalo_chatbot_prompt_template") @db.Text
+  zaloChatbotWeekdayEnabled   Boolean  @default(true) @map("zalo_chatbot_weekday_enabled")
+  zaloChatbotWeekdayStart     String   @default("18:00") @map("zalo_chatbot_weekday_start")
+  zaloChatbotWeekdayEnd       String   @default("08:00") @map("zalo_chatbot_weekday_end")
+  zaloChatbotWeekendEnabled   Boolean  @default(true) @map("zalo_chatbot_weekend_enabled")
+  zaloChatbotWeekendStart     String   @default("00:00") @map("zalo_chatbot_weekend_start")
+  zaloChatbotWeekendEnd       String   @default("23:59") @map("zalo_chatbot_weekend_end")
+  zaloChatbotMaxDaily         Int      @default(200) @map("zalo_chatbot_max_daily")
+  zaloChatbotSimilarity       Float    @default(0.4) @map("zalo_chatbot_similarity")
+  zaloChatbotTopK             Int      @default(5) @map("zalo_chatbot_top_k")
+  zaloChatbotEmbeddingModel   String   @default("text-embedding-3-small") @map("zalo_chatbot_embedding_model")
   createdAt                   DateTime @default(now()) @map("created_at")
   updatedAt                   DateTime @updatedAt @map("updated_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("ai_configs")
+}
+
+model AiKnowledgeDoc {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  name        String
+  mimeType    String   @default("text/plain") @map("mime_type")
+  sizeBytes   Int      @default(0) @map("size_bytes")
+  status      String   @default("processing") // processing | ready | failed
+  error       String?  @db.Text
+  chunkCount  Int      @default(0) @map("chunk_count")
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  org    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  chunks AiKnowledgeChunk[]
+
+  @@index([orgId, status, createdAt(sort: Desc)])
+  @@map("ai_knowledge_docs")
+}
+
+model AiKnowledgeChunk {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  docId     String   @map("doc_id")
+  position  Int
+  content   String   @db.Text
+  embedding Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  doc AiKnowledgeDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@unique([docId, position])
+  @@index([orgId, docId])
+  @@map("ai_knowledge_chunks")
+}
+
+model AiChatbotLog {
+  id               String   @id @default(uuid())
+  orgId            String   @map("org_id")
+  conversationId   String?  @map("conversation_id")
+  triggerMessageId String?  @map("trigger_message_id")
+  replyMessageId   String?  @map("reply_message_id")
+  status           String   // sent | skipped | error
+  reason           String?
+  question         String?  @db.Text
+  answer           String?  @db.Text
+  similarity       Float?
+  sourceDocIds     Json?    @map("source_doc_ids")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, status, createdAt(sort: Desc)])
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@unique([orgId, triggerMessageId])
+  @@map("ai_chatbot_logs")
 }
 
 // M53 (2026-05-30): Audit log mỗi lần sale click "Áp dụng" trên AiSuggestionCard.

@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 const eeDir = existsSync(fileURLToPath(new URL('./src/_ee', import.meta.url)))
   ? './src/_ee'
   : './src/_ee-stubs';
+const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 export default defineConfig({
   plugins: [
@@ -25,9 +26,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': backendUrl,
       '/socket.io': {
-        target: 'http://localhost:3000',
+        target: backendUrl,
         ws: true,
       },
     },

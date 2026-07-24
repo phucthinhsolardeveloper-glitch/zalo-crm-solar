@@ -28,6 +28,7 @@ export const AI_CAPABILITIES = {
   update_conversation_meta: { requireApproval: false },
   create_suggestion: { requireApproval: false },
   notify_internal: { requireApproval: false },
+  send_zalo_chatbot_reply: { requireApproval: false },
 } as const;
 
 export type AiCapability = keyof typeof AI_CAPABILITIES;
