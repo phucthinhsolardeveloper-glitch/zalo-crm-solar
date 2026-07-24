@@ -527,8 +527,28 @@ export async function handleIncomingMessage(
             quoteReply: signals.quoteReply,
             customerInitiated,
           });
+
+          // Phase Call Log (2026-07-23) — nâng cấp counter engagement ở trên thành
+          // 1 CallRecord riêng (để gắn ghi âm). Chạy song song, KHÔNG thay engagement.
+          // Khác parseCallMeta: không bỏ qua khi sale gọi (isSelf) — cần log cả 2 chiều.
+          if (message.contentType === 'call') {
+            const { parseCallDetails } = await import('../calls/call-detection.js');
+            const details = parseCallDetails(msg.content);
+            if (details) {
+              const { upsertCallRecordFromMessage } = await import('../calls/call-service.js');
+              await upsertCallRecordFromMessage({
+                orgId: account.orgId,
+                contactId,
+                zaloAccountId: msg.accountId,
+                conversationId: conversation.id,
+                sourceMessageId: message.id,
+                occurredAt: sentAt,
+                details,
+              });
+            }
+          }
         } catch (err) {
-          // silent — engagement is best-effort
+          // silent — engagement + call-record đều best-effort
         }
       })();
     }

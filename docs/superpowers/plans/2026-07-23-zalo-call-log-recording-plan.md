@@ -1233,6 +1233,7 @@ export interface CallRecordDTO {
   friendId: string | null;
   zaloAccountId: string;
   conversationId: string | null;
+  sourceMessageId: string | null;
   direction: 'inbound' | 'outbound';
   callType: 'voice' | 'video';
   status: 'manual' | 'connected' | 'missed';
@@ -1347,7 +1348,7 @@ Thay bằng:
               <span class="ic"><PhoneIcon :size="14" :stroke-width="2" /></span> Gọi
             </button>
             <button
-              class="btn-action btn-call-video fr-hover-pop"
+              class="btn-action btn-call-video"
               title="Gọi video qua Zalo"
               @click="onClickToCall('video')"
             >

@@ -50,6 +50,7 @@ import { cockpitRoutes } from './modules/contacts/cockpit-routes.js';
 import { appointmentRoutes } from './modules/contacts/appointment-routes.js';
 import { appointmentPublicRoutes } from './modules/contacts/appointment-public-routes.js';
 import { notesRoutes } from './modules/contacts/notes-routes.js';
+import { callRoutes } from './modules/calls/call-routes.js';
 import { startInteractionCron } from './modules/contacts/interaction-cron.js';
 import { crmTagRoutes } from './modules/contacts/crm-tag-routes.js';
 import { crmTagGroupRoutes } from './modules/contacts/crm-tag-group-routes.js';
@@ -276,6 +277,7 @@ async function bootstrap() {
   await app.register(appointmentRoutes);
   await app.register(appointmentPublicRoutes); // 2026-06-16 — public action link (no auth)
   await app.register(notesRoutes);
+  await app.register(callRoutes);
   await app.register(crmTagRoutes);
   await app.register(crmTagGroupRoutes);
   // Tag Taxonomy v2 — Wave 3 /plan-eng-review M57 2026-05-31
