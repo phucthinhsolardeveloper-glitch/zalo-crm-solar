@@ -225,25 +225,6 @@
         </div>
         <!-- ch-actions: nút Kết bạn / menu ⋮ / ⓘ — đẩy phải dòng 1 (gom 2 dòng 2026-06-06) -->
         <div class="ch-actions">
-          <!-- Click-to-call (2026-07-23): zca-js không gọi được thật → mở Zalo thật
-               (pattern zalo.me/{uid} có sẵn ở ZaloUserInfoDialog.vue) để sale tự bấm gọi,
-               đồng thời log 1 CallRecord status=manual. -->
-          <div v-if="callTargetUid" class="call-hover-group">
-            <button
-              class="btn-action btn-call-voice"
-              title="Gọi thoại qua Zalo"
-              @click="onClickToCall('voice')"
-            >
-              <span class="ic"><PhoneIcon :size="14" :stroke-width="2" /></span> Gọi
-            </button>
-            <button
-              class="btn-action btn-call-video"
-              title="Gọi video qua Zalo"
-              @click="onClickToCall('video')"
-            >
-              <span class="ic"><VideoIcon :size="14" :stroke-width="2" /></span> Video
-            </button>
-          </div>
           <!-- Smart friendship button: state-aware -->
           <!-- Đã kết bạn: hover hiện thêm nút Huỷ kết bạn (destructive secondary) -->
           <div v-if="friendshipState === 'friend'" class="friend-hover-group">
@@ -519,8 +500,6 @@
               @open-phone="onOpenPhone"
               @open-reaction-detail="onOpenReactionDetail"
               @jump-to-reply="jumpToReply"
-              :recording-url="callRecordingUrlFor(item.msg)"
-              @attach-recording="onAttachRecording"
             />
           </div>
         </template>
@@ -921,7 +900,6 @@ import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Conversation, Message } from '@/composables/use-chat';
 import type { AiPrefill } from '@/composables/appointment-helpers';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
-import { useCalls } from '@/composables/use-calls';
 import { api } from '@/api/index';
 import { saveFromChat, saveFromChatBatch, toggleFavorite } from '@/api/media';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
@@ -984,8 +962,6 @@ import {
   Contact as ContactIcon,
   Type as TypeIcon,
   CalendarClock as CalendarClockIcon,
-  Phone as PhoneIcon,
-  Video as VideoIcon,
   Zap as ZapIcon,
   Sparkles as SparklesIcon,
   Package as PackageIcon,
@@ -1786,35 +1762,6 @@ function onHeaderAvatarClick() {
   userInfoDialog.value = true;
 }
 
-// Click-to-call (2026-07-23) — cùng nguồn UID với canClickHeader/onHeaderAvatarClick.
-const callTargetUid = computed(() => {
-  const conv = props.conversation;
-  if (!conv || conv.threadType === 'group') return null;
-  return conv.externalThreadId || conv.contact?.zaloUid || null;
-});
-
-async function onClickToCall(callType: 'voice' | 'video') {
-  const conv = props.conversation;
-  const uid = callTargetUid.value;
-  if (!conv || !uid) return;
-  window.open(`https://zalo.me/${uid}`, '_blank', 'noopener,noreferrer');
-
-  const contactId = conv.contact?.id;
-  const zaloAccountId = conv.zaloAccount?.id;
-  if (!contactId || !zaloAccountId) return; // không đủ dữ liệu để log — vẫn đã mở Zalo
-  try {
-    await useCalls().logManualCall({
-      contactId,
-      zaloAccountId,
-      conversationId: conv.id,
-      callType,
-      direction: 'outbound',
-    });
-  } catch (err) {
-    console.error('[chat] log click-to-call error', err);
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Sprint v3 Tuần 3 Row 6.9 (2026-06-03): Nick switcher dropdown trong chat header.
 // Sale click avatar/tên nick → dropdown tất cả nick (Cách B): KB / đã mời / chưa.
@@ -2468,56 +2415,6 @@ function toggleFormat() {
 // ── Appointment quick-create từ icon 📅 trong toolbar — đồng bộ flow với cột 4.
 const showAppointmentDialog = ref(false);
 const aiApptPrefill = ref<AiPrefill | null>(null);
-
-// ── Đính kèm ghi âm cuộc gọi (2026-07-23) ─────────────────────────────────
-const { calls: callRecords, fetchCalls: fetchCallRecords, uploadRecording } = useCalls();
-let callRecordsLoadedFor: string | null = null;
-
-async function ensureCallRecordsLoaded() {
-  const contactId = props.conversation?.contact?.id;
-  if (!contactId || callRecordsLoadedFor === contactId) return;
-  await fetchCallRecords(contactId);
-  // Nếu đổi hội thoại trong lúc chờ fetch (race), đừng đánh dấu đã tải cho
-  // contactId cũ — để lần gọi kế (watch/attach-recording) tự fetch lại đúng.
-  if (props.conversation?.contact?.id !== contactId) return;
-  callRecordsLoadedFor = contactId;
-}
-
-function callRecordingUrlFor(msg: Message): string | null {
-  const rec = callRecords.value.find((c) => c.sourceMessageId === msg.id);
-  return rec?.recordingUrl ?? null;
-}
-
-async function onAttachRecording(msg: Message) {
-  await ensureCallRecordsLoaded();
-  const rec = callRecords.value.find((c) => c.sourceMessageId === msg.id);
-  if (!rec) {
-    toast.push('Chưa tìm thấy bản ghi cuộc gọi này (thử tải lại hội thoại)');
-    return;
-  }
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'audio/mpeg,audio/mp4,audio/wav,audio/ogg,audio/aac';
-  input.onchange = async () => {
-    const file = input.files?.[0];
-    if (!file) return;
-    try {
-      await uploadRecording(rec.id, file);
-      await fetchCallRecords(props.conversation!.contact!.id);
-      toast.push('Đã đính kèm ghi âm');
-    } catch (err) {
-      console.error('[chat] upload recording error', err);
-      toast.push('Upload ghi âm thất bại');
-    }
-  };
-  input.click();
-}
-
-watch(() => props.conversation?.id, () => {
-  callRecordsLoadedFor = null;
-  void ensureCallRecordsLoaded();
-}, { immediate: true });
-
 function onAppointmentCreated() {
   aiApptPrefill.value = null;
   // Notify parent reload thread + dispatch global event để cột 4 (ChatContactPanel)
@@ -3687,7 +3584,6 @@ watch(() => props.editingMessage?.id, async (id) => {
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   transform: translateY(-0.5px);
 }
-.btn-call-voice, .btn-call-video { color: var(--smax-primary, #1877f2); }
 .btn-friend-already {
   background: rgba(0,200,83,0.08);
   color: #00897b;

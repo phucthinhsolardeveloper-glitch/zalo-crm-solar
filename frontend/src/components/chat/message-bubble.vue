@@ -262,9 +262,7 @@
             v-else-if="isCallMessage"
             type="call"
             :content="callContent"
-            :recording-url="recordingUrl"
             @callback="$emit('callback', message)"
-            @attach-recording="emit('attach-recording', message)"
           />
 
           <!-- Special types — anh chốt 2026-05-21: phân biệt contact_card variants:
@@ -380,8 +378,6 @@ const props = defineProps<{
   prevMessage?: Message | null;
   /** M55 2026-05-30 — viewer userId để phân biệt "tin mình gửi" vs "tin sale khác cùng chăm gửi" */
   currentUserId?: string | null;
-  /** URL file ghi âm đã upload cho cuộc gọi này (từ CallRecord tương ứng) — null nếu chưa có. */
-  recordingUrl?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -395,7 +391,6 @@ const emit = defineEmits<{
   'open-phone': [phone: string];
   'open-reaction-detail': [payload: { reactions: any[]; message: Message }];
   'jump-to-reply': [msgId: string];
-  'attach-recording': [message: Message];
   // Luồng Mục Tiêu M11 source badge events
   'open-sequence': [sequenceId: string];
   'explain-native': [];

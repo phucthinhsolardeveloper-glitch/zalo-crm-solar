@@ -94,6 +94,7 @@
       <GlobalSearch class="topnav-search" />
 
       <!-- Right icon buttons -->
+      <TelephonySoftphone />
       <!-- 2026-06-13 (anh chốt): nút này trỏ về trang quản lý nick Zalo (trước trỏ /groups). -->
       <RouterLink to="/settings/channels/zalo" class="icon-btn" title="Quản lý nick Zalo">
         <v-icon size="18">mdi-cellphone-link</v-icon>
@@ -154,6 +155,7 @@ import { isExtension } from '@ee/edition';
 import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
+import TelephonySoftphone from '@/components/telephony/TelephonySoftphone.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import { fetchPublicBranding } from '@/api/public-branding';

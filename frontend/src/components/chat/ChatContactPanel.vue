@@ -445,9 +445,6 @@
           @refresh="reloadAppointments"
         />
 
-        <!-- Lịch sử cuộc gọi (2026-07-23) -->
-        <ChatCallHistory v-if="props.contactId" :contact-id="props.contactId" @has-calls="hasCallHistory = $event" />
-
         <!-- Empty state khi không có gì trong tab -->
         <div v-if="!hasAnyActivity" class="tab-empty">
           <p>Chưa có hoạt động — sau khi có conv tin nhắn, AI sẽ tự tóm tắt + phân tích cảm xúc.</p>
@@ -589,7 +586,6 @@ import type { AiSentiment } from '@/composables/use-chat';
 import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
 import { displayPhone, displayPhoneIntl } from '@/composables/use-phone-format';
 import ChatAppointments from './ChatAppointments.vue';
-import ChatCallHistory from './ChatCallHistory.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import AutomationCardList from './AutomationCardList.vue';
@@ -946,12 +942,8 @@ const activityBadgeCount = computed(() => {
   return contactAppointments.value.length || null;
 });
 
-// hasCallHistory: cập nhật qua emit 'has-calls' từ ChatCallHistory (component tự
-// fetch, không prop-drill danh sách lên đây) — tránh hasAnyActivity=false giả khi
-// contact có cuộc gọi nhưng chưa có aiSummary/aiSentiment/lịch hẹn.
-const hasCallHistory = ref(false);
 const hasAnyActivity = computed(() =>
-  !!(props.aiSummary || props.aiSentiment || contactAppointments.value.length || hasCallHistory.value),
+  !!(props.aiSummary || props.aiSentiment || contactAppointments.value.length),
 );
 
 const toast = useToast();

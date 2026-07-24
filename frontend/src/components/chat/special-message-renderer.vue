@@ -83,9 +83,6 @@
         <div v-if="!isMissed && callDuration > 0" class="call-duration">{{ formatDuration(callDuration) }}</div>
         <div v-else-if="isMissed && !isCaller" class="call-subtitle">KH đã gọi nhưng bạn chưa bắt máy</div>
         <div v-else-if="isMissed && isCaller" class="call-subtitle">KH chưa bắt máy</div>
-        <!-- Ghi âm thủ công (2026-07-23) — zca-js không có audio thật, sale tự thu
-             bên ngoài rồi upload gắn vào đúng cuộc gọi này. -->
-        <audio v-if="props.recordingUrl" class="call-recording-player" controls :src="props.recordingUrl" />
       </div>
       <button
         v-if="isMissed"
@@ -96,16 +93,6 @@
       >
         <v-icon size="14">{{ isVideo ? 'mdi-video' : 'mdi-phone' }}</v-icon>
         Gọi lại
-      </button>
-      <button
-        v-if="!props.recordingUrl"
-        type="button"
-        class="call-action call-action-attach"
-        title="Đính kèm file ghi âm cuộc gọi này"
-        @click="emit('attach-recording')"
-      >
-        <v-icon size="14">mdi-paperclip</v-icon>
-        Đính kèm ghi âm
       </button>
     </div>
 
@@ -312,8 +299,6 @@ const props = defineProps<{
   type: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   content: any;
-  /** URL file ghi âm đã upload (từ CallRecord tương ứng) — null nếu chưa có. */
-  recordingUrl?: string | null;
 }>();
 
 // Emit "callback" cho cuộc gọi nhỡ (E17/E18) / "open-profile" cho danh thiếp E21/E22.
@@ -323,7 +308,6 @@ const emit = defineEmits<{
   (e: 'callback'): void;
   (e: 'open-profile', uid: string): void;
   (e: 'open-phone', phone: string): void;
-  (e: 'attach-recording'): void;
 }>();
 function onCallback() { emit('callback'); }
 function onOpenProfile() {
@@ -1097,9 +1081,6 @@ const linkDescription = computed<string>(() => {
   color: #dc2626;
 }
 .call-action-danger:hover { background: rgba(220, 38, 38, 0.08); }
-.call-recording-player { width: 100%; height: 32px; margin-top: 4px; }
-.call-action-attach { opacity: 0.8; }
-.call-action-attach:hover { opacity: 1; }
 
 /* Rich styling — preserve normal-weight inside body, only emphasize via tags */
 :deep(.rich-title strong),
