@@ -16,6 +16,7 @@ import { refreshGroupInfoNow } from './group-info-refresh.js';
 import { consumeIfExpected as consumeReactionEcho } from '../chat/reaction-echo-cache.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { notifyNewInboundMessage } from '../push/push-service.js';
+import { triggerZaloChatbotReply } from '../ai/ai-chatbot-service.js';
 
 // Map Zalo Reactions enum code → display emoji (cùng map với chat-operations-routes)
 const ZALO_REACTION_DISPLAY: Record<string, string> = {
@@ -756,6 +757,13 @@ export function attachZaloListener(ctx: ListenerContext): void {
             senderName,
           }).catch((err) =>
             logger.error(`[zalo:${accountId}] push notify error:`, err),
+          );
+          void triggerZaloChatbotReply({
+            orgId: result.orgId,
+            conversationId: result.conversationId,
+            triggerMessageId: result.message.id,
+          }, io).catch((err) =>
+            logger.error(`[zalo:${accountId}] AI chatbot trigger error:`, err),
           );
         }
       }

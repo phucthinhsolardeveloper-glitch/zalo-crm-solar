@@ -17,6 +17,17 @@ import {
 import { listProviderModels, invalidateModelCache } from './providers/list-models.js';
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
+import { DEFAULT_ZALO_CHATBOT_PROMPT, ingestKnowledgeDocument } from './ai-chatbot-service.js';
+
+const CHATBOT_TEXT_MIME_TYPES = new Set([
+  'text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/octet-stream',
+]);
+
+function validClock(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{2}:\d{2}$/.test(value)) return false;
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+}
 
 async function assertConversationReadAccess(request: FastifyRequest, reply: FastifyReply, conversationId: string) {
   const user = request.user!;
@@ -370,6 +381,164 @@ export async function aiRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  // ── Zalo AI Chatbot + RAG ───────────────────────────────────────────────
+
+  app.get('/api/v1/ai/chatbot/config', { preHandler: requireGrant('settings', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const cfg = await getAiConfig(request.user!.orgId);
+      const readyDocuments = await prisma.aiKnowledgeDoc.count({
+        where: { orgId: request.user!.orgId, status: 'ready' },
+      });
+      return {
+        enabled: cfg.zaloChatbotEnabled,
+        model: cfg.zaloChatbotModel,
+        promptTemplate: cfg.zaloChatbotPromptTemplate ?? DEFAULT_ZALO_CHATBOT_PROMPT,
+        defaultPrompt: DEFAULT_ZALO_CHATBOT_PROMPT,
+        weekdayEnabled: cfg.zaloChatbotWeekdayEnabled,
+        weekdayStart: cfg.zaloChatbotWeekdayStart,
+        weekdayEnd: cfg.zaloChatbotWeekdayEnd,
+        weekendEnabled: cfg.zaloChatbotWeekendEnabled,
+        weekendStart: cfg.zaloChatbotWeekendStart,
+        weekendEnd: cfg.zaloChatbotWeekendEnd,
+        maxDaily: cfg.zaloChatbotMaxDaily,
+        similarityThreshold: cfg.zaloChatbotSimilarity,
+        topK: cfg.zaloChatbotTopK,
+        embeddingModel: cfg.zaloChatbotEmbeddingModel,
+        readyDocuments,
+      };
+    } catch (err) {
+      logger.error('[ai-chatbot] config GET error:', err);
+      return reply.status(500).send({ error: 'Không tải được cấu hình chatbot' });
+    }
+  });
+
+  app.put(
+    '/api/v1/ai/chatbot/config',
+    { preHandler: requireGrant('settings', 'edit') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      for (const field of ['weekdayStart', 'weekdayEnd', 'weekendStart', 'weekendEnd']) {
+        if (body[field] !== undefined && !validClock(body[field])) {
+          return reply.status(400).send({ error: `${field} phải có dạng HH:mm` });
+        }
+      }
+      const maxDaily = body.maxDaily === undefined ? undefined : Number(body.maxDaily);
+      const similarity = body.similarityThreshold === undefined ? undefined : Number(body.similarityThreshold);
+      const topK = body.topK === undefined ? undefined : Number(body.topK);
+      if (maxDaily !== undefined && (!Number.isInteger(maxDaily) || maxDaily < 1 || maxDaily > 10_000)) {
+        return reply.status(400).send({ error: 'Quota/ngày phải từ 1 đến 10000' });
+      }
+      if (similarity !== undefined && (!Number.isFinite(similarity) || similarity < 0 || similarity > 1)) {
+        return reply.status(400).send({ error: 'Ngưỡng tương đồng phải từ 0 đến 1' });
+      }
+      if (topK !== undefined && (!Number.isInteger(topK) || topK < 1 || topK > 10)) {
+        return reply.status(400).send({ error: 'Số đoạn tham chiếu phải từ 1 đến 10' });
+      }
+      try {
+        await getAiConfig(request.user!.orgId);
+        const updated = await prisma.aiConfig.update({
+          where: { orgId: request.user!.orgId },
+          data: {
+            zaloChatbotEnabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
+            zaloChatbotModel: typeof body.model === 'string' ? body.model.trim().slice(0, 100) : undefined,
+            zaloChatbotPromptTemplate: typeof body.promptTemplate === 'string' ? body.promptTemplate.slice(0, 20_000) : undefined,
+            zaloChatbotWeekdayEnabled: typeof body.weekdayEnabled === 'boolean' ? body.weekdayEnabled : undefined,
+            zaloChatbotWeekdayStart: body.weekdayStart as string | undefined,
+            zaloChatbotWeekdayEnd: body.weekdayEnd as string | undefined,
+            zaloChatbotWeekendEnabled: typeof body.weekendEnabled === 'boolean' ? body.weekendEnabled : undefined,
+            zaloChatbotWeekendStart: body.weekendStart as string | undefined,
+            zaloChatbotWeekendEnd: body.weekendEnd as string | undefined,
+            zaloChatbotMaxDaily: maxDaily,
+            zaloChatbotSimilarity: similarity,
+            zaloChatbotTopK: topK,
+          },
+        });
+        return { ok: true, enabled: updated.zaloChatbotEnabled };
+      } catch (err) {
+        logger.error('[ai-chatbot] config PUT error:', err);
+        return reply.status(500).send({ error: 'Không lưu được cấu hình chatbot' });
+      }
+    },
+  );
+
+  app.get('/api/v1/ai/chatbot/documents', { preHandler: requireGrant('settings', 'access') }, async (request: FastifyRequest) => {
+    return prisma.aiKnowledgeDoc.findMany({
+      where: { orgId: request.user!.orgId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, name: true, mimeType: true, sizeBytes: true, status: true,
+        error: true, chunkCount: true, createdAt: true, updatedAt: true,
+      },
+    });
+  });
+
+  app.post(
+    '/api/v1/ai/chatbot/documents',
+    { preHandler: requireGrant('settings', 'edit') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = (request.body ?? {}) as { name?: string; content?: string };
+      if (!body.content?.trim()) return reply.status(400).send({ error: 'Nội dung tài liệu là bắt buộc' });
+      try {
+        const document = await ingestKnowledgeDocument({
+          orgId: request.user!.orgId,
+          userId: request.user!.id,
+          name: body.name || 'Nội dung nhập trực tiếp',
+          content: body.content,
+        });
+        return reply.status(201).send(document);
+      } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+      }
+    },
+  );
+
+  app.post(
+    '/api/v1/ai/chatbot/documents/upload',
+    { preHandler: requireGrant('settings', 'edit') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const file = await request.file({ limits: { fileSize: 1_000_000, files: 1 } });
+      if (!file) return reply.status(400).send({ error: 'Vui lòng chọn file' });
+      const extensionOk = /\.(txt|md|markdown|csv|json)$/i.test(file.filename);
+      if (!CHATBOT_TEXT_MIME_TYPES.has(file.mimetype) && !extensionOk) {
+        return reply.status(400).send({ error: 'Chỉ hỗ trợ TXT, Markdown, CSV và JSON' });
+      }
+      try {
+        const buffer = await file.toBuffer();
+        const document = await ingestKnowledgeDocument({
+          orgId: request.user!.orgId,
+          userId: request.user!.id,
+          name: file.filename,
+          mimeType: file.mimetype,
+          content: buffer.toString('utf8'),
+        });
+        return reply.status(201).send(document);
+      } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+      }
+    },
+  );
+
+  app.delete(
+    '/api/v1/ai/chatbot/documents/:id',
+    { preHandler: requireGrant('settings', 'edit') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+      const deleted = await prisma.aiKnowledgeDoc.deleteMany({ where: { id, orgId: request.user!.orgId } });
+      if (deleted.count === 0) return reply.status(404).send({ error: 'Không tìm thấy tài liệu' });
+      return { ok: true };
+    },
+  );
+
+  app.get('/api/v1/ai/chatbot/logs', { preHandler: requireGrant('settings', 'access') }, async (request: FastifyRequest) => {
+    const query = request.query as { limit?: string };
+    const limit = Math.max(1, Math.min(Number(query.limit) || 50, 200));
+    return prisma.aiChatbotLog.findMany({
+      where: { orgId: request.user!.orgId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  });
 
   // PATCH /contacts/:contactId/apply-ai-suggestion — sale apply field từ AiSuggestionCard
   // Body: { messageId, acceptedFields: [{field, value}], rejectedFields?: string[] }
