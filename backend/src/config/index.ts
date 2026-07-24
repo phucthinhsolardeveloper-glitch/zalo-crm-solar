@@ -48,6 +48,13 @@ export const config = {
   uploadDir: envValue('UPLOAD_DIR') || '/var/lib/zalo-crm/files',
   appUrl: envValue('APP_URL') || 'http://localhost:3000',
 
+  /* Stringee WebRTC softphone. Secret key never leaves the backend. */
+  stringeeEnabled: (envValue('STRINGEE_ENABLED') || 'false').toLowerCase() === 'true',
+  stringeeApiKeySid: envValue('STRINGEE_API_KEY_SID') || '',
+  stringeeApiKeySecret: envValue('STRINGEE_API_KEY_SECRET') || '',
+  stringeeProjectId: envValue('STRINGEE_PROJECT_ID') || '',
+  stringeeFromNumber: envValue('STRINGEE_FROM_NUMBER') || '',
+
   /* --- Storage driver selection (2026-06-20) ---
    * local — lưu file lên ổ đĩa VPS (UPLOAD_DIR), serve qua route tĩnh /files.
    *         Mặc định: chạy ngay, không cần cấu hình R2.

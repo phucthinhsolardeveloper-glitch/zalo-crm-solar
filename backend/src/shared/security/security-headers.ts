@@ -36,12 +36,12 @@ function wsOriginFromAppUrl(): string {
 // script-src 'self' là điểm mấu chốt chống XSS.
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' https://cdn.stringee.com",
   "style-src 'self' 'unsafe-inline'", // Vuetify inject runtime style — siết bằng nonce/hash sau
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   // connect-src ghim đúng host Socket.IO (từ APP_URL) thay vì ws:/wss: mở toang.
-  `connect-src 'self' ${wsOriginFromAppUrl()}`.trim(),
+  `connect-src 'self' ${wsOriginFromAppUrl()} https://*.stringee.com wss://*.stringee.com`.trim(),
   "media-src 'self' blob: https:",
   "object-src 'none'",
   "base-uri 'self'",

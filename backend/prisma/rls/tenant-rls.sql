@@ -549,6 +549,14 @@ CREATE POLICY tenant_isolation ON "media_albums"
 
 
 -- ── Zalo Ads Lead Form (Extension, thêm 2026-06-20) ────────────────────────
+-- Stringee WebRTC call history
+ALTER TABLE "telephony_calls" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "telephony_calls" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "telephony_calls";
+CREATE POLICY tenant_isolation ON "telephony_calls"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
 -- zalo_oa_app_configs
 ALTER TABLE "zalo_oa_app_configs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "zalo_oa_app_configs" FORCE ROW LEVEL SECURITY;

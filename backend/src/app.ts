@@ -101,6 +101,7 @@ import { credentialRoutes } from './modules/zalo/credential-routes.js';
 import { eventBuffer } from './shared/event-buffer.js';
 import { systemNotifyRoutes } from './modules/system-notifications/system-notify-routes.js';
 import { userCreateWithZaloRoutes } from './modules/system-notifications/user-create-with-zalo-routes.js';
+import { telephonyRoutes } from './modules/telephony/telephony-routes.js';
 // Lead Pool → extension bundle (src/_ee/lead-pool).
 // Facebook Lead Ads (Multi-Source + Form ingestion) → extension bundle (src/_ee/facebook).
 
@@ -307,6 +308,7 @@ async function bootstrap() {
   await app.register(reportRoutes);
   await app.register(reportAnalyticsRoutes);
   await app.register(userRoutes);
+  await app.register(telephonyRoutes);
   await app.register(teamRoutes);
   await app.register(orgRoutes);
   await app.register(zaloAccessRoutes);
