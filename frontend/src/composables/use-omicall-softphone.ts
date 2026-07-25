@@ -56,6 +56,9 @@ const phase = ref<PhonePhase>('connecting');
 const errorMessage = ref('');
 const peers = ref<PhonePeer[]>([]);
 const history = ref<CallHistoryItem[]>([]);
+const historyTotal = ref(0);
+const historyHasMore = ref(false);
+const historyLoading = ref(false);
 const activePeer = ref<PhonePeer | null>(null);
 const incoming = ref(false);
 const muted = ref(false);
@@ -68,6 +71,8 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let initialized: Promise<void> | null = null;
 let sdkInitialized = false;
 let terminalHandled = false;
+let historyPage = 1;
+const HISTORY_PAGE_SIZE = 20;
 
 function loadSdk(): Promise<void> {
   if (window.OMICallSDK) return Promise.resolve();
@@ -97,14 +102,40 @@ function normalizeVnPhone(raw: string): string | null {
   return digits;
 }
 
-async function refreshHistory() {
+async function refreshHistory(options: { append?: boolean; page?: number } = {}) {
+  if (historyLoading.value) return;
+  const append = Boolean(options.append);
+  const page = options.page || 1;
+  historyLoading.value = true;
   try {
-    const { data } = await api.get<{ calls: CallHistoryItem[] }>('/telephony/calls', { params: { limit: 20 } });
-    history.value = data.calls;
+    const { data } = await api.get<{
+      calls: CallHistoryItem[];
+      pagination?: { page: number; pageSize: number; total: number; totalPages: number; hasMore: boolean };
+    }>('/telephony/calls', { params: { page, pageSize: HISTORY_PAGE_SIZE } });
+    if (append) {
+      const knownIds = new Set(history.value.map((item) => item.id));
+      history.value = [...history.value, ...data.calls.filter((item) => !knownIds.has(item.id))];
+    } else {
+      history.value = data.calls;
+    }
+    historyPage = data.pagination?.page || page;
+    historyTotal.value = data.pagination?.total ?? history.value.length;
+    historyHasMore.value = data.pagination?.hasMore ?? data.calls.length === HISTORY_PAGE_SIZE;
   } catch { /* softphone remains usable if history fails */ }
+  finally {
+    historyLoading.value = false;
+  }
+}
+
+async function loadMoreHistory() {
+  if (!historyHasMore.value || historyLoading.value) return;
+  await refreshHistory({ append: true, page: historyPage + 1 });
 }
 
 async function syncHistory() {
+  // Show locally stored calls immediately; the provider backfill may span many
+  // pages and should not leave the history panel empty while it is running.
+  await refreshHistory();
   try {
     await api.post('/telephony/omicall/sync', { days: 30 });
   } catch {
@@ -347,8 +378,9 @@ function resetEnded() {
 
 export function useOmicallSoftphone() {
   return {
-    phase, errorMessage, peers, history, activePeer, incoming, muted, elapsedSec, enabled,
+    phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
+    activePeer, incoming, muted, elapsedSec, enabled,
     isBusy: computed(() => ['calling', 'ringing', 'answered'].includes(phase.value)),
-    fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
+    fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded, loadMoreHistory,
   };
 }

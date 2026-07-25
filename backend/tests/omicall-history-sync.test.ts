@@ -55,7 +55,7 @@ describe('syncOmicallHistoryForUser', () => {
       days: 30,
     });
 
-    expect(result).toEqual({ synced: 1, total: 1 });
+    expect(result).toEqual({ synced: 1, total: 1, pages: 1 });
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining('/api/v3/call-transaction/search?page=1&size=50'),
       expect.objectContaining({
@@ -72,6 +72,50 @@ describe('syncOmicallHistoryForUser', () => {
           recordingId: 'https://public-v1.omicrm.com/history-1.mp3',
         }),
       }),
+    );
+  });
+
+  it('continues syncing until Omicall returns a partial page', async () => {
+    const fullPage = Array.from({ length: 50 }, (_, index) => ({
+      transaction_id: `ignored-${index}`,
+      direction: 'unsupported',
+    }));
+    (fetch as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status_code: 9999, payload: { items: fullPage } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status_code: 9999,
+          payload: {
+            items: [{
+              transaction_id: 'tx-page-2',
+              direction: 'inbound',
+              phone_number: '0909123456',
+              disposition: 'answered',
+              bill_sec: 8,
+            }],
+          },
+        }),
+      });
+    (prisma.contact.findFirst as any).mockResolvedValue(null);
+    (prisma.telephonyCall.findFirst as any).mockResolvedValue(null);
+    (prisma.telephonyCall.upsert as any).mockResolvedValue({ id: 'call-page-2' });
+
+    const result = await syncOmicallHistoryForUser({
+      userId: 'user-1',
+      orgId: 'org-1',
+      extension: '101',
+    });
+
+    expect(result).toEqual({ synced: 1, total: 51, pages: 2 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('/api/v3/call-transaction/search?page=2&size=50'),
+      expect.any(Object),
     );
   });
 });

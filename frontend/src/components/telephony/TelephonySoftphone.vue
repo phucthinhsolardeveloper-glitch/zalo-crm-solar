@@ -87,7 +87,7 @@
           <div v-if="history.length" class="history">
             <div class="section-title">
               <span>Lịch sử cuộc gọi</span>
-              <small>{{ history.length }} cuộc gần nhất</small>
+              <small>{{ historyTotal }} cuộc</small>
             </div>
             <div v-for="item in visibleHistory" :key="item.id" class="history-entry">
               <div class="history-row">
@@ -110,8 +110,19 @@
                 </a>
               </div>
             </div>
-            <button v-if="history.length > 5" class="history-toggle" @click="historyExpanded = !historyExpanded">
-              {{ historyExpanded ? 'Thu gọn' : `Xem tất cả ${history.length} cuộc` }}
+            <button v-if="!historyExpanded && history.length > 5" class="history-toggle" @click="historyExpanded = true">
+              Xem lịch sử ({{ historyTotal }} cuộc)
+            </button>
+            <button
+              v-if="historyExpanded && historyHasMore"
+              class="history-toggle"
+              :disabled="historyLoading"
+              @click="loadMoreHistory"
+            >
+              {{ historyLoading ? 'Đang tải…' : `Xem thêm ${Math.min(20, historyTotal - history.length)} cuộc` }}
+            </button>
+            <button v-if="historyExpanded && history.length > 5" class="history-collapse" @click="historyExpanded = false">
+              Thu gọn
             </button>
           </div>
         </template>
@@ -129,8 +140,10 @@ const phoneInput = ref('');
 const historyExpanded = ref(false);
 const playingRecordingId = ref<string | null>(null);
 const {
-  phase, errorMessage, peers, history, activePeer, incoming, muted, elapsedSec, enabled, isBusy,
+  phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
+  activePeer, incoming, muted, elapsedSec, enabled, isBusy,
   fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
+  loadMoreHistory,
 } = useOmicallSoftphone();
 
 onMounted(() => void initialize());
@@ -231,4 +244,6 @@ function historyLabel(item: CallHistoryItem) {
 .recording-player audio { min-width: 0; width: 100%; height: 34px; }
 .recording-player a { color: #148774; }
 .history-toggle { width: calc(100% - 48px); margin: 10px 24px 0; padding: 8px; border: 0; border-radius: 8px; background: #f0f6f5; color: #147d70; font-weight: 700; cursor: pointer; }
+.history-toggle:disabled { opacity: .55; cursor: wait; }
+.history-collapse { width: calc(100% - 48px); margin: 6px 24px 0; padding: 7px; border: 0; background: transparent; color: #6d7d82; cursor: pointer; }
 </style>

@@ -55,18 +55,34 @@ export async function telephonyRoutes(app: FastifyInstance) {
 
   app.get('/api/v1/telephony/calls', async (request) => {
     const current = request.user!;
-    const query = request.query as { limit?: string };
-    const limit = Math.min(Math.max(Number(query.limit) || 30, 1), 100);
-    const calls = await prisma.telephonyCall.findMany({
-      where: { orgId: current.orgId, ownerUserId: current.id },
-      include: {
-        peerUser: { select: { id: true, fullName: true, avatarUrl: true } },
-        contact: { select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true } },
+    const query = request.query as { page?: string; pageSize?: string; limit?: string };
+    const page = Math.max(Math.floor(Number(query.page) || 1), 1);
+    const pageSize = Math.min(Math.max(Math.floor(Number(query.pageSize || query.limit) || 20), 1), 100);
+    const where = { orgId: current.orgId, ownerUserId: current.id };
+    const [calls, total] = await Promise.all([
+      prisma.telephonyCall.findMany({
+        where,
+        include: {
+          peerUser: { select: { id: true, fullName: true, avatarUrl: true } },
+          contact: { select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true } },
+        },
+        orderBy: { startedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.telephonyCall.count({ where }),
+    ]);
+    const totalPages = Math.ceil(total / pageSize);
+    return {
+      calls,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages,
+        hasMore: page < totalPages,
       },
-      orderBy: { startedAt: 'desc' },
-      take: limit,
-    });
-    return { calls };
+    };
   });
 
   app.post('/api/v1/telephony/omicall/sync', async (request, reply) => {
