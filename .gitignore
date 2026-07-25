@@ -55,3 +55,6 @@ public-key-telegram-product
 
 # Git worktrees
 .worktrees/
+
+
+.codegraph/

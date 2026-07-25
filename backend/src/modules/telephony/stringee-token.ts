@@ -2,13 +2,17 @@
 import { createHmac, randomUUID } from 'node:crypto';
 
 export function stringeeIdentity(userId: string): string {
-  return `crm_${userId.replace(/[^a-zA-Z0-9]/g, '')}`;
+  // PCC Agent stringee_user_id is limited to 32 characters. UUIDs without
+  // hyphens are 32 chars, so keep a 4-char namespace plus 28 UUID chars.
+  // 112 bits of UUID entropy remain, which is ample for collision safety.
+  return `crm_${userId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 28)}`;
 }
 
 export function createStringeeClientToken(input: {
   apiKeySid: string;
   apiKeySecret: string;
   userId: string;
+  iccApi?: boolean;
   expiresInSec?: number;
   nowSec?: number;
 }): { accessToken: string; expiresAt: number } {
@@ -20,6 +24,7 @@ export function createStringeeClientToken(input: {
     iss: input.apiKeySid,
     exp: expiresAt,
     userId: input.userId,
+    ...(input.iccApi ? { icc_api: true } : {}),
   };
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
   const unsigned = `${encode(header)}.${encode(payload)}`;

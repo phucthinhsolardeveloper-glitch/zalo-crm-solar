@@ -3,7 +3,7 @@
     <button
       class="phone-trigger"
       :class="{ live: isBusy, offline: phase === 'error' || phase === 'connecting' }"
-      title="Tổng đài nội bộ"
+      title="Tổng đài"
       data-testid="softphone-trigger"
       @click="dialog = true"
     >
@@ -16,7 +16,7 @@
         <header class="phone-head">
           <div>
             <span class="eyebrow">STRINGEE WEBRTC</span>
-            <h2>Tổng đài nội bộ</h2>
+            <h2>Tổng đài</h2>
           </div>
           <button class="close-btn" :disabled="isBusy" @click="closeDialog"><v-icon icon="mdi-close" /></button>
         </header>
@@ -36,10 +36,13 @@
 
         <div v-else-if="isBusy || phase === 'ended'" class="active-call">
           <div class="avatar-ring" :class="{ pulse: phase === 'ringing' || phase === 'calling' }">
-            <span>{{ initials(activePeer?.fullName || '?') }}</span>
+            <v-icon v-if="activePeer?.kind === 'external'" icon="mdi-phone" size="34" />
+            <span v-else>{{ initials(activePeer?.fullName || '?') }}</span>
           </div>
-          <h3>{{ activePeer?.fullName || 'Nhân viên' }}</h3>
+          <h3>{{ activePeer?.fullName || 'Người gọi' }}</h3>
+          <small v-if="activePeer?.phoneNumber && activePeer.fullName !== activePeer.phoneNumber" class="active-number">{{ displayPhone(activePeer.phoneNumber) }}</small>
           <p class="call-status" data-testid="call-status">{{ statusLabel }}</p>
+          <p v-if="phase === 'ended' && errorMessage" class="call-error" data-testid="call-error">{{ errorMessage }}</p>
           <div v-if="phase === 'answered' || (phase === 'ended' && elapsedSec)" class="timer">{{ timerLabel }}</div>
 
           <div v-if="incoming && phase === 'ringing'" class="call-actions">
@@ -56,11 +59,23 @@
         </div>
 
         <template v-else>
+          <div v-if="fromNumber" class="dialer">
+            <div class="section-title dialer-title"><span>Gọi số điện thoại</span><small>Hiển thị số {{ displayPhone(fromNumber) }}</small></div>
+            <form class="dial-form" @submit.prevent="startPhoneCall">
+              <v-icon icon="mdi-dialpad" size="20" />
+              <input v-model="phoneInput" data-testid="phone-input" inputmode="tel" autocomplete="tel" placeholder="Nhập số, ví dụ 0909 123 456" />
+              <button type="submit" data-testid="call-phone" :disabled="!phoneInput.trim()" title="Gọi số điện thoại">
+                <v-icon icon="mdi-phone" size="19" />
+              </button>
+            </form>
+            <small v-if="errorMessage" class="dial-error">{{ errorMessage }}</small>
+          </div>
+
           <div class="section-title"><span>Nhân viên</span><small>{{ peers.length }} người khả dụng</small></div>
           <div v-if="!peers.length" class="empty-state">
             <v-icon icon="mdi-account-multiple-plus-outline" size="34" />
-            <strong>Chưa có người để gọi thử</strong>
-            <span>Tạo thêm một tài khoản nhân viên CRM rồi đăng nhập ở trình duyệt khác.</span>
+            <strong>Chưa có nhân viên khác</strong>
+            <span>Bạn vẫn có thể gọi số điện thoại bằng bàn phím phía trên.</span>
           </div>
           <div v-else class="peer-list" data-testid="softphone-peers">
             <button v-for="peer in peers" :key="peer.id" class="peer-row" @click="callPeer(peer)">
@@ -74,7 +89,7 @@
             <div class="section-title"><span>Gần đây</span></div>
             <div v-for="item in history.slice(0, 5)" :key="item.id" class="history-row">
               <v-icon :icon="historyIcon(item)" :class="item.status" size="17" />
-              <span class="history-copy"><strong>{{ item.peerUser.fullName }}</strong><small>{{ historyLabel(item) }}</small></span>
+              <span class="history-copy"><strong>{{ historyName(item) }}</strong><small>{{ historyLabel(item) }}</small></span>
               <time>{{ formatTime(item.startedAt) }}</time>
             </div>
           </div>
@@ -89,9 +104,10 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useStringeeSoftphone, type CallHistoryItem } from '@/composables/use-stringee-softphone';
 
 const dialog = ref(false);
+const phoneInput = ref('');
 const {
   phase, errorMessage, peers, history, activePeer, incoming, muted, elapsedSec, enabled, isBusy,
-  initialize, callPeer, answer, reject, hangup, toggleMute, resetEnded,
+  fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
 } = useStringeeSoftphone();
 
 onMounted(() => void initialize());
@@ -104,7 +120,15 @@ const statusLabel = computed(() => ({
 const timerLabel = computed(() => `${String(Math.floor(elapsedSec.value / 60)).padStart(2, '0')}:${String(elapsedSec.value % 60).padStart(2, '0')}`);
 
 function closeDialog() { dialog.value = false; resetEnded(); }
+function startPhoneCall() { if (phoneInput.value.trim()) void callPhone(phoneInput.value); }
 function initials(name: string) { return name.trim().split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase(); }
+function displayPhone(value: string) {
+  if (/^84\d{9,10}$/.test(value)) return `0${value.slice(2)}`;
+  return value;
+}
+function historyName(item: CallHistoryItem) {
+  return item.peerUser?.fullName || item.contact?.crmName || item.contact?.fullName || displayPhone(item.externalNumber || 'Không rõ số');
+}
 function roleLabel(role: string) { return ({ owner: 'Chủ sở hữu', admin: 'Quản trị viên', member: 'Nhân viên' } as Record<string, string>)[role] || role; }
 function formatTime(value: string) { return new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date(value)); }
 function historyIcon(item: CallHistoryItem) {
@@ -141,7 +165,9 @@ function historyLabel(item: CallHistoryItem) {
 .avatar-ring.pulse { animation: phone-pulse 1.6s ease-out infinite; }
 @keyframes phone-pulse { 0% { box-shadow: 0 0 0 7px rgba(22,160,133,.13) } 70% { box-shadow: 0 0 0 22px rgba(22,160,133,0) } 100% { box-shadow: 0 0 0 7px rgba(22,160,133,0) } }
 .active-call h3 { margin: 22px 0 4px; font-size: 22px; }
+.active-number { margin-bottom: 3px; color: #718087; }
 .call-status { margin: 0; color: #617078; }
+.call-error { max-width: 330px; margin: 10px 0 0; color: #bd4049; font-size: 13px; line-height: 1.45; text-align: center; }
 .timer { margin-top: 8px; font-variant-numeric: tabular-nums; color: #263b43; font-weight: 700; }
 .call-actions { display: flex; gap: 34px; margin-top: 38px; }
 .round { width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; cursor: pointer; box-shadow: 0 8px 20px rgba(20,50,60,.15); }
@@ -155,5 +181,13 @@ function historyLabel(item: CallHistoryItem) {
 .peer-avatar { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: #dcefea; color: #147b6c; font-size: 12px; font-weight: 800; }
 .peer-copy, .history-copy { display: grid; flex: 1; gap: 2px; }.peer-copy small, .history-copy small { color: #829097; }.call-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: #e7f5f1; color: #148774; }
 .empty-state { margin: 8px 24px 24px; padding: 30px 24px; display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; border: 1px dashed #ccd8d7; border-radius: 13px; color: #65777d; }
+.dialer { padding-bottom: 8px; border-bottom: 1px solid #edf1f2; background: #f8fbfa; }
+.dialer-title { padding-top: 16px; }
+.dial-form { margin: 0 24px; height: 48px; padding: 0 7px 0 14px; display: flex; align-items: center; gap: 10px; border: 1px solid #cddbd8; border-radius: 12px; background: #fff; color: #60716f; }
+.dial-form:focus-within { border-color: #15947f; box-shadow: 0 0 0 3px rgba(21,148,127,.1); }
+.dial-form input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #17212b; font-size: 15px; }
+.dial-form button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #15947f; color: #fff; cursor: pointer; }
+.dial-form button:disabled { opacity: .4; cursor: not-allowed; }
+.dial-error { display: block; margin: 7px 24px 0; color: #c24850; }
 .history { border-top: 1px solid #edf1f2; padding-bottom: 14px; }.history-row { display: flex; align-items: center; gap: 11px; padding: 8px 24px; }.history-row > .v-icon { color: #168874; }.history-row > .v-icon.missed, .history-row > .v-icon.failed, .history-row > .v-icon.rejected { color: #d6535d; }.history-row time { color: #8a969b; font-size: 11px; }
 </style>
