@@ -59,6 +59,10 @@ export const config = {
   // Embedded as ?key=... in the webhook URL registered on the Omicall dashboard —
   // Omicall webhooks have no built-in signature/HMAC, this is our own shared secret.
   omicallWebhookSecret: envValue('OMICALL_WEBHOOK_SECRET') || '',
+  // Optional server-side history backfill. Webhooks remain the realtime source;
+  // API v3 fills missed CDRs and recording URLs when the CRM reconnects.
+  omicallApiKey: envValue('OMICALL_API_KEY') || '',
+  omicallApiBaseUrl: (envValue('OMICALL_API_BASE_URL') || 'https://public-v1-stg.omicall.com').replace(/\/+$/, ''),
 
   /* --- Storage driver selection (2026-06-20) ---
    * local — lưu file lên ổ đĩa VPS (UPLOAD_DIR), serve qua route tĩnh /files.

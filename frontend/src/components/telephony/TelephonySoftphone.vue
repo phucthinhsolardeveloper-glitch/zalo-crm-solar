@@ -85,12 +85,34 @@
           </div>
 
           <div v-if="history.length" class="history">
-            <div class="section-title"><span>Gần đây</span></div>
-            <div v-for="item in history.slice(0, 5)" :key="item.id" class="history-row">
-              <v-icon :icon="historyIcon(item)" :class="item.status" size="17" />
-              <span class="history-copy"><strong>{{ historyName(item) }}</strong><small>{{ historyLabel(item) }}</small></span>
-              <time>{{ formatTime(item.startedAt) }}</time>
+            <div class="section-title">
+              <span>Lịch sử cuộc gọi</span>
+              <small>{{ history.length }} cuộc gần nhất</small>
             </div>
+            <div v-for="item in visibleHistory" :key="item.id" class="history-entry">
+              <div class="history-row">
+                <v-icon :icon="historyIcon(item)" :class="item.status" size="17" />
+                <span class="history-copy"><strong>{{ historyName(item) }}</strong><small>{{ historyLabel(item) }}</small></span>
+                <button
+                  v-if="recordingUrl(item)"
+                  class="recording-btn"
+                  :title="playingRecordingId === item.id ? 'Đóng bản ghi âm' : 'Nghe lại ghi âm'"
+                  @click="toggleRecording(item.id)"
+                >
+                  <v-icon :icon="playingRecordingId === item.id ? 'mdi-stop-circle-outline' : 'mdi-play-circle-outline'" size="19" />
+                </button>
+                <time>{{ formatTime(item.startedAt) }}</time>
+              </div>
+              <div v-if="playingRecordingId === item.id && recordingUrl(item)" class="recording-player">
+                <audio controls preload="metadata" :src="recordingUrl(item)!" />
+                <a :href="recordingUrl(item)!" target="_blank" rel="noopener noreferrer" title="Mở hoặc tải file ghi âm">
+                  <v-icon icon="mdi-download-outline" size="18" />
+                </a>
+              </div>
+            </div>
+            <button v-if="history.length > 5" class="history-toggle" @click="historyExpanded = !historyExpanded">
+              {{ historyExpanded ? 'Thu gọn' : `Xem tất cả ${history.length} cuộc` }}
+            </button>
           </div>
         </template>
       </section>
@@ -104,6 +126,8 @@ import { useOmicallSoftphone, type CallHistoryItem } from '@/composables/use-omi
 
 const dialog = ref(false);
 const phoneInput = ref('');
+const historyExpanded = ref(false);
+const playingRecordingId = ref<string | null>(null);
 const {
   phase, errorMessage, peers, history, activePeer, incoming, muted, elapsedSec, enabled, isBusy,
   fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
@@ -117,6 +141,7 @@ const statusLabel = computed(() => ({
   answered: 'Đang trò chuyện', ended: 'Cuộc gọi đã kết thúc',
 } as Record<string, string>)[phase.value] || 'Sẵn sàng');
 const timerLabel = computed(() => `${String(Math.floor(elapsedSec.value / 60)).padStart(2, '0')}:${String(elapsedSec.value % 60).padStart(2, '0')}`);
+const visibleHistory = computed(() => historyExpanded.value ? history.value : history.value.slice(0, 5));
 
 function closeDialog() { dialog.value = false; resetEnded(); }
 function startPhoneCall() { if (phoneInput.value.trim()) void callPhone(phoneInput.value); }
@@ -124,6 +149,13 @@ function initials(name: string) { return name.trim().split(/\s+/).slice(-2).map(
 function displayPhone(value: string) {
   if (/^84\d{9,10}$/.test(value)) return `0${value.slice(2)}`;
   return value;
+}
+function recordingUrl(item: CallHistoryItem) {
+  const url = item.recordingId?.trim();
+  return url && /^https:\/\//i.test(url) ? url : null;
+}
+function toggleRecording(id: string) {
+  playingRecordingId.value = playingRecordingId.value === id ? null : id;
 }
 function roleLabel(role: string) { return ({ owner: 'Chủ sở hữu', admin: 'Quản trị viên', member: 'Nhân viên' } as Record<string, string>)[role] || role; }
 function formatTime(value: string) { return new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date(value)); }
@@ -187,5 +219,16 @@ function historyLabel(item: CallHistoryItem) {
 .dial-form button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #15947f; color: #fff; cursor: pointer; }
 .dial-form button:disabled { opacity: .4; cursor: not-allowed; }
 .dial-error { display: block; margin: 7px 24px 0; color: #c24850; }
-.history { border-top: 1px solid #edf1f2; padding-bottom: 14px; }.history-row { display: flex; align-items: center; gap: 11px; padding: 8px 24px; }.history-row > .v-icon { color: #168874; }.history-row > .v-icon.missed, .history-row > .v-icon.failed, .history-row > .v-icon.rejected { color: #d6535d; }.history-row time { color: #8a969b; font-size: 11px; }
+.history { max-height: 360px; overflow-y: auto; border-top: 1px solid #edf1f2; padding-bottom: 14px; }
+.history-entry { border-bottom: 1px solid #f1f4f4; }
+.history-row { display: flex; align-items: center; gap: 11px; padding: 8px 24px; }
+.history-row > .v-icon { color: #168874; }
+.history-row > .v-icon.missed, .history-row > .v-icon.failed, .history-row > .v-icon.rejected { color: #d6535d; }
+.history-row time { color: #8a969b; font-size: 11px; white-space: nowrap; }
+.recording-btn { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 50%; background: #e7f5f1; color: #148774; cursor: pointer; }
+.recording-btn:hover { background: #d5eee7; }
+.recording-player { display: flex; align-items: center; gap: 8px; padding: 0 24px 10px 52px; }
+.recording-player audio { min-width: 0; width: 100%; height: 34px; }
+.recording-player a { color: #148774; }
+.history-toggle { width: calc(100% - 48px); margin: 10px 24px 0; padding: 8px; border: 0; border-radius: 8px; background: #f0f6f5; color: #147d70; font-weight: 700; cursor: pointer; }
 </style>

@@ -4,6 +4,8 @@ import { config } from '../../config/index.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware, requireActiveUser } from '../auth/auth-middleware.js';
 import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
+import { logger } from '../../shared/utils/logger.js';
+import { syncOmicallHistoryForUser } from './omicall-history-sync.js';
 import { decryptOmicallSecret } from './omicall-token.js';
 
 const DIRECTIONS = new Set(['inbound', 'outbound']);
@@ -65,6 +67,36 @@ export async function telephonyRoutes(app: FastifyInstance) {
       take: limit,
     });
     return { calls };
+  });
+
+  app.post('/api/v1/telephony/omicall/sync', async (request, reply) => {
+    if (!ensureConfigured(reply)) return;
+    if (!config.omicallApiKey) {
+      return reply.status(503).send({
+        error: 'Thiếu OMICALL_API_KEY để đồng bộ lịch sử Omicall',
+        code: 'omicall_api_key_missing',
+      });
+    }
+    const current = request.user!;
+    const me = await prisma.user.findFirst({
+      where: { id: current.id, orgId: current.orgId },
+      select: { omicallExtension: true },
+    });
+    if (!me?.omicallExtension) {
+      return reply.status(503).send({ error: 'Bạn chưa được gán extension Omicall' });
+    }
+    const requestedDays = Number((request.body as { days?: number } | undefined)?.days);
+    try {
+      return await syncOmicallHistoryForUser({
+        userId: current.id,
+        orgId: current.orgId,
+        extension: me.omicallExtension,
+        days: Number.isFinite(requestedDays) ? requestedDays : 30,
+      });
+    } catch (error: any) {
+      logger.warn({ userId: current.id, error: error?.message }, '[omicall-history] sync failed');
+      return reply.status(502).send({ error: error?.message || 'Không đồng bộ được lịch sử Omicall' });
+    }
   });
 
   app.post('/api/v1/telephony/calls', async (request: FastifyRequest, reply: FastifyReply) => {

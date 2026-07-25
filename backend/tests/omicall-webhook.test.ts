@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 vi.mock('../src/shared/database/prisma-client.js', () => ({
   prisma: {
-    telephonyCall: { updateMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+    telephonyCall: { updateMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), create: vi.fn() },
     user: { findMany: vi.fn(), findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
   },
@@ -43,6 +43,7 @@ describe('POST /api/v1/telephony/omicall/events', () => {
 
   it('creates an inbound call from a final CDR and saves its recording URL', async () => {
     (prisma.telephonyCall.updateMany as any).mockResolvedValue({ count: 0 });
+    (prisma.telephonyCall.findFirst as any).mockResolvedValue(null);
     (prisma.user.findFirst as any).mockResolvedValue({ id: 'user-1', orgId: 'org-1' });
     (prisma.contact.findFirst as any).mockResolvedValue({ id: 'contact-1' });
     (prisma.telephonyCall.create as any).mockResolvedValue({ id: 'call-1' });
@@ -78,5 +79,42 @@ describe('POST /api/v1/telephony/omicall/events', () => {
         recordingId: 'https://public-v1.omicrm.com/recording.mp3',
       }),
     });
+  });
+
+  it('merges a final CDR into the pending browser-created call', async () => {
+    (prisma.telephonyCall.updateMany as any).mockResolvedValue({ count: 0 });
+    (prisma.user.findFirst as any).mockResolvedValue({ id: 'user-1', orgId: 'org-1' });
+    (prisma.contact.findFirst as any).mockResolvedValue(null);
+    (prisma.telephonyCall.findFirst as any).mockResolvedValue({ id: 'pending-call' });
+    (prisma.telephonyCall.update as any).mockResolvedValue({ id: 'pending-call' });
+
+    const app = Fastify();
+    await app.register(omicallPublicRoutes);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/telephony/omicall/events?key=test-secret',
+      payload: {
+        state: 'cdr',
+        transaction_id: 'tx-cdr-2',
+        direction: 'outbound',
+        sip_user: '101',
+        to_number: '0909123456',
+        time_start_call: 1_758_000_000,
+        bill_sec: 12,
+        recording_file_url: 'https://public-v1.omicrm.com/recording-2.mp3',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(prisma.telephonyCall.update).toHaveBeenCalledWith({
+      where: { id: 'pending-call' },
+      data: expect.objectContaining({
+        providerCallId: 'tx-cdr-2',
+        status: 'completed',
+        durationSec: 12,
+        recordingId: 'https://public-v1.omicrm.com/recording-2.mp3',
+      }),
+    });
+    expect(prisma.telephonyCall.create).not.toHaveBeenCalled();
   });
 });

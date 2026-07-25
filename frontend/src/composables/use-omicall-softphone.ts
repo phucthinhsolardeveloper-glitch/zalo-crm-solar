@@ -25,6 +25,7 @@ export interface PhonePeer {
 export interface CallHistoryItem {
   id: string; direction: 'inbound' | 'outbound'; status: string; startedAt: string;
   durationSec?: number | null; endReason?: string | null; externalNumber?: string | null;
+  recordingId?: string | null;
   peerUser?: { id: string; fullName: string; avatarUrl?: string | null } | null;
   contact?: { id: string; fullName?: string | null; crmName?: string | null; avatarUrl?: string | null; phone?: string | null } | null;
 }
@@ -33,6 +34,8 @@ interface OmicallCallData {
   transaction_id?: string;
   transactionId?: string;
   call_uuid?: string;
+  uuid?: string;
+  uid?: string;
   callId?: string;
   id?: string;
   direction?: string;
@@ -41,6 +44,7 @@ interface OmicallCallData {
   remoteStream?: MediaStream;
   reason?: string;
   sipReason?: string;
+  rejectCode?: string;
   accept?: () => void;
   decline?: () => void;
   end?: () => void;
@@ -83,7 +87,7 @@ function loadSdk(): Promise<void> {
 }
 
 function providerCallId(call?: OmicallCallData): string | undefined {
-  return call?.transaction_id || call?.transactionId || call?.call_uuid || call?.callId || call?.id;
+  return call?.transaction_id || call?.transactionId || call?.call_uuid || call?.uuid || call?.callId || call?.id;
 }
 
 function normalizeVnPhone(raw: string): string | null {
@@ -98,6 +102,24 @@ async function refreshHistory() {
     const { data } = await api.get<{ calls: CallHistoryItem[] }>('/telephony/calls', { params: { limit: 20 } });
     history.value = data.calls;
   } catch { /* softphone remains usable if history fails */ }
+}
+
+async function syncHistory() {
+  try {
+    await api.post('/telephony/omicall/sync', { days: 30 });
+  } catch {
+    // Webhook-only mode remains fully usable when OMICALL_API_KEY is absent.
+  } finally {
+    await refreshHistory();
+  }
+}
+
+function scheduleCdrRefresh() {
+  // OMICall creates the recording asynchronously after hangup. Refresh a few
+  // times so the CDR duration and recording URL appear without reloading CRM.
+  for (const delay of [3_000, 8_000, 20_000]) {
+    setTimeout(() => void refreshHistory(), delay);
+  }
 }
 
 async function patchLog(status: string, extra: Record<string, unknown> = {}) {
@@ -126,6 +148,7 @@ async function finish(status: 'completed' | 'rejected' | 'missed' | 'failed', re
   incoming.value = false;
   muted.value = false;
   void refreshHistory();
+  scheduleCdrRefresh();
 }
 
 async function createLog(target: PhonePeer | string, direction: 'inbound' | 'outbound', call?: OmicallCallData) {
@@ -189,6 +212,14 @@ const ringingHandler = (callData: OmicallCallData) => {
   }
 };
 
+const connectingHandler = (callData: OmicallCallData) => {
+  if (callData.direction === 'inbound' || callData.isOutbound === false) return;
+  activeCall = callData;
+  phase.value = 'calling';
+  const id = providerCallId(callData);
+  if (id) void patchLog('initiated', { providerCallId: id });
+};
+
 const acceptedHandler = (callData: OmicallCallData) => {
   activeCall = callData;
   phase.value = 'answered';
@@ -199,7 +230,7 @@ const acceptedHandler = (callData: OmicallCallData) => {
 };
 
 const endedHandler = (callData: OmicallCallData) => {
-  const reason = String(callData?.reason || callData?.sipReason || '');
+  const reason = String(callData?.reason || callData?.sipReason || callData?.rejectCode || '');
   const fallback = phase.value === 'answered' ? 'completed' : (incoming.value ? 'missed' : 'rejected');
   void finish(fallback, reason);
 };
@@ -208,10 +239,12 @@ function bindSdkEvents() {
   const sdk = window.OMICallSDK;
   if (!sdk) return;
   sdk.off('register', registerHandler);
+  sdk.off('connecting', connectingHandler);
   sdk.off('ringing', ringingHandler);
   sdk.off('accepted', acceptedHandler);
   sdk.off('ended', endedHandler);
   sdk.on('register', registerHandler);
+  sdk.on('connecting', connectingHandler);
   sdk.on('ringing', ringingHandler);
   sdk.on('accepted', acceptedHandler);
   sdk.on('ended', endedHandler);
@@ -245,7 +278,7 @@ async function connect() {
       ? 'ready'
       : (result?.status === 'connecting' || result?.status === true) ? 'connecting' : 'error';
     if (phase.value === 'error') errorMessage.value = 'Omicall từ chối đăng nhập';
-    void refreshHistory();
+    void syncHistory();
   } catch (error: any) {
     if (error?.response?.status === 503) enabled.value = false;
     phase.value = enabled.value ? 'error' : 'disabled';
