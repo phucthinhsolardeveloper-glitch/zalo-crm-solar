@@ -43,6 +43,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
     return {
       enabled: true,
       sipRealm: config.omicallDomain,
+      wssUri: config.omicallWssUri || null,
       sipUser: me.omicallExtension,
       sipPassword: decryptOmicallSecret(me.omicallExtensionSecret),
       hotline: config.omicallHotline || null,

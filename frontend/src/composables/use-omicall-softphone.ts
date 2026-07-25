@@ -5,9 +5,12 @@ declare global {
   interface Window {
     OMICallSDK?: {
       init: (config: Record<string, unknown>) => Promise<boolean>;
-      register: (config: { sipRealm: string; sipUser: string; sipPassword: string }) => Promise<{ status: string }>;
+      register: (config: { sipRealm: string; sipUser: string; sipPassword: string; wssUri?: string }) => Promise<{ status: string | boolean; message?: string }>;
       unregister: () => void;
-      makeCall: (remoteNumber: string, options?: { isVideo?: boolean }) => void;
+      makeCall: (remoteNumber: string, options?: {
+        isVideo?: boolean;
+        sipNumber?: { number: string };
+      }) => void;
       on: (event: string, cb: (data: any) => void) => void;
       off: (event: string, cb: (data: any) => void) => void;
     };
@@ -59,6 +62,7 @@ let activeCall: OmicallCallData | null = null;
 let localCallId: string | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let initialized: Promise<void> | null = null;
+let sdkInitialized = false;
 let terminalHandled = false;
 
 function loadSdk(): Promise<void> {
@@ -225,15 +229,21 @@ async function connect() {
     peers.value = data.peers;
     fromNumber.value = data.hotline || null;
     if (!window.OMICallSDK) throw new Error('Omicall SDK chưa sẵn sàng');
-    window.OMICallSDK.unregister();
-    bindSdkEvents();
+    if (sdkInitialized) {
+      try { window.OMICallSDK.unregister(); } catch { /* reconnect continues with a fresh init */ }
+    }
     await window.OMICallSDK.init({});
+    sdkInitialized = true;
+    bindSdkEvents();
     const result = await window.OMICallSDK.register({
       sipRealm: data.sipRealm,
       sipUser: data.sipUser,
       sipPassword: data.sipPassword,
+      ...(data.wssUri ? { wssUri: data.wssUri } : {}),
     });
-    phase.value = result?.status === 'connected' ? 'ready' : result?.status === 'connecting' ? 'connecting' : 'error';
+    phase.value = result?.status === 'connected'
+      ? 'ready'
+      : (result?.status === 'connecting' || result?.status === true) ? 'connecting' : 'error';
     if (phase.value === 'error') errorMessage.value = 'Omicall từ chối đăng nhập';
     void refreshHistory();
   } catch (error: any) {
@@ -260,7 +270,15 @@ async function startOutgoing(target: PhonePeer | string, remoteNumber: string) {
   phase.value = 'calling';
   try {
     await createLog(target, 'outbound');
-    window.OMICallSDK.makeCall(remoteNumber, { isVideo: false });
+    window.OMICallSDK.makeCall(remoteNumber, {
+      isVideo: false,
+      // Internal extensions are routed directly. PSTN calls must explicitly
+      // select an outbound number; otherwise the SDK session may have no
+      // current sipNumber even though the extension is allowed to use one.
+      ...(typeof target === 'string' && fromNumber.value
+        ? { sipNumber: { number: fromNumber.value } }
+        : {}),
+    });
   } catch (error: any) {
     errorMessage.value = error?.response?.data?.error || error?.message || 'Không thể gọi';
     await finish('failed', errorMessage.value);

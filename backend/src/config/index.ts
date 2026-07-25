@@ -52,6 +52,9 @@ export const config = {
    * extension password stored encrypted on User, never a server-signed token. */
   omicallEnabled: (envValue('OMICALL_ENABLED') || 'false').toLowerCase() === 'true',
   omicallDomain: envValue('OMICALL_DOMAIN') || '',
+  // Optional explicit SIP WebSocket endpoint supplied by Omicall
+  // (for example wss://vh.omicrm.com:7443).
+  omicallWssUri: envValue('OMICALL_WSS_URI') || '',
   omicallHotline: envValue('OMICALL_HOTLINE') || '',
   // Embedded as ?key=... in the webhook URL registered on the Omicall dashboard —
   // Omicall webhooks have no built-in signature/HMAC, this is our own shared secret.
