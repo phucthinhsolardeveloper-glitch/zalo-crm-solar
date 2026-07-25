@@ -41,6 +41,22 @@ describe('POST /api/v1/telephony/omicall/events', () => {
     );
   });
 
+  it('accepts the webhook secret through the x-webhook-key header', async () => {
+    (prisma.telephonyCall.updateMany as any).mockResolvedValue({ count: 1 });
+    const app = Fastify();
+    await app.register(omicallPublicRoutes);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/telephony/omicall/events',
+      headers: { 'x-webhook-key': 'test-secret' },
+      payload: { state: 'answered', transaction_id: 'tx-header-1', extension: '101' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(prisma.telephonyCall.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { providerCallId: 'tx-header-1' } }),
+    );
+  });
+
   it('creates an inbound call from a final CDR and saves its recording URL', async () => {
     (prisma.telephonyCall.updateMany as any).mockResolvedValue({ count: 0 });
     (prisma.telephonyCall.findFirst as any).mockResolvedValue(null);

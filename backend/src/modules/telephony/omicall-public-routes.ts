@@ -8,7 +8,10 @@ import { mapOmicallEventStatus } from './omicall-status.js';
 
 function hasValidWebhookKey(request: FastifyRequest): boolean {
   const query = request.query as Record<string, string | undefined>;
-  return Boolean(config.omicallWebhookSecret) && query.key === config.omicallWebhookSecret;
+  const header = request.headers['x-webhook-key'];
+  const headerKey = Array.isArray(header) ? header[0] : header;
+  return Boolean(config.omicallWebhookSecret)
+    && (query.key === config.omicallWebhookSecret || headerKey === config.omicallWebhookSecret);
 }
 
 export async function omicallPublicRoutes(app: FastifyInstance) {
