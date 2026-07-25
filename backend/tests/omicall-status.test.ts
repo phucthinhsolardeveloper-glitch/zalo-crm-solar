@@ -19,6 +19,11 @@ describe('mapOmicallEventStatus', () => {
   it('maps hangup with 0 bill_sec and answer_sec > 0 to rejected (agent declined after ring)', () => {
     expect(mapOmicallEventStatus({ state: 'hangup', bill_sec: 0, answer_sec: 0 })).toBe('missed');
   });
+  it('maps final CDR payloads and uses answer_sec when bill_sec is absent', () => {
+    expect(mapOmicallEventStatus({ state: 'cdr', bill_sec: 41 })).toBe('completed');
+    expect(mapOmicallEventStatus({ state: 'cdr', bill_sec: 0, answer_sec: 12 })).toBe('completed');
+    expect(mapOmicallEventStatus({ state: 'cdr', bill_sec: 0, answer_sec: 0 })).toBe('missed');
+  });
   it('returns null for unrecognized state', () => {
     expect(mapOmicallEventStatus({ state: 'weird_unknown' })).toBeNull();
     expect(mapOmicallEventStatus({})).toBeNull();
