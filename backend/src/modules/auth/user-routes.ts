@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../../shared/utils/logger.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { sendSystemNotificationToUser } from '../system-notifications/system-notify-service.js';
+import { encryptOmicallSecret } from '../telephony/omicall-token.js';
 
 // 2026-06-09 (anh chốt audit) — ghi nhật ký hành động admin vào ActivityLog có sẵn
 // (category='admin'), KHÔNG tạo model mới. Fire-and-forget: lỗi log KHÔNG chặn nghiệp vụ.
@@ -267,6 +268,37 @@ export async function userRoutes(app: FastifyInstance) {
       }
     }
     return { success: true, zaloSent, zaloError };
+  });
+
+  // PUT /api/v1/users/:id/omicall-extension — assign/clear a user's Omicall SIP
+  // extension (owner/admin only). extension=null clears assignment. password is
+  // write-only: never echoed back on any GET/PUT response for this user.
+  app.put('/api/v1/users/:id/omicall-extension', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    if (!['owner', 'admin'].includes(currentUser.role)) {
+      return reply.status(403).send({ error: 'Không có quyền' });
+    }
+    const { id } = request.params as { id: string };
+    const { extension, password } = request.body as { extension?: string | null; password?: string };
+
+    if (extension === null || extension === '') {
+      await prisma.user.update({
+        where: { id, orgId: currentUser.orgId },
+        data: { omicallExtension: null, omicallExtensionSecret: null },
+      });
+      return { success: true };
+    }
+    if (!extension || !password) {
+      return reply.status(400).send({ error: 'Cần extension và password Omicall' });
+    }
+    const dup = await prisma.user.findFirst({ where: { orgId: currentUser.orgId, omicallExtension: extension, id: { not: id } } });
+    if (dup) return reply.status(409).send({ error: `Extension "${extension}" đã gán cho nhân viên khác` });
+
+    await prisma.user.update({
+      where: { id, orgId: currentUser.orgId },
+      data: { omicallExtension: extension, omicallExtensionSecret: encryptOmicallSecret(password) },
+    });
+    return { success: true };
   });
 
   // DELETE /api/v1/users/:id — deactivate user (owner only)
