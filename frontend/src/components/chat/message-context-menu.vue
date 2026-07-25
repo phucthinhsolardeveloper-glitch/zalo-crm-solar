@@ -24,9 +24,10 @@
           <span class="ctx-item__label">Trả lời</span>
         </button>
 
-        <!-- Chỉnh sửa (self + text) -->
+        <!-- Chỉnh sửa tin nhắn hiện chưa đồng bộ được với Zalo thật.
+             Giữ code để có thể bật lại khi SDK hỗ trợ, nhưng không hiển thị cho người dùng. -->
         <button
-          v-if="isSelf && message?.contentType === 'text'"
+          v-if="messageEditingEnabled && isSelf && message?.contentType === 'text'"
           class="ctx-item"
           role="menuitem"
           @click="onAction('edit')"
@@ -133,6 +134,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import type { Message } from '@/composables/use-chat';
+
+const messageEditingEnabled = false;
 
 const props = defineProps<{
   message: Message | null;
