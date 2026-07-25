@@ -328,7 +328,9 @@ model TelephonyCall {
   id             String    @id @default(uuid())
   orgId          String    @map("org_id")
   ownerUserId    String    @map("owner_user_id")
-  peerUserId     String    @map("peer_user_id")
+  peerUserId     String?   @map("peer_user_id")
+  contactId      String?   @map("contact_id")
+  externalNumber String?   @map("external_number")
   provider       String    @default("stringee")
   providerCallId String?   @map("provider_call_id")
   direction      String
@@ -346,11 +348,14 @@ model TelephonyCall {
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   ownerUser User         @relation("TelephonyCallOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  peerUser  User         @relation("TelephonyCallPeer", fields: [peerUserId], references: [id], onDelete: Cascade)
+  peerUser  User?        @relation("TelephonyCallPeer", fields: [peerUserId], references: [id], onDelete: Cascade)
+  contact   Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   @@unique([ownerUserId, providerCallId])
   @@index([orgId, ownerUserId, startedAt(sort: Desc)])
   @@index([orgId, peerUserId, startedAt(sort: Desc)])
+  @@index([orgId, externalNumber, startedAt(sort: Desc)])
+  @@index([contactId, startedAt(sort: Desc)])
   @@map("telephony_calls")
 }
 
@@ -737,6 +742,7 @@ model Contact {
 
   // Daily engagement aggregate rows (cascade delete)
   engagementDaily ContactEngagementDaily[]
+  telephonyCalls  TelephonyCall[]
 
   // M53 (2026-05-30): AI suggestions applied to this Contact (virtual chat assistant)
   aiSuggestionsApplied AiSuggestionApplied[]
@@ -1767,7 +1773,7 @@ model AiKnowledgeChunk {
   embedding Json
   createdAt DateTime @default(now()) @map("created_at")
 
-  org Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   doc AiKnowledgeDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
 
   @@unique([docId, position])
@@ -1781,7 +1787,7 @@ model AiChatbotLog {
   conversationId   String?  @map("conversation_id")
   triggerMessageId String?  @map("trigger_message_id")
   replyMessageId   String?  @map("reply_message_id")
-  status           String   // sent | skipped | error
+  status           String // sent | skipped | error
   reason           String?
   question         String?  @db.Text
   answer           String?  @db.Text
@@ -1791,9 +1797,9 @@ model AiChatbotLog {
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
+  @@unique([orgId, triggerMessageId])
   @@index([orgId, status, createdAt(sort: Desc)])
   @@index([conversationId, createdAt(sort: Desc)])
-  @@unique([orgId, triggerMessageId])
   @@map("ai_chatbot_logs")
 }
 

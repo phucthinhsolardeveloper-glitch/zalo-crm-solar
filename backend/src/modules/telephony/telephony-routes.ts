@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../../config/index.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware, requireActiveUser } from '../auth/auth-middleware.js';
+import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
 import { createStringeeClientToken, stringeeIdentity } from './stringee-token.js';
 
 const DIRECTIONS = new Set(['inbound', 'outbound']);
@@ -37,6 +38,9 @@ export async function telephonyRoutes(app: FastifyInstance) {
       apiKeySid: config.stringeeApiKeySid,
       apiKeySecret: config.stringeeApiKeySecret,
       userId,
+      // PCC agents must authenticate with icc_api=true so Queue/Group routing
+      // recognizes this connected Web SDK client as an online agent.
+      iccApi: true,
     });
     return {
       enabled: true,
@@ -56,7 +60,10 @@ export async function telephonyRoutes(app: FastifyInstance) {
     const limit = Math.min(Math.max(Number(query.limit) || 30, 1), 100);
     const calls = await prisma.telephonyCall.findMany({
       where: { orgId: current.orgId, ownerUserId: current.id },
-      include: { peerUser: { select: { id: true, fullName: true, avatarUrl: true } } },
+      include: {
+        peerUser: { select: { id: true, fullName: true, avatarUrl: true } },
+        contact: { select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true } },
+      },
       orderBy: { startedAt: 'desc' },
       take: limit,
     });
@@ -66,27 +73,56 @@ export async function telephonyRoutes(app: FastifyInstance) {
   app.post('/api/v1/telephony/calls', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!ensureConfigured(reply)) return;
     const current = request.user!;
-    const body = request.body as { peerUserId?: string; direction?: string; providerCallId?: string };
-    if (!body.peerUserId || !body.direction || !DIRECTIONS.has(body.direction)) {
-      return reply.status(400).send({ error: 'peerUserId hoặc direction không hợp lệ' });
+    const body = request.body as { peerUserId?: string; phoneNumber?: string; direction?: string; providerCallId?: string };
+    if (!body.direction || !DIRECTIONS.has(body.direction) || Boolean(body.peerUserId) === Boolean(body.phoneNumber)) {
+      return reply.status(400).send({ error: 'Cần đúng một peerUserId hoặc phoneNumber và direction hợp lệ' });
     }
-    const peer = await prisma.user.findFirst({
-      where: { id: body.peerUserId, orgId: current.orgId, isActive: true },
-      select: { id: true },
-    });
-    if (!peer || peer.id === current.id) return reply.status(404).send({ error: 'Không tìm thấy nhân viên nhận cuộc gọi' });
     const ownIdentity = stringeeIdentity(current.id);
-    const peerIdentity = stringeeIdentity(peer.id);
+    let peer: { id: string } | null = null;
+    let contact: { id: string } | null = null;
+    let externalNumber: string | null = null;
+    if (body.peerUserId) {
+      peer = await prisma.user.findFirst({
+        where: { id: body.peerUserId, orgId: current.orgId, isActive: true },
+        select: { id: true },
+      });
+      if (!peer || peer.id === current.id) return reply.status(404).send({ error: 'Không tìm thấy nhân viên nhận cuộc gọi' });
+    } else {
+      externalNumber = normalizePhone(body.phoneNumber);
+      if (!externalNumber || !externalNumber.startsWith('84') || externalNumber.length < 11 || externalNumber.length > 12) {
+        return reply.status(400).send({ error: 'Số điện thoại Việt Nam không hợp lệ' });
+      }
+      if (!config.stringeeFromNumber) return reply.status(503).send({ error: 'Chưa cấu hình Stringee Number gọi ra' });
+      const variants = phoneVariants(externalNumber);
+      contact = await prisma.contact.findFirst({
+        where: {
+          orgId: current.orgId,
+          mergedInto: null,
+          OR: [{ phoneNormalized: externalNumber }, { phone: { in: variants } }, { phone2: { in: variants } }, { phone3: { in: variants } }],
+        },
+        select: { id: true },
+      });
+    }
+    const peerIdentity = peer ? stringeeIdentity(peer.id) : null;
+    const inboundFrom = peerIdentity || externalNumber!;
+    const outboundFrom = peerIdentity ? ownIdentity : config.stringeeFromNumber;
+    const outboundTo = peerIdentity || externalNumber!;
     const call = await prisma.telephonyCall.create({
       data: {
         orgId: current.orgId,
         ownerUserId: current.id,
-        peerUserId: peer.id,
+        peerUserId: peer?.id || null,
+        contactId: contact?.id || null,
+        externalNumber,
         providerCallId: body.providerCallId || null,
         direction: body.direction,
         status: body.direction === 'inbound' ? 'ringing' : 'initiated',
-        fromIdentity: body.direction === 'inbound' ? peerIdentity : ownIdentity,
-        toIdentity: body.direction === 'inbound' ? ownIdentity : peerIdentity,
+        fromIdentity: body.direction === 'inbound' ? inboundFrom : outboundFrom,
+        toIdentity: body.direction === 'inbound' ? ownIdentity : outboundTo,
+      },
+      include: {
+        peerUser: { select: { id: true, fullName: true, avatarUrl: true } },
+        contact: { select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true } },
       },
     });
     return reply.status(201).send(call);

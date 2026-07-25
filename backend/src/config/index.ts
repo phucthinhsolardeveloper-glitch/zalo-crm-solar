@@ -54,6 +54,8 @@ export const config = {
   stringeeApiKeySecret: envValue('STRINGEE_API_KEY_SECRET') || '',
   stringeeProjectId: envValue('STRINGEE_PROJECT_ID') || '',
   stringeeFromNumber: envValue('STRINGEE_FROM_NUMBER') || '',
+  stringeeWebhookBaseUrl: (envValue('STRINGEE_WEBHOOK_BASE_URL') || '').replace(/\/+$/, ''),
+  stringeeInboundUserId: envValue('STRINGEE_INBOUND_USER_ID') || '',
 
   /* --- Storage driver selection (2026-06-20) ---
    * local — lưu file lên ổ đĩa VPS (UPLOAD_DIR), serve qua route tĩnh /files.
