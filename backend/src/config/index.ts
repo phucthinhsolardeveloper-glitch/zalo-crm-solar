@@ -48,12 +48,14 @@ export const config = {
   uploadDir: envValue('UPLOAD_DIR') || '/var/lib/zalo-crm/files',
   appUrl: envValue('APP_URL') || 'http://localhost:3000',
 
-  /* Stringee WebRTC softphone. Secret key never leaves the backend. */
-  stringeeEnabled: (envValue('STRINGEE_ENABLED') || 'false').toLowerCase() === 'true',
-  stringeeApiKeySid: envValue('STRINGEE_API_KEY_SID') || '',
-  stringeeApiKeySecret: envValue('STRINGEE_API_KEY_SECRET') || '',
-  stringeeProjectId: envValue('STRINGEE_PROJECT_ID') || '',
-  stringeeFromNumber: envValue('STRINGEE_FROM_NUMBER') || '',
+  /* Omicall WebRTC softphone. sipRealm + per-agent sipUser/sipPassword —
+   * extension password stored encrypted on User, never a server-signed token. */
+  omicallEnabled: (envValue('OMICALL_ENABLED') || 'false').toLowerCase() === 'true',
+  omicallDomain: envValue('OMICALL_DOMAIN') || '',
+  omicallHotline: envValue('OMICALL_HOTLINE') || '',
+  // Embedded as ?key=... in the webhook URL registered on the Omicall dashboard —
+  // Omicall webhooks have no built-in signature/HMAC, this is our own shared secret.
+  omicallWebhookSecret: envValue('OMICALL_WEBHOOK_SECRET') || '',
 
   /* --- Storage driver selection (2026-06-20) ---
    * local — lưu file lên ổ đĩa VPS (UPLOAD_DIR), serve qua route tĩnh /files.
