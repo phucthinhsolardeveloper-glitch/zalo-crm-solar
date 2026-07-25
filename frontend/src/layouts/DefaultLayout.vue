@@ -247,7 +247,7 @@ function dismissInternalContactBanner() {
 }
 
 // Brand lockup trên menu — logo + tên tổ chức (đồng bộ /login, /setup-password).
-const DEFAULT_LOGO = '/brand/hs-monogram.png';
+const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
 const brandLogo = ref(DEFAULT_LOGO);
 const brandName = ref('HS Holding');
 function onLogoError() {
