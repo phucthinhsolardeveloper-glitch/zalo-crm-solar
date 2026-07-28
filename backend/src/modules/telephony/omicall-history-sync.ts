@@ -2,6 +2,7 @@
 import { config } from '../../config/index.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
+import { persistOmicallRecording } from './omicall-recording.js';
 
 type OmicallHistoryItem = Record<string, any>;
 
@@ -18,11 +19,6 @@ function callStatus(item: OmicallHistoryItem, direction: 'inbound' | 'outbound')
     || Number(item.answer_sec ?? 0) > 0;
   if (answered) return 'completed';
   return direction === 'inbound' ? 'missed' : 'rejected';
-}
-
-function recordingUrl(item: OmicallHistoryItem): string | null {
-  const value = String(item.recording_file_url || item.recording_file || '').trim();
-  return value || null;
 }
 
 export async function syncOmicallHistoryForUser(args: {
@@ -66,7 +62,7 @@ export async function syncOmicallHistoryForUser(args: {
     }
     const json = await response.json() as Record<string, any>;
     if (json.status_code != null && Number(json.status_code) !== 9999) {
-      throw new Error(String(json.message || 'Omicall history API từ chối yêu cầu'));
+      throw new Error(String(json.message || 'API tổng đài từ chối yêu cầu'));
     }
     const payload = json.payload ?? json;
     const items: OmicallHistoryItem[] = Array.isArray(payload?.items)
@@ -102,7 +98,7 @@ export async function syncOmicallHistoryForUser(args: {
       const endedAt = providerDate(item.time_end_call);
       const durationSec = Number(item.bill_sec ?? 0);
       const status = callStatus(item, direction);
-      const recordingId = recordingUrl(item);
+      const recordingId = await persistOmicallRecording(item);
       const providerSipNumber = String(item.sip_number || item.hotline || '').trim();
       const channel = config.omicallZccEnabled
         && Boolean(config.omicallZccSipNumber)

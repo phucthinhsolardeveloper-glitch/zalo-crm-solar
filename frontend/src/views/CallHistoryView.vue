@@ -3,13 +3,13 @@
   <main class="call-page">
     <header class="page-head">
       <div>
-        <p class="eyebrow">OMICALL · ZALO OA</p>
+        <p class="eyebrow">TỔNG ĐÀI · ZALO OA</p>
         <h1>Lịch sử cuộc gọi</h1>
         <p class="subtitle">Tra cứu cuộc gọi, thời lượng và nghe lại file ghi âm từ tổng đài.</p>
       </div>
       <button class="sync-btn" :disabled="syncing" @click="syncOmicall">
         <v-icon :icon="syncing ? 'mdi-loading' : 'mdi-cloud-sync-outline'" :class="{ spin: syncing }" size="18" />
-        {{ syncing ? 'Đang đồng bộ…' : canViewOrganization ? 'Đồng bộ tài khoản tôi' : 'Đồng bộ Omicall' }}
+        {{ syncing ? 'Đang đồng bộ…' : canViewOrganization ? 'Đồng bộ tài khoản tôi' : 'Đồng bộ tổng đài' }}
       </button>
     </header>
 
@@ -110,7 +110,7 @@
               <td :colspan="columnCount" class="empty-cell">
                 <v-icon icon="mdi-phone-off-outline" size="38" />
                 <strong>Chưa có cuộc gọi phù hợp</strong>
-                <span>Thử thay đổi bộ lọc hoặc đồng bộ lịch sử từ Omicall.</span>
+                <span>Thử thay đổi bộ lọc hoặc đồng bộ lịch sử từ tổng đài.</span>
               </td>
             </tr>
             <template v-for="call in calls" :key="call.id">
@@ -337,10 +337,10 @@ async function syncOmicall() {
   syncing.value = true;
   try {
     const { data } = await api.post('/telephony/omicall/sync', { days: 30 });
-    toast.success(`Đã đồng bộ ${data.synced ?? 0} cuộc gọi từ Omicall`);
+    toast.success(`Đã đồng bộ ${data.synced ?? 0} cuộc gọi từ tổng đài`);
     await loadCalls(1);
   } catch (error: any) {
-    toast.error(error?.response?.data?.error || 'Không đồng bộ được lịch sử Omicall');
+    toast.error(error?.response?.data?.error || 'Không đồng bộ được lịch sử tổng đài');
   } finally {
     syncing.value = false;
   }
@@ -362,7 +362,7 @@ function initials(value: string) {
 
 function recordingUrl(call: CallItem) {
   const url = call.recordingId?.trim();
-  return url && /^https:\/\//i.test(url) ? url : null;
+  return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
 function toggleRecording(id: string) {
@@ -416,8 +416,34 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.call-page { min-height: 100%; padding: 30px clamp(20px, 3vw, 44px) 48px; background: #f5f7f7; color: #17212b; }
-.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 0 auto 24px; max-width: 1480px; }
+.call-page {
+  /* App khoá cuộn cấp trang (main.css: html,body { overflow:hidden }), giống
+     ContactsView: page cố định chiều cao, header/summary/filters/pagination
+     đứng yên (flex-shrink:0), chỉ .table-wrap bên trong cuộn. */
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--smax-topnav-h, 48px));
+  overflow: hidden;
+  padding: 16px 20px;
+  background: #f5f7f7;
+  color: #17212b;
+}
+.call-page > .page-head,
+.call-page > .summary-grid {
+  flex-shrink: 0;
+}
+.call-page > .history-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-panel > .filters,
+.history-panel > .error-banner,
+.history-panel > .pagination {
+  flex-shrink: 0;
+}
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 0 0 16px; }
 .eyebrow { margin: 0 0 6px; color: #148271; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
 h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; }
 .subtitle { margin: 7px 0 0; color: #6b787e; }
@@ -425,7 +451,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; }
 .sync-btn:disabled { opacity: .6; cursor: wait; }
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; max-width: 1480px; margin: 0 auto 18px; }
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0 0 16px; }
 .summary-card { min-height: 104px; padding: 19px; display: flex; align-items: center; gap: 14px; border: 1px solid #e2e8e8; border-radius: 14px; background: #fff; }
 .summary-card div { display: grid; gap: 3px; }
 .summary-card strong { font-size: 24px; letter-spacing: -.03em; }
@@ -435,7 +461,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; }
 .summary-icon.blue { background: #e7f1f8; color: #176d9a; }
 .summary-icon.red { background: #fceceb; color: #b94b4b; }
 .summary-icon.amber { background: #fff3d9; color: #a36d12; }
-.history-panel { max-width: 1480px; margin: 0 auto; overflow: hidden; border: 1px solid #e1e7e7; border-radius: 15px; background: #fff; }
+.history-panel { overflow: hidden; border: 1px solid #e1e7e7; border-radius: 15px; background: #fff; }
 .filters { padding: 16px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; border-bottom: 1px solid #e8eded; background: #fbfcfc; }
 .filters select, .filters input { border: 1px solid #d9e1e1; border-radius: 9px; background: #fff; color: #26343a; outline: none; }
 .filters select { height: 40px; padding: 0 31px 0 11px; }
@@ -450,9 +476,9 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; }
 .error-banner { margin: 16px; padding: 12px 14px; display: flex; align-items: center; gap: 9px; border-radius: 9px; background: #fff0ef; color: #a83f3f; }
 .error-banner span { flex: 1; }
 .error-banner button { border: 0; background: none; color: inherit; font-weight: 700; cursor: pointer; }
-.table-wrap { overflow-x: auto; }
+.table-wrap { flex: 1; min-height: 0; overflow: auto; }
 table { width: 100%; min-width: 1030px; border-collapse: collapse; }
-th { padding: 12px 15px; background: #f7f9f9; color: #69777d; font-size: 11px; font-weight: 800; letter-spacing: .035em; text-align: left; text-transform: uppercase; }
+th { padding: 12px 15px; background: #f7f9f9; color: #69777d; font-size: 11px; font-weight: 800; letter-spacing: .035em; text-align: left; text-transform: uppercase; position: sticky; top: 0; z-index: 5; }
 td { padding: 14px 15px; border-top: 1px solid #edf1f1; color: #46545a; font-size: 13px; vertical-align: middle; }
 tbody tr:not(.recording-row):hover { background: #fbfdfc; }
 .customer-cell { display: flex; align-items: center; gap: 10px; min-width: 210px; }

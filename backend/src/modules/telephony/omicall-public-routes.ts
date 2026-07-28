@@ -4,6 +4,7 @@ import { config } from '../../config/index.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
 import { logger } from '../../shared/utils/logger.js';
+import { persistOmicallRecording } from './omicall-recording.js';
 import { mapOmicallEventStatus } from './omicall-status.js';
 
 function hasValidWebhookKey(request: FastifyRequest): boolean {
@@ -35,7 +36,7 @@ export async function omicallPublicRoutes(app: FastifyInstance) {
     const endedAt = eventDate(body.time_end_call);
     const terminal = ['completed', 'rejected', 'missed', 'failed'].includes(status);
     const billSec = Number(body.bill_sec ?? 0);
-    const recordingUrl = String(body.recording_file_url || body.recording_file || '').trim();
+    const recordingUrl = await persistOmicallRecording(body);
     const eventSipNumber = String(body.sip_number || body.hotline || '').trim();
     const isZcc = config.omicallZccEnabled
       && Boolean(config.omicallZccSipNumber)

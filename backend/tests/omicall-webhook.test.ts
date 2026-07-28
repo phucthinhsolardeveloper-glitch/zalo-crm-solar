@@ -11,6 +11,10 @@ vi.mock('../src/shared/database/prisma-client.js', () => ({
 vi.mock('../src/config/index.js', () => ({
   config: { omicallWebhookSecret: 'test-secret', omicallEnabled: true, omicallDomain: 'demo01', omicallHotline: '' },
 }));
+vi.mock('../src/modules/telephony/omicall-recording.js', () => ({
+  persistOmicallRecording: vi.fn(async (body: Record<string, unknown>) =>
+    String(body.recording_file || body.recording_file_url || '').trim() || null),
+}));
 
 import Fastify from 'fastify';
 import { prisma } from '../src/shared/database/prisma-client.js';

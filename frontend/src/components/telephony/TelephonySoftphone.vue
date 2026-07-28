@@ -15,7 +15,7 @@
       <section class="softphone" data-testid="softphone-dialog">
         <header class="phone-head">
           <div>
-            <span class="eyebrow">OMICALL</span>
+            <span class="eyebrow">SOFTPHONE</span>
             <h2>Tổng đài nội bộ</h2>
           </div>
           <button class="close-btn" :disabled="isBusy" @click="closeDialog"><v-icon icon="mdi-close" /></button>
@@ -66,7 +66,7 @@
           <div v-if="canDialExternal" class="dialer">
             <div class="section-title dialer-title">
               <span>Gọi số điện thoại</span>
-              <small>{{ zccEnabled ? 'Qua Zalo OA công ty' : fromNumber ? `Hiển thị số ${displayPhone(fromNumber)}` : 'Omicall tự chọn đầu số' }}</small>
+              <small>{{ zccEnabled ? 'Qua Zalo OA công ty' : fromNumber ? `Hiển thị số ${displayPhone(fromNumber)}` : 'Tổng đài tự chọn đầu số' }}</small>
             </div>
             <form class="dial-form" @submit.prevent="startPhoneCall">
               <v-icon icon="mdi-dialpad" size="20" />

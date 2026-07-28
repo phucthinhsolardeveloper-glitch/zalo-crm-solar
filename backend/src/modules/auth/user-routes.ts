@@ -289,7 +289,7 @@ export async function userRoutes(app: FastifyInstance) {
       return { success: true };
     }
     if (!extension || !password) {
-      return reply.status(400).send({ error: 'Cần extension và password Omicall' });
+      return reply.status(400).send({ error: 'Cần extension và password tổng đài' });
     }
     const dup = await prisma.user.findFirst({ where: { orgId: currentUser.orgId, omicallExtension: extension, id: { not: id } } });
     if (dup) return reply.status(409).send({ error: `Extension "${extension}" đã gán cho nhân viên khác` });

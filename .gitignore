@@ -55,3 +55,6 @@ public-key-telegram-product
 
 # Git worktrees
 .worktrees/
+
+# Local upload storage (dev UPLOAD_DIR target) — không commit
+backend/data/

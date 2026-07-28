@@ -30,11 +30,11 @@ export function firstContactPhone(contact: {
 
 function ensureConfigured(reply: FastifyReply): boolean {
   if (!config.omicallEnabled) {
-    void reply.status(503).send({ error: 'Tổng đài Omicall chưa được bật' });
+    void reply.status(503).send({ error: 'Tổng đài chưa được bật' });
     return false;
   }
   if (!config.omicallDomain) {
-    void reply.status(503).send({ error: 'Thiếu OMICALL_DOMAIN' });
+    void reply.status(503).send({ error: 'Thiếu cấu hình domain tổng đài' });
     return false;
   }
   return true;
@@ -52,7 +52,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
       select: { omicallExtension: true, omicallExtensionSecret: true },
     });
     if (!me?.omicallExtension || !me.omicallExtensionSecret) {
-      return reply.status(503).send({ error: 'Bạn chưa được gán extension Omicall — liên hệ quản trị viên' });
+      return reply.status(503).send({ error: 'Bạn chưa được gán extension tổng đài — liên hệ quản trị viên' });
     }
     const peers = await prisma.user.findMany({
       where: { orgId: current.orgId, isActive: true, id: { not: current.id }, omicallExtension: { not: null } },
@@ -182,6 +182,10 @@ export async function telephonyRoutes(app: FastifyInstance) {
     const organizationScope = query.scope === 'organization' && canViewOrganization;
     const where: Prisma.TelephonyCallWhereInput = {
       orgId: current.orgId,
+      // Trang này chỉ hiển thị lịch sử Omicall — loại record cũ từ Stringee
+      // (đã bị thay thế), vì recordingId của chúng là call-id nội bộ Stringee
+      // (vd "call-vn-1-..."), không phải URL file nên không thể phát lại.
+      provider: 'omicall',
       ...(!organizationScope
         ? { ownerUserId: current.id }
         : query.ownerUserId
@@ -256,7 +260,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
     if (!ensureConfigured(reply)) return;
     if (!config.omicallApiKey) {
       return reply.status(503).send({
-        error: 'Thiếu OMICALL_API_KEY để đồng bộ lịch sử Omicall',
+        error: 'Thiếu API key để đồng bộ lịch sử tổng đài',
         code: 'omicall_api_key_missing',
       });
     }
@@ -266,7 +270,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
       select: { omicallExtension: true },
     });
     if (!me?.omicallExtension) {
-      return reply.status(503).send({ error: 'Bạn chưa được gán extension Omicall' });
+      return reply.status(503).send({ error: 'Bạn chưa được gán extension tổng đài' });
     }
     const requestedDays = Number((request.body as { days?: number } | undefined)?.days);
     try {
@@ -278,7 +282,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
       });
     } catch (error: any) {
       logger.warn({ userId: current.id, error: error?.message }, '[omicall-history] sync failed');
-      return reply.status(502).send({ error: error?.message || 'Không đồng bộ được lịch sử Omicall' });
+      return reply.status(502).send({ error: error?.message || 'Không đồng bộ được lịch sử tổng đài' });
     }
   });
 

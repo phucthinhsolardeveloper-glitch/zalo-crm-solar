@@ -204,8 +204,8 @@
           </section>
 
           <section v-if="canConfigureOmicall" class="section">
-            <h3 class="section-title">Omicall extension</h3>
-            <p class="field-hint">Extension SIP đã tạo sẵn trên Omicall dashboard</p>
+            <h3 class="section-title">Extension tổng đài</h3>
+            <p class="field-hint">Extension SIP đã tạo sẵn trên tổng đài</p>
             <label class="field-label">Extension</label>
             <input
               v-model="omicallExtension"
@@ -222,7 +222,7 @@
               :disabled="busy"
             />
             <button class="btn-reset-pw" :disabled="busy" @click="saveOmicallExtension">
-              Lưu Omicall extension
+              Lưu extension tổng đài
             </button>
           </section>
 
@@ -611,7 +611,7 @@ async function saveOmicallExtension() {
     omicallPassword.value = '';
     emit('changed');
   } catch (e: any) {
-    error.value = e?.response?.data?.error || 'Lỗi lưu Omicall extension';
+    error.value = e?.response?.data?.error || 'Lỗi lưu extension tổng đài';
   } finally {
     busy.value = false;
   }

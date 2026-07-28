@@ -13,6 +13,10 @@ vi.mock('../src/shared/database/prisma-client.js', () => ({
     telephonyCall: { findFirst: vi.fn(), update: vi.fn(), upsert: vi.fn() },
   },
 }));
+vi.mock('../src/modules/telephony/omicall-recording.js', () => ({
+  persistOmicallRecording: vi.fn(async (item: Record<string, unknown>) =>
+    String(item.recording_file || item.recording_file_url || '').trim() || null),
+}));
 
 import { prisma } from '../src/shared/database/prisma-client.js';
 import { syncOmicallHistoryForUser } from '../src/modules/telephony/omicall-history-sync.js';
@@ -23,7 +27,7 @@ describe('syncOmicallHistoryForUser', () => {
     vi.stubGlobal('fetch', vi.fn());
   });
 
-  it('imports an answered call and its recording URL', async () => {
+  it('imports an answered call and prefers the concrete recording_file URL', async () => {
     (fetch as any).mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -39,7 +43,8 @@ describe('syncOmicallHistoryForUser', () => {
             time_start_call: 1_758_000_000,
             time_start_to_answer: 1_758_000_005,
             time_end_call: 1_758_000_042,
-            recording_file_url: 'https://public-v1.omicrm.com/history-1.mp3',
+            recording_file: 'https://public-v1.omicrm.com/history-1.mp3',
+            recording_file_url: 'https://public-v1.omicrm.com/history-1',
           }],
         },
       }),
