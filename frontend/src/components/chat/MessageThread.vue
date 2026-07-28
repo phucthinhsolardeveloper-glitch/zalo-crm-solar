@@ -303,6 +303,18 @@
                Function fireWebhook() + state webhookLoading vẫn giữ trong file
                để bật lại sau bằng cách un-comment block button trên. -->
 
+          <button
+            v-if="conversation.threadType === 'user'"
+            class="icon-btn chat-call-btn"
+            :class="{ on: omicallBusy }"
+            :disabled="callStarting || omicallBusy"
+            :title="omicallBusy ? 'Bạn đang có một cuộc gọi khác' : 'Gọi khách hàng qua Zalo OA công ty'"
+            aria-label="Gọi khách hàng qua Zalo OA công ty"
+            @click="onCallCustomer"
+          >
+            <PhoneCallIcon :size="16" :stroke-width="2" />
+          </button>
+
           <!-- More dropdown: gộp Lịch sử / Tìm / Note -->
           <v-menu>
             <template #activator="{ props: act }">
@@ -925,6 +937,7 @@ import NickAvatarLock from '@/components/privacy/NickAvatarLock.vue';
 import PrivacyUnlockOtpModal from '@/components/privacy/PrivacyUnlockOtpModal.vue';
 import PrivacyViewerDialog from '@/components/privacy/PrivacyViewerDialog.vue';
 import { useAuthStore as _useAuthStorePriv } from '@/stores/auth';
+import { useOmicallSoftphone } from '@/composables/use-omicall-softphone';
 
 // Privacy dialog state — anh chốt 2026-05-22 v3
 const privacyUnlockOpen = ref(false);
@@ -985,6 +998,7 @@ import {
   Flag as FlagIcon,
   Send as SendIcon,
   Download as DownloadIcon,
+  PhoneCall as PhoneCallIcon,
 } from 'lucide-vue-next';
 
 // Reaction detail popup state — anh chốt 2026-05-22: click reaction box → popup
@@ -1084,6 +1098,22 @@ const emit = defineEmits<{
 }>();
 
 const toast = useToast();
+const { callConversation, isBusy: omicallBusy } = useOmicallSoftphone();
+const callStarting = ref(false);
+
+async function onCallCustomer() {
+  const conversationId = props.conversation?.id;
+  if (!conversationId || callStarting.value || omicallBusy.value) return;
+  callStarting.value = true;
+  try {
+    await callConversation(conversationId);
+  } catch (error: any) {
+    toast.error(error?.response?.data?.error || error?.message || 'Không thể gọi khách hàng');
+  } finally {
+    callStarting.value = false;
+  }
+}
+
 const inputText = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 const previewImageUrl = ref('');
@@ -3751,6 +3781,19 @@ watch(() => props.editingMessage?.id, async (id) => {
 .icon-btn.on {
   background: var(--smax-primary-soft);
   color: var(--smax-primary);
+}
+.chat-call-btn {
+  color: #16834a;
+  background: #edf9f2;
+  border: 1px solid #c8ead7;
+}
+.chat-call-btn:hover:not(:disabled) {
+  color: #0f6b3b;
+  background: #dcf3e6;
+}
+.chat-call-btn:disabled {
+  cursor: not-allowed;
+  opacity: .55;
 }
 
 /* ════════ Messages ════════ */

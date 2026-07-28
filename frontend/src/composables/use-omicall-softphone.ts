@@ -20,10 +20,11 @@ declare global {
 export type PhonePhase = 'disabled' | 'connecting' | 'ready' | 'calling' | 'ringing' | 'answered' | 'ended' | 'error';
 export interface PhonePeer {
   id: string; fullName: string; avatarUrl?: string | null; role: string; omicallExtension: string;
-  kind?: 'internal' | 'external'; phoneNumber?: string;
+  kind?: 'internal' | 'external'; phoneNumber?: string; channel?: 'internal' | 'pstn' | 'zcc';
 }
 export interface CallHistoryItem {
   id: string; direction: 'inbound' | 'outbound'; status: string; startedAt: string;
+  channel?: 'internal' | 'pstn' | 'zcc';
   durationSec?: number | null; endReason?: string | null; externalNumber?: string | null;
   recordingId?: string | null;
   peerUser?: { id: string; fullName: string; avatarUrl?: string | null } | null;
@@ -51,6 +52,21 @@ interface OmicallCallData {
   mute?: (muted: boolean) => void;
 }
 
+interface ExternalCallTarget {
+  kind: 'external';
+  phoneNumber: string;
+  fullName: string;
+  avatarUrl?: string | null;
+  contactId?: string;
+  conversationId?: string;
+  channel: 'pstn' | 'zcc';
+  sipNumber?: string | null;
+}
+
+function isExternalCallTarget(target: PhonePeer | ExternalCallTarget | string): target is ExternalCallTarget {
+  return typeof target !== 'string' && target.kind === 'external' && 'channel' in target && 'phoneNumber' in target;
+}
+
 const SDK_URL = 'https://cdn.omicrm.com/sdk/web/3.0.41/core.min.js';
 const phase = ref<PhonePhase>('connecting');
 const errorMessage = ref('');
@@ -65,6 +81,10 @@ const muted = ref(false);
 const elapsedSec = ref(0);
 const enabled = ref(true);
 const fromNumber = ref<string | null>(null);
+const outboundNumberMode = ref<'auto' | 'fixed'>('auto');
+const zccEnabled = ref(false);
+const zccSipNumber = ref<string | null>(null);
+const dialogRequest = ref(0);
 let activeCall: OmicallCallData | null = null;
 let localCallId: string | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -182,9 +202,23 @@ async function finish(status: 'completed' | 'rejected' | 'missed' | 'failed', re
   scheduleCdrRefresh();
 }
 
-async function createLog(target: PhonePeer | string, direction: 'inbound' | 'outbound', call?: OmicallCallData) {
+async function createLog(
+  target: PhonePeer | ExternalCallTarget | string,
+  direction: 'inbound' | 'outbound',
+  call?: OmicallCallData,
+) {
+  const external = typeof target === 'string'
+    ? { phoneNumber: target, channel: 'pstn' as const }
+    : isExternalCallTarget(target) ? target : null;
   const { data } = await api.post('/telephony/calls', {
-    ...(typeof target === 'string' ? { phoneNumber: target } : { peerUserId: target.id }),
+    ...(external
+      ? {
+          phoneNumber: external.phoneNumber,
+          channel: external.channel,
+          ...('contactId' in external && external.contactId ? { contactId: external.contactId } : {}),
+          ...('conversationId' in external && external.conversationId ? { conversationId: external.conversationId } : {}),
+        }
+      : { peerUserId: (target as PhonePeer).id }),
     direction,
     providerCallId: providerCallId(call),
   });
@@ -292,6 +326,9 @@ async function connect() {
     enabled.value = Boolean(data.enabled);
     peers.value = data.peers;
     fromNumber.value = data.hotline || null;
+    outboundNumberMode.value = data.outboundNumberMode === 'fixed' ? 'fixed' : 'auto';
+    zccEnabled.value = Boolean(data.zcc?.enabled);
+    zccSipNumber.value = data.zcc?.sipNumber || null;
     if (!window.OMICallSDK) throw new Error('Omicall SDK chưa sẵn sàng');
     if (sdkInitialized) {
       try { window.OMICallSDK.unregister(); } catch { /* reconnect continues with a fresh init */ }
@@ -323,11 +360,25 @@ function initialize(force = false): Promise<void> {
   return initialized;
 }
 
-async function startOutgoing(target: PhonePeer | string, remoteNumber: string) {
-  if (!window.OMICallSDK || phase.value !== 'ready') return;
-  activePeer.value = typeof target === 'string'
-    ? { id: remoteNumber, fullName: remoteNumber, role: 'contact', omicallExtension: remoteNumber, kind: 'external', phoneNumber: remoteNumber }
-    : { ...target, kind: 'internal' };
+async function startOutgoing(target: PhonePeer | ExternalCallTarget, remoteNumber: string) {
+  dialogRequest.value += 1;
+  errorMessage.value = '';
+  if (!window.OMICallSDK || phase.value !== 'ready') {
+    throw new Error('Tổng đài Omicall chưa sẵn sàng');
+  }
+  const external = isExternalCallTarget(target);
+  activePeer.value = external
+    ? {
+        id: target.contactId || remoteNumber,
+        fullName: target.fullName,
+        avatarUrl: target.avatarUrl,
+        role: 'contact',
+        omicallExtension: remoteNumber,
+        kind: 'external',
+        phoneNumber: target.phoneNumber,
+        channel: target.channel,
+      }
+    : { ...target, kind: 'internal', channel: 'internal' };
   incoming.value = false;
   terminalHandled = false;
   elapsedSec.value = 0;
@@ -336,16 +387,19 @@ async function startOutgoing(target: PhonePeer | string, remoteNumber: string) {
     await createLog(target, 'outbound');
     window.OMICallSDK.makeCall(remoteNumber, {
       isVideo: false,
-      // Internal extensions are routed directly. PSTN calls must explicitly
-      // select an outbound number; otherwise the SDK session may have no
-      // current sipNumber even though the extension is allowed to use one.
-      ...(typeof target === 'string' && fromNumber.value
-        ? { sipNumber: { number: fromNumber.value } }
-        : {}),
+      // In auto mode, omit sipNumber so Omicall can apply provider-side
+      // routing such as same-network priority. Fixed mode remains available
+      // for deployments that must always present one configured hotline.
+      ...(external && target.sipNumber
+        ? { sipNumber: { number: target.sipNumber } }
+        : external && outboundNumberMode.value === 'fixed' && fromNumber.value
+          ? { sipNumber: { number: fromNumber.value } }
+          : {}),
     });
   } catch (error: any) {
     errorMessage.value = error?.response?.data?.error || error?.message || 'Không thể gọi';
     await finish('failed', errorMessage.value);
+    throw error;
   }
 }
 
@@ -358,9 +412,41 @@ async function callPhone(rawPhone: string) {
   const phoneNumber = normalizeVnPhone(rawPhone);
   if (!phoneNumber) {
     errorMessage.value = 'Số điện thoại Việt Nam không hợp lệ';
-    return;
+    dialogRequest.value += 1;
+    throw new Error(errorMessage.value);
   }
-  await startOutgoing(phoneNumber, phoneNumber);
+  await startOutgoing({
+    kind: 'external',
+    phoneNumber,
+    fullName: phoneNumber,
+    channel: zccEnabled.value ? 'zcc' : 'pstn',
+    sipNumber: zccEnabled.value ? zccSipNumber.value : null,
+  }, phoneNumber);
+}
+
+async function callConversation(conversationId: string) {
+  if (['calling', 'ringing', 'answered'].includes(phase.value)) {
+    dialogRequest.value += 1;
+    throw new Error('Bạn đang có một cuộc gọi khác');
+  }
+  const { data } = await api.post<{
+    conversationId: string;
+    contactId: string;
+    remoteNumber: string;
+    channel: 'pstn' | 'zcc';
+    sipNumber?: string | null;
+    contact: { id: string; fullName: string; avatarUrl?: string | null; phone: string };
+  }>('/telephony/omicall/resolve-conversation-target', { conversationId });
+  await startOutgoing({
+    kind: 'external',
+    phoneNumber: data.contact.phone,
+    fullName: data.contact.fullName,
+    avatarUrl: data.contact.avatarUrl,
+    contactId: data.contactId,
+    conversationId: data.conversationId,
+    channel: data.channel,
+    sipNumber: data.sipNumber,
+  }, data.remoteNumber);
 }
 
 function answer() { activeCall?.accept?.(); }
@@ -379,8 +465,9 @@ function resetEnded() {
 export function useOmicallSoftphone() {
   return {
     phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
-    activePeer, incoming, muted, elapsedSec, enabled,
+    activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest,
     isBusy: computed(() => ['calling', 'ringing', 'answered'].includes(phase.value)),
-    fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded, loadMoreHistory,
+    fromNumber, initialize, callPeer, callPhone, callConversation,
+    answer, reject, hangup, toggleMute, resetEnded, loadMoreHistory,
   };
 }

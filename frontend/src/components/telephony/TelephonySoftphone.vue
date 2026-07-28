@@ -22,6 +22,11 @@
         </header>
 
         <audio id="omicall-remote-audio" autoplay />
+        <RouterLink class="full-history-link" to="/call-history" @click="dialog = false">
+          <v-icon icon="mdi-history" size="17" />
+          Mở toàn bộ lịch sử và file ghi âm
+          <v-icon icon="mdi-chevron-right" size="17" />
+        </RouterLink>
 
         <div v-if="phase === 'connecting'" class="state-card muted-state">
           <v-progress-circular indeterminate size="24" width="2" />
@@ -58,8 +63,11 @@
         </div>
 
         <template v-else>
-          <div v-if="fromNumber" class="dialer">
-            <div class="section-title dialer-title"><span>Gọi số điện thoại</span><small>Hiển thị số {{ displayPhone(fromNumber) }}</small></div>
+          <div v-if="canDialExternal" class="dialer">
+            <div class="section-title dialer-title">
+              <span>Gọi số điện thoại</span>
+              <small>{{ zccEnabled ? 'Qua Zalo OA công ty' : fromNumber ? `Hiển thị số ${displayPhone(fromNumber)}` : 'Omicall tự chọn đầu số' }}</small>
+            </div>
             <form class="dial-form" @submit.prevent="startPhoneCall">
               <v-icon icon="mdi-dialpad" size="20" />
               <input v-model="phoneInput" data-testid="phone-input" inputmode="tel" autocomplete="tel" placeholder="Nhập số, ví dụ 0909 123 456" />
@@ -141,13 +149,14 @@ const historyExpanded = ref(false);
 const playingRecordingId = ref<string | null>(null);
 const {
   phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
-  activePeer, incoming, muted, elapsedSec, enabled, isBusy,
+  activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, isBusy,
   fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
   loadMoreHistory,
 } = useOmicallSoftphone();
 
 onMounted(() => void initialize());
 watch(incoming, (value) => { if (value) dialog.value = true; });
+watch(dialogRequest, () => { dialog.value = true; });
 
 const statusLabel = computed(() => ({
   calling: 'Đang gọi…', ringing: incoming.value ? 'Cuộc gọi đến' : 'Đang đổ chuông…',
@@ -155,9 +164,12 @@ const statusLabel = computed(() => ({
 } as Record<string, string>)[phase.value] || 'Sẵn sàng');
 const timerLabel = computed(() => `${String(Math.floor(elapsedSec.value / 60)).padStart(2, '0')}:${String(elapsedSec.value % 60).padStart(2, '0')}`);
 const visibleHistory = computed(() => historyExpanded.value ? history.value : history.value.slice(0, 5));
+const canDialExternal = computed(() => enabled.value);
 
 function closeDialog() { dialog.value = false; resetEnded(); }
-function startPhoneCall() { if (phoneInput.value.trim()) void callPhone(phoneInput.value); }
+function startPhoneCall() {
+  if (phoneInput.value.trim()) void callPhone(phoneInput.value).catch(() => undefined);
+}
 function initials(name: string) { return name.trim().split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase(); }
 function displayPhone(value: string) {
   if (/^84\d{9,10}$/.test(value)) return `0${value.slice(2)}`;
@@ -181,9 +193,10 @@ function historyIcon(item: CallHistoryItem) {
 }
 function historyLabel(item: CallHistoryItem) {
   const direction = item.direction === 'inbound' ? 'Cuộc gọi đến' : 'Cuộc gọi đi';
+  const channel = item.channel === 'zcc' ? ' · Zalo OA' : '';
   const duration = item.durationSec ? ` · ${Math.floor(item.durationSec / 60)}:${String(item.durationSec % 60).padStart(2, '0')}` : '';
   const failed = ['missed', 'failed', 'rejected'].includes(item.status) ? ' · Không kết nối' : '';
-  return `${direction}${duration}${failed}`;
+  return `${direction}${channel}${duration}${failed}`;
 }
 </script>
 
@@ -195,6 +208,8 @@ function historyLabel(item: CallHistoryItem) {
 .live-dot { position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #86efac; box-shadow: 0 0 0 2px #12645d; }
 .softphone { overflow: hidden; border-radius: 18px; background: #fff; color: #17212b; box-shadow: 0 24px 80px rgba(12,35,45,.24); }
 .phone-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 24px 18px; border-bottom: 1px solid #edf1f2; }
+.full-history-link { margin: 12px 24px 0; min-height: 38px; padding: 0 11px; display: flex; align-items: center; gap: 7px; border-radius: 9px; background: #edf7f4; color: #147d70; font-size: 13px; font-weight: 750; text-decoration: none; }
+.full-history-link :last-child { margin-left: auto; }
 .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .15em; color: #15947f; }
 .phone-head h2 { margin: 3px 0 0; font-size: 21px; letter-spacing: -.02em; }
 .close-btn { width: 34px; height: 34px; border: 0; border-radius: 9px; background: #f3f6f6; color: #65727a; cursor: pointer; }

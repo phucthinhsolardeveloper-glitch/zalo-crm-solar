@@ -103,6 +103,12 @@ export async function syncOmicallHistoryForUser(args: {
       const durationSec = Number(item.bill_sec ?? 0);
       const status = callStatus(item, direction);
       const recordingId = recordingUrl(item);
+      const providerSipNumber = String(item.sip_number || item.hotline || '').trim();
+      const channel = config.omicallZccEnabled
+        && Boolean(config.omicallZccSipNumber)
+        && providerSipNumber === config.omicallZccSipNumber
+        ? 'zcc'
+        : 'pstn';
       const variants = phoneVariants(phoneNumber);
       const contact = await prisma.contact.findFirst({
         where: {
@@ -120,6 +126,9 @@ export async function syncOmicallHistoryForUser(args: {
       const data = {
         contactId: contact?.id || null,
         externalNumber: phoneNumber,
+        externalIdentity: phoneNumber,
+        externalIdentityType: 'phone',
+        channel,
         status,
         startedAt,
         answeredAt: answeredAt || (status === 'completed' ? startedAt : null),

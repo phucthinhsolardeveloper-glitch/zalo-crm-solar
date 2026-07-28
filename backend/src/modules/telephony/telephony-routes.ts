@@ -1,15 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { Prisma } from '@prisma/client';
 import { config } from '../../config/index.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware, requireActiveUser } from '../auth/auth-middleware.js';
 import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
 import { logger } from '../../shared/utils/logger.js';
+import { checkZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { syncOmicallHistoryForUser } from './omicall-history-sync.js';
 import { decryptOmicallSecret } from './omicall-token.js';
 
 const DIRECTIONS = new Set(['inbound', 'outbound']);
 const STATUSES = new Set(['initiated', 'ringing', 'answered', 'completed', 'rejected', 'missed', 'failed']);
+const CHANNELS = new Set(['internal', 'pstn', 'zcc']);
+
+export function firstContactPhone(contact: {
+  phone: string | null;
+  phone2: string | null;
+  phone3: string | null;
+  phonesExtra: unknown;
+}): string | null {
+  const extra = Array.isArray(contact.phonesExtra)
+    ? contact.phonesExtra.map((item: any) => String(item?.phone || ''))
+    : [];
+  return [contact.phone, contact.phone2, contact.phone3, ...extra]
+    .map((value) => normalizePhone(String(value || '')))
+    .find((value): value is string => Boolean(value?.startsWith('84') && value.length >= 11 && value.length <= 12)) || null;
+}
 
 function ensureConfigured(reply: FastifyReply): boolean {
   if (!config.omicallEnabled) {
@@ -48,21 +65,161 @@ export async function telephonyRoutes(app: FastifyInstance) {
       wssUri: config.omicallWssUri || null,
       sipUser: me.omicallExtension,
       sipPassword: decryptOmicallSecret(me.omicallExtensionSecret),
+      outboundNumberMode: config.omicallOutboundNumberMode,
       hotline: config.omicallHotline || null,
+      zcc: {
+        enabled: config.omicallZccEnabled && Boolean(config.omicallZccSipNumber),
+        sipNumber: config.omicallZccSipNumber || null,
+      },
       peers,
+    };
+  });
+
+  app.post('/api/v1/telephony/omicall/resolve-conversation-target', async (request, reply) => {
+    if (!ensureConfigured(reply)) return;
+    const current = request.user!;
+    const { conversationId } = (request.body || {}) as { conversationId?: string };
+    if (!conversationId) return reply.status(400).send({ error: 'conversationId là bắt buộc' });
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id: conversationId, orgId: current.orgId, deletedAt: null },
+      select: {
+        id: true,
+        contactId: true,
+        threadType: true,
+        zaloAccountId: true,
+        zaloAccount: { select: { archivedAt: true, privacyMode: true, ownerUserId: true } },
+        contact: {
+          select: {
+            id: true,
+            fullName: true,
+            crmName: true,
+            avatarUrl: true,
+            phone: true,
+            phone2: true,
+            phone3: true,
+            phonesExtra: true,
+          },
+        },
+      },
+    });
+    if (!conversation) return reply.status(404).send({ error: 'Không tìm thấy hội thoại' });
+    if (conversation.threadType !== 'user') {
+      return reply.status(422).send({ error: 'Không thể gọi ZCC tới hội thoại nhóm', code: 'group_call_not_supported' });
+    }
+    if (conversation.zaloAccount.archivedAt) {
+      return reply.status(422).send({ error: 'Nick Zalo của hội thoại đã bị xóa', code: 'zalo_account_archived' });
+    }
+    const access = await checkZaloAccess({
+      userId: current.id,
+      orgId: current.orgId,
+      role: current.role,
+      zaloAccountId: conversation.zaloAccountId,
+      minPermission: 'chat',
+    });
+    if (access !== 'ok') return reply.status(403).send({ error: 'Không đủ quyền gọi khách hàng trong hội thoại này' });
+    const { buildPrivacyContext, canSeeConversationContent } = await import('../privacy/redact.js');
+    const privacyCtx = await buildPrivacyContext(request);
+    if (!canSeeConversationContent(conversation as any, privacyCtx)) {
+      return reply.status(403).send({
+        error: 'Cần mở khóa quyền riêng tư của nick trước khi gọi khách hàng',
+        code: 'privacy_unlock_required',
+      });
+    }
+    if (!conversation.contact) {
+      return reply.status(422).send({ error: 'Hội thoại chưa liên kết khách hàng CRM', code: 'contact_missing' });
+    }
+    const phone = firstContactPhone(conversation.contact);
+    if (!phone) {
+      return reply.status(422).send({
+        error: 'Khách hàng chưa có số điện thoại — cần bổ sung SĐT trước khi gọi qua OA công ty',
+        code: 'customer_phone_missing',
+      });
+    }
+
+    const zccReady = config.omicallZccEnabled && Boolean(config.omicallZccSipNumber);
+    if (!zccReady) {
+      return reply.status(503).send({
+        error: 'Zalo OA/ZCC của công ty chưa được cấu hình',
+        code: 'zcc_not_configured',
+      });
+    }
+    return {
+      conversationId: conversation.id,
+      contactId: conversation.contact.id,
+      remoteNumber: phone,
+      remoteIdentityType: 'phone',
+      channel: 'zcc',
+      sipNumber: config.omicallZccSipNumber,
+      contact: {
+        id: conversation.contact.id,
+        fullName: conversation.contact.crmName || conversation.contact.fullName || phone,
+        avatarUrl: conversation.contact.avatarUrl,
+        phone,
+      },
     };
   });
 
   app.get('/api/v1/telephony/calls', async (request) => {
     const current = request.user!;
-    const query = request.query as { page?: string; pageSize?: string; limit?: string };
+    const query = request.query as {
+      page?: string;
+      pageSize?: string;
+      limit?: string;
+      scope?: string;
+      ownerUserId?: string;
+      direction?: string;
+      status?: string;
+      channel?: string;
+      recording?: string;
+      from?: string;
+      to?: string;
+      search?: string;
+    };
     const page = Math.max(Math.floor(Number(query.page) || 1), 1);
     const pageSize = Math.min(Math.max(Math.floor(Number(query.pageSize || query.limit) || 20), 1), 100);
-    const where = { orgId: current.orgId, ownerUserId: current.id };
-    const [calls, total] = await Promise.all([
+    const canViewOrganization = current.role === 'owner' || current.role === 'admin';
+    const organizationScope = query.scope === 'organization' && canViewOrganization;
+    const where: Prisma.TelephonyCallWhereInput = {
+      orgId: current.orgId,
+      ...(!organizationScope
+        ? { ownerUserId: current.id }
+        : query.ownerUserId
+          ? { ownerUserId: query.ownerUserId }
+          : {}),
+    };
+    if (query.direction && DIRECTIONS.has(query.direction)) where.direction = query.direction;
+    if (query.status && STATUSES.has(query.status)) where.status = query.status;
+    if (query.channel && CHANNELS.has(query.channel)) where.channel = query.channel;
+    if (query.recording === 'true') where.recordingId = { not: null };
+    if (query.from || query.to) {
+      where.startedAt = {};
+      if (query.from) {
+        const from = new Date(query.from);
+        if (!Number.isNaN(from.getTime())) where.startedAt.gte = from;
+      }
+      if (query.to) {
+        const to = new Date(query.to);
+        if (!Number.isNaN(to.getTime())) where.startedAt.lte = to;
+      }
+    }
+    const search = String(query.search || '').trim().slice(0, 100);
+    if (search) {
+      where.OR = [
+        { externalNumber: { contains: search, mode: 'insensitive' } },
+        { externalIdentity: { contains: search, mode: 'insensitive' } },
+        { contact: { is: { fullName: { contains: search, mode: 'insensitive' } } } },
+        { contact: { is: { crmName: { contains: search, mode: 'insensitive' } } } },
+        ...(organizationScope
+          ? [{ ownerUser: { is: { fullName: { contains: search, mode: 'insensitive' as const } } } }]
+          : []),
+      ];
+    }
+    const [calls, total, aggregate, missed, recordingCount] = await Promise.all([
       prisma.telephonyCall.findMany({
         where,
         include: {
+          ownerUser: { select: { id: true, fullName: true, avatarUrl: true } },
           peerUser: { select: { id: true, fullName: true, avatarUrl: true } },
           contact: { select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true } },
         },
@@ -71,10 +228,20 @@ export async function telephonyRoutes(app: FastifyInstance) {
         take: pageSize,
       }),
       prisma.telephonyCall.count({ where }),
+      prisma.telephonyCall.aggregate({ where, _sum: { durationSec: true } }),
+      prisma.telephonyCall.count({ where: { ...where, status: { in: ['missed', 'failed', 'rejected'] } } }),
+      prisma.telephonyCall.count({ where: { ...where, recordingId: { not: null } } }),
     ]);
     const totalPages = Math.ceil(total / pageSize);
     return {
       calls,
+      capabilities: { canViewOrganization },
+      summary: {
+        total,
+        missed,
+        recordings: recordingCount,
+        totalDurationSec: aggregate._sum.durationSec || 0,
+      },
       pagination: {
         page,
         pageSize,
@@ -118,12 +285,28 @@ export async function telephonyRoutes(app: FastifyInstance) {
   app.post('/api/v1/telephony/calls', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!ensureConfigured(reply)) return;
     const current = request.user!;
-    const body = request.body as { peerUserId?: string; phoneNumber?: string; direction?: string; providerCallId?: string };
+    const body = request.body as {
+      peerUserId?: string;
+      phoneNumber?: string;
+      direction?: string;
+      providerCallId?: string;
+      channel?: string;
+      conversationId?: string;
+      contactId?: string;
+    };
     if (!body.direction || !DIRECTIONS.has(body.direction) || Boolean(body.peerUserId) === Boolean(body.phoneNumber)) {
       return reply.status(400).send({ error: 'Cần đúng một peerUserId hoặc phoneNumber và direction hợp lệ' });
     }
+    const channel = body.peerUserId ? 'internal' : (body.channel || 'pstn');
+    if (!CHANNELS.has(channel)) return reply.status(400).send({ error: 'Kênh cuộc gọi không hợp lệ' });
     let peer: { id: string; omicallExtension: string | null } | null = null;
     let contact: { id: string } | null = null;
+    let conversation: {
+      id: string;
+      contactId: string | null;
+      zaloAccountId: string;
+      zaloAccount: { privacyMode: string; ownerUserId: string | null };
+    } | null = null;
     let externalNumber: string | null = null;
     if (body.peerUserId) {
       peer = await prisma.user.findFirst({
@@ -141,10 +324,40 @@ export async function telephonyRoutes(app: FastifyInstance) {
         where: {
           orgId: current.orgId,
           mergedInto: null,
-          OR: [{ phoneNormalized: externalNumber }, { phone: { in: variants } }, { phone2: { in: variants } }, { phone3: { in: variants } }],
+          ...(body.contactId
+            ? { id: body.contactId }
+            : { OR: [{ phoneNormalized: externalNumber }, { phone: { in: variants } }, { phone2: { in: variants } }, { phone3: { in: variants } }] }),
         },
         select: { id: true },
       });
+      if (body.contactId && !contact) return reply.status(404).send({ error: 'Không tìm thấy khách hàng' });
+      if (body.conversationId) {
+        conversation = await prisma.conversation.findFirst({
+          where: { id: body.conversationId, orgId: current.orgId },
+          select: {
+            id: true,
+            contactId: true,
+            zaloAccountId: true,
+            zaloAccount: { select: { privacyMode: true, ownerUserId: true } },
+          },
+        });
+        if (!conversation || (contact && conversation.contactId !== contact.id)) {
+          return reply.status(400).send({ error: 'Hội thoại không khớp khách hàng cuộc gọi' });
+        }
+        const access = await checkZaloAccess({
+          userId: current.id,
+          orgId: current.orgId,
+          role: current.role,
+          zaloAccountId: conversation.zaloAccountId,
+          minPermission: 'chat',
+        });
+        if (access !== 'ok') return reply.status(403).send({ error: 'Không đủ quyền gọi từ hội thoại này' });
+        const { buildPrivacyContext, canSeeConversationContent } = await import('../privacy/redact.js');
+        const privacyCtx = await buildPrivacyContext(request);
+        if (!canSeeConversationContent(conversation as any, privacyCtx)) {
+          return reply.status(403).send({ error: 'Cần mở khóa quyền riêng tư của nick trước khi gọi khách hàng' });
+        }
+      }
     }
     const ownExt = (await prisma.user.findFirst({ where: { id: current.id }, select: { omicallExtension: true } }))?.omicallExtension || '';
     const peerExt = peer?.omicallExtension || null;
@@ -156,7 +369,11 @@ export async function telephonyRoutes(app: FastifyInstance) {
         ownerUserId: current.id,
         peerUserId: peer?.id || null,
         contactId: contact?.id || null,
+        conversationId: conversation?.id || null,
         externalNumber,
+        externalIdentity: peerExt || externalNumber,
+        externalIdentityType: peer ? 'extension' : 'phone',
+        channel,
         provider: 'omicall',
         providerCallId: body.providerCallId || null,
         direction: body.direction,

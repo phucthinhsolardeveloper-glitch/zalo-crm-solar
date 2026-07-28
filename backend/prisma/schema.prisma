@@ -328,37 +328,43 @@ model User {
 }
 
 model TelephonyCall {
-  id             String    @id @default(uuid())
-  orgId          String    @map("org_id")
-  ownerUserId    String    @map("owner_user_id")
-  peerUserId     String?   @map("peer_user_id")
-  contactId      String?   @map("contact_id")
-  externalNumber String?   @map("external_number")
-  provider       String    @default("omicall")
-  providerCallId String?   @map("provider_call_id")
-  direction      String
-  status         String    @default("initiated")
-  fromIdentity   String    @map("from_identity")
-  toIdentity     String    @map("to_identity")
-  startedAt      DateTime  @default(now()) @map("started_at")
-  answeredAt     DateTime? @map("answered_at")
-  endedAt        DateTime? @map("ended_at")
-  durationSec    Int?      @map("duration_sec")
-  endReason      String?   @map("end_reason")
-  recordingId    String?   @map("recording_id")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(uuid())
+  orgId                String    @map("org_id")
+  ownerUserId          String    @map("owner_user_id")
+  peerUserId           String?   @map("peer_user_id")
+  contactId            String?   @map("contact_id")
+  conversationId       String?   @map("conversation_id")
+  externalNumber       String?   @map("external_number")
+  externalIdentity     String?   @map("external_identity")
+  externalIdentityType String?   @map("external_identity_type")
+  channel              String    @default("pstn")
+  provider             String    @default("omicall")
+  providerCallId       String?   @map("provider_call_id")
+  direction            String
+  status               String    @default("initiated")
+  fromIdentity         String    @map("from_identity")
+  toIdentity           String    @map("to_identity")
+  startedAt            DateTime  @default(now()) @map("started_at")
+  answeredAt           DateTime? @map("answered_at")
+  endedAt              DateTime? @map("ended_at")
+  durationSec          Int?      @map("duration_sec")
+  endReason            String?   @map("end_reason")
+  recordingId          String?   @map("recording_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  ownerUser User         @relation("TelephonyCallOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  peerUser  User?        @relation("TelephonyCallPeer", fields: [peerUserId], references: [id], onDelete: Cascade)
-  contact   Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownerUser    User          @relation("TelephonyCallOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  peerUser     User?         @relation("TelephonyCallPeer", fields: [peerUserId], references: [id], onDelete: Cascade)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@unique([ownerUserId, providerCallId])
   @@index([orgId, ownerUserId, startedAt(sort: Desc)])
   @@index([orgId, peerUserId, startedAt(sort: Desc)])
   @@index([orgId, externalNumber, startedAt(sort: Desc)])
   @@index([contactId, startedAt(sort: Desc)])
+  @@index([conversationId, startedAt(sort: Desc)])
   @@map("telephony_calls")
 }
 
@@ -837,14 +843,15 @@ model Conversation {
   deletedAt         DateTime? @map("deleted_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  org           Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  zaloAccount   ZaloAccount          @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
-  contact       Contact?             @relation(fields: [contactId], references: [id])
-  messages      Message[]
-  aiSuggestions AiSuggestion[]
-  pins          PinnedConversation[]
+  org            Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  zaloAccount    ZaloAccount          @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
+  contact        Contact?             @relation(fields: [contactId], references: [id])
+  messages       Message[]
+  aiSuggestions  AiSuggestion[]
+  pins           PinnedConversation[]
   // 2026-06-18 — Cầu Telegram: 1 hội thoại = 1 forum topic (định tuyến reply).
-  telegramTopic TelegramTopicMap?
+  telegramTopic  TelegramTopicMap?
+  telephonyCalls TelephonyCall[]
 
   @@unique([zaloAccountId, externalThreadId])
   @@index([orgId, zaloAccountId, isReplied, lastMessageAt])

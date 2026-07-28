@@ -36,8 +36,13 @@ export async function omicallPublicRoutes(app: FastifyInstance) {
     const terminal = ['completed', 'rejected', 'missed', 'failed'].includes(status);
     const billSec = Number(body.bill_sec ?? 0);
     const recordingUrl = String(body.recording_file_url || body.recording_file || '').trim();
+    const eventSipNumber = String(body.sip_number || body.hotline || '').trim();
+    const isZcc = config.omicallZccEnabled
+      && Boolean(config.omicallZccSipNumber)
+      && eventSipNumber === config.omicallZccSipNumber;
     const callData = {
       status,
+      ...(isZcc ? { channel: 'zcc' } : {}),
       ...(status === 'answered' ? { answeredAt: answeredAt || now } : {}),
       ...(status === 'completed' && answeredAt ? { answeredAt } : {}),
       ...(terminal ? { endedAt: endedAt || now } : {}),
@@ -110,6 +115,9 @@ export async function omicallPublicRoutes(app: FastifyInstance) {
                 ownerUserId: owner.id,
                 contactId: contact?.id || null,
                 externalNumber: phoneNumber,
+                externalIdentity: phoneNumber,
+                externalIdentityType: 'phone',
+                channel: isZcc ? 'zcc' : 'pstn',
                 provider: 'omicall',
                 providerCallId: transactionId,
                 direction,

@@ -55,7 +55,17 @@ export const config = {
   // Optional explicit SIP WebSocket endpoint supplied by Omicall
   // (for example wss://vh.omicrm.com:7443).
   omicallWssUri: envValue('OMICALL_WSS_URI') || '',
+  // auto: let Omicall select an outbound number using its routing rules
+  // (including same-network priority). fixed: always use OMICALL_HOTLINE.
+  omicallOutboundNumberMode: (envValue('OMICALL_OUTBOUND_NUMBER_MODE') || 'auto').toLowerCase() === 'fixed'
+    ? 'fixed' as const
+    : 'auto' as const,
   omicallHotline: envValue('OMICALL_HOTLINE') || '',
+  // ZCC is optional and may be provisioned after the CRM is deployed.
+  // CRM chats use personal Zalo accounts, so ZCC calls always target the
+  // customer's phone number through the company's OA — never the chat UID.
+  omicallZccEnabled: (envValue('OMICALL_ZCC_ENABLED') || 'false').toLowerCase() === 'true',
+  omicallZccSipNumber: envValue('OMICALL_ZCC_SIP_NUMBER') || '',
   // Embedded as ?key=... in the webhook URL registered on the Omicall dashboard —
   // Omicall webhooks have no built-in signature/HMAC, this is our own shared secret.
   omicallWebhookSecret: envValue('OMICALL_WEBHOOK_SECRET') || '',
