@@ -40,7 +40,7 @@
         </label>
 
         <select v-if="canViewOrganization" v-model="filters.scope" @change="scopeChanged">
-          <option value="organization">Toàn công ty</option>
+          <option value="organization">{{ scopeLevel === 'team' ? 'Phòng ban của tôi' : 'Toàn công ty' }}</option>
           <option value="mine">Cuộc gọi của tôi</option>
         </select>
         <select
@@ -48,8 +48,8 @@
           v-model="filters.ownerUserId"
           @change="applyFilters"
         >
-          <option value="">Tất cả nhân viên</option>
-          <option v-for="user in users" :key="user.id" :value="user.id">{{ user.fullName }}</option>
+          <option value="">{{ scopeLevel === 'team' ? 'Tất cả nhân viên phòng ban' : 'Tất cả nhân viên' }}</option>
+          <option v-for="user in visibleUsers" :key="user.id" :value="user.id">{{ user.fullName }}</option>
         </select>
         <select v-model="filters.direction" @change="applyFilters">
           <option value="">Tất cả hướng gọi</option>
@@ -210,9 +210,18 @@ interface Summary {
 
 const auth = useAuthStore();
 const toast = useToast();
-const canViewOrganization = computed(() => auth.isAdmin);
+// isManager gồm owner/admin (toàn công ty) VÀ leader/deputy phòng ban (chỉ team
+// mình) — backend (getOwnerScope) là nguồn sự thật cuối, đây chỉ optimistic UI.
+const canViewOrganization = computed(() => auth.isManager);
+// 'organization': owner/admin, xem hết công ty. 'team': leader/deputy, chỉ xem
+// phòng ban mình — cập nhật từ capabilities.scopeLevel sau khi loadCalls().
+const scopeLevel = ref<'organization' | 'team'>('organization');
+const scopeUserIds = ref<string[] | null>(null);
 const calls = ref<CallItem[]>([]);
 const users = ref<Array<{ id: string; fullName: string }>>([]);
+const visibleUsers = computed(() =>
+  scopeUserIds.value ? users.value.filter((u) => scopeUserIds.value!.includes(u.id)) : users.value,
+);
 const loading = ref(false);
 const syncing = ref(false);
 const errorMessage = ref('');
@@ -282,6 +291,8 @@ async function loadCalls(page = pagination.page) {
     calls.value = data.calls || [];
     Object.assign(summary, data.summary || {});
     Object.assign(pagination, data.pagination || {});
+    scopeLevel.value = data.capabilities?.scopeLevel === 'team' ? 'team' : 'organization';
+    scopeUserIds.value = Array.isArray(data.capabilities?.scopeUserIds) ? data.capabilities.scopeUserIds : null;
   } catch (error: any) {
     errorMessage.value = error?.response?.data?.error || 'Không tải được lịch sử cuộc gọi';
   } finally {
