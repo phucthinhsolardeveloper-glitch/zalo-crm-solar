@@ -260,6 +260,11 @@ model User {
   // Phase status 4-state 2026-05-27 — set lúc login thành công, derive "Im lặng" (>3d) vs "Hoạt động".
   // null = chưa từng login (phối hợp với passwordChangedAt=null để hiện "Chưa kích hoạt").
   lastLoginAt                  DateTime?            @map("last_login_at")
+  // Phase Omicall telephony 2026-07-25 — mỗi agent 1 extension Omicall (SIP user),
+  // provision thủ công trên Omicall dashboard, admin gán qua Settings > Users.
+  // omicallExtensionSecret = sipPassword mã hoá AES-256-GCM (aes-gcm.ts), KHÔNG bao giờ trả plaintext qua API GET.
+  omicallExtension       String?              @map("omicall_extension")
+  omicallExtensionSecret String?              @map("omicall_extension_secret")
   isActive                     Boolean              @default(true) @map("is_active")
   createdAt                    DateTime             @default(now()) @map("created_at")
   updatedAt                    DateTime             @updatedAt @map("updated_at")
@@ -322,35 +327,44 @@ model User {
   @@map("users")
 }
 
-// Stringee WebRTC call history. Each participant owns one private history row,
-// so both browsers can persist their local state without cross-user writes.
 model TelephonyCall {
-  id             String    @id @default(uuid())
-  orgId          String    @map("org_id")
-  ownerUserId    String    @map("owner_user_id")
-  peerUserId     String    @map("peer_user_id")
-  provider       String    @default("stringee")
-  providerCallId String?   @map("provider_call_id")
-  direction      String
-  status         String    @default("initiated")
-  fromIdentity   String    @map("from_identity")
-  toIdentity     String    @map("to_identity")
-  startedAt      DateTime  @default(now()) @map("started_at")
-  answeredAt     DateTime? @map("answered_at")
-  endedAt        DateTime? @map("ended_at")
-  durationSec    Int?      @map("duration_sec")
-  endReason      String?   @map("end_reason")
-  recordingId    String?   @map("recording_id")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(uuid())
+  orgId                String    @map("org_id")
+  ownerUserId          String    @map("owner_user_id")
+  peerUserId           String?   @map("peer_user_id")
+  contactId            String?   @map("contact_id")
+  conversationId       String?   @map("conversation_id")
+  externalNumber       String?   @map("external_number")
+  externalIdentity     String?   @map("external_identity")
+  externalIdentityType String?   @map("external_identity_type")
+  channel              String    @default("pstn")
+  provider             String    @default("omicall")
+  providerCallId       String?   @map("provider_call_id")
+  direction            String
+  status               String    @default("initiated")
+  fromIdentity         String    @map("from_identity")
+  toIdentity           String    @map("to_identity")
+  startedAt            DateTime  @default(now()) @map("started_at")
+  answeredAt           DateTime? @map("answered_at")
+  endedAt              DateTime? @map("ended_at")
+  durationSec          Int?      @map("duration_sec")
+  endReason            String?   @map("end_reason")
+  recordingId          String?   @map("recording_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  ownerUser User         @relation("TelephonyCallOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  peerUser  User         @relation("TelephonyCallPeer", fields: [peerUserId], references: [id], onDelete: Cascade)
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownerUser    User          @relation("TelephonyCallOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  peerUser     User?         @relation("TelephonyCallPeer", fields: [peerUserId], references: [id], onDelete: Cascade)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@unique([ownerUserId, providerCallId])
   @@index([orgId, ownerUserId, startedAt(sort: Desc)])
   @@index([orgId, peerUserId, startedAt(sort: Desc)])
+  @@index([orgId, externalNumber, startedAt(sort: Desc)])
+  @@index([contactId, startedAt(sort: Desc)])
+  @@index([conversationId, startedAt(sort: Desc)])
   @@map("telephony_calls")
 }
 
@@ -676,6 +690,7 @@ model Contact {
   // bảng này thay vì chỉ assignedUserId.
   contactAccess     ContactAccess[]
   contactNotes      Note[]
+  telephonyCalls    TelephonyCall[]
   // Phase 7 — Automation framework
   // automationTasks   AutomationTask[]  ← REMOVED 2026-06-01 Luồng Mục Tiêu M0
   // Phase Lead Pool 2026-05-24
@@ -828,14 +843,15 @@ model Conversation {
   deletedAt         DateTime? @map("deleted_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  org           Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  zaloAccount   ZaloAccount          @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
-  contact       Contact?             @relation(fields: [contactId], references: [id])
-  messages      Message[]
-  aiSuggestions AiSuggestion[]
-  pins          PinnedConversation[]
+  org            Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  zaloAccount    ZaloAccount          @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
+  contact        Contact?             @relation(fields: [contactId], references: [id])
+  messages       Message[]
+  aiSuggestions  AiSuggestion[]
+  pins           PinnedConversation[]
   // 2026-06-18 — Cầu Telegram: 1 hội thoại = 1 forum topic (định tuyến reply).
-  telegramTopic TelegramTopicMap?
+  telegramTopic  TelegramTopicMap?
+  telephonyCalls TelephonyCall[]
 
   @@unique([zaloAccountId, externalThreadId])
   @@index([orgId, zaloAccountId, isReplied, lastMessageAt])

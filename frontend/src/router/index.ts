@@ -80,6 +80,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/AppointmentsView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/call-history',
+    name: 'CallHistory',
+    component: () => import('@/views/CallHistoryView.vue'),
+    meta: { requiresAuth: true },
+  },
   // ════════ Module Báo cáo — shell + 7 màn (2026-06-17) ════════
   {
     path: '/reports',

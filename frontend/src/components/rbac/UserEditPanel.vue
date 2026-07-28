@@ -203,6 +203,29 @@
             </button>
           </section>
 
+          <section v-if="canConfigureOmicall" class="section">
+            <h3 class="section-title">Extension tổng đài</h3>
+            <p class="field-hint">Extension SIP đã tạo sẵn trên tổng đài</p>
+            <label class="field-label">Extension</label>
+            <input
+              v-model="omicallExtension"
+              type="text"
+              class="field-input"
+              :disabled="busy"
+            />
+            <label class="field-label">Password</label>
+            <input
+              v-model="omicallPassword"
+              type="password"
+              class="field-input"
+              placeholder="Để trống nếu không đổi"
+              :disabled="busy"
+            />
+            <button class="btn-reset-pw" :disabled="busy" @click="saveOmicallExtension">
+              Lưu extension tổng đài
+            </button>
+          </section>
+
           <!-- 2026-06-09 (anh chốt): BÀN GIAO khi sale nghỉ — chuyển KH + nick + lịch hẹn
                sang sale khác để không mất khách. Nên bàn giao TRƯỚC khi vô hiệu. -->
           <section v-if="canHandoff" class="section">
@@ -314,6 +337,8 @@ const error = ref('');
 const localFullName = ref('');
 const localEmail = ref('');
 const localPhone = ref('');
+const omicallExtension = ref('');
+const omicallPassword = ref('');
 const deptIdLocal = ref<string>('');
 const deptRoleLocal = ref<'leader' | 'deputy' | 'member'>('member');
 const pgIdLocal = ref<string>('');
@@ -335,6 +360,9 @@ const canDeactivate = computed(() => {
 // 2026-06-09 — admin/owner đặt lại mật khẩu cho sale khác (không cho tự reset chính mình ở đây).
 const canResetPassword = computed(() => {
   return ['owner', 'admin'].includes(props.currentUserRole ?? '') && props.user?.id !== props.currentUserId;
+});
+const canConfigureOmicall = computed(() => {
+  return ['owner', 'admin'].includes(props.currentUserRole ?? '');
 });
 const resetPwResult = ref<string | null>(null);
 const sendPwViaZalo = ref(true); // mặc định gửi pw mới qua Zalo cho tiện sale
@@ -489,6 +517,8 @@ watch(
     localFullName.value = props.user.fullName ?? '';
     localEmail.value = props.user.email ?? '';
     localPhone.value = (props.user as any).phone ?? '';
+    omicallExtension.value = props.user.omicallExtension ?? '';
+    omicallPassword.value = '';
     resetPwResult.value = null; // ẩn mật khẩu vừa reset khi chuyển sang user khác
     handoffToId.value = '';
     handoffResult.value = null;
@@ -564,6 +594,24 @@ async function savePhone() {
   } catch (e: any) {
     error.value = e?.response?.data?.error || e?.response?.data?.message || 'Lỗi đổi số điện thoại';
     localPhone.value = current; // revert khi lỗi (vd trùng số)
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function saveOmicallExtension() {
+  if (!props.user) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    await api.put(`/users/${props.user.id}/omicall-extension`, {
+      extension: omicallExtension.value.trim() || null,
+      password: omicallPassword.value.trim() || undefined,
+    });
+    omicallPassword.value = '';
+    emit('changed');
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || 'Lỗi lưu extension tổng đài';
   } finally {
     busy.value = false;
   }

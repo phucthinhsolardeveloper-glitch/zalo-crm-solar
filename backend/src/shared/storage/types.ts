@@ -41,6 +41,11 @@ export function mimeToExt(mime: string): string {
   if (mime === 'video/mp4') return '.mp4';
   if (mime === 'video/quicktime') return '.mov';
   if (mime === 'video/webm') return '.webm';
+  if (mime === 'audio/mpeg') return '.mp3';
+  if (mime === 'audio/mp4' || mime === 'audio/x-m4a') return '.m4a';
+  if (mime === 'audio/wav' || mime === 'audio/x-wav') return '.wav';
+  if (mime === 'audio/ogg') return '.ogg';
+  if (mime === 'audio/webm') return '.webm';
   return '';
 }
 

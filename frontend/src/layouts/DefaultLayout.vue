@@ -247,7 +247,7 @@ function dismissInternalContactBanner() {
 }
 
 // Brand lockup trên menu — logo + tên tổ chức (đồng bộ /login, /setup-password).
-const DEFAULT_LOGO = '/brand/hs-monogram.png';
+const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
 const brandLogo = ref(DEFAULT_LOGO);
 const brandName = ref('HS Holding');
 function onLogoError() {
@@ -290,6 +290,7 @@ const primaryTabs: NavTab[] = [
   { path: '/friends',                label: 'Bạn bè',      icon: 'mdi-account-multiple-outline', resource: 'friend' },
   { path: '/contacts',               label: 'Khách hàng',  icon: 'mdi-account-outline', resource: 'contact' },
   { path: '/appointments',           label: 'Lịch hẹn',    icon: 'mdi-calendar-outline' },
+  { path: '/call-history',           label: 'Cuộc gọi',    icon: 'mdi-phone-outline' },
   { path: '/media',                  label: 'Kho ảnh',     icon: 'mdi-image-multiple-outline', resource: 'media' },
 ];
 

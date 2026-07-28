@@ -15,13 +15,18 @@
       <section class="softphone" data-testid="softphone-dialog">
         <header class="phone-head">
           <div>
-            <span class="eyebrow">STRINGEE WEBRTC</span>
+            <span class="eyebrow">SOFTPHONE</span>
             <h2>Tổng đài nội bộ</h2>
           </div>
           <button class="close-btn" :disabled="isBusy" @click="closeDialog"><v-icon icon="mdi-close" /></button>
         </header>
 
-        <audio id="stringee-remote-audio" autoplay />
+        <audio id="omicall-remote-audio" autoplay />
+        <RouterLink class="full-history-link" to="/call-history" @click="dialog = false">
+          <v-icon icon="mdi-history" size="17" />
+          Mở toàn bộ lịch sử và file ghi âm
+          <v-icon icon="mdi-chevron-right" size="17" />
+        </RouterLink>
 
         <div v-if="phase === 'connecting'" class="state-card muted-state">
           <v-progress-circular indeterminate size="24" width="2" />
@@ -36,10 +41,12 @@
 
         <div v-else-if="isBusy || phase === 'ended'" class="active-call">
           <div class="avatar-ring" :class="{ pulse: phase === 'ringing' || phase === 'calling' }">
-            <span>{{ initials(activePeer?.fullName || '?') }}</span>
+            <v-icon v-if="activePeer?.kind === 'external'" icon="mdi-phone" size="34" />
+            <span v-else>{{ initials(activePeer?.fullName || '?') }}</span>
           </div>
-          <h3>{{ activePeer?.fullName || 'Nhân viên' }}</h3>
+          <h3>{{ activePeer?.kind === 'external' ? displayPhone(activePeer.phoneNumber || activePeer.fullName) : (activePeer?.fullName || 'Nhân viên') }}</h3>
           <p class="call-status" data-testid="call-status">{{ statusLabel }}</p>
+          <p v-if="phase === 'ended' && errorMessage" class="call-error" data-testid="call-error">{{ errorMessage }}</p>
           <div v-if="phase === 'answered' || (phase === 'ended' && elapsedSec)" class="timer">{{ timerLabel }}</div>
 
           <div v-if="incoming && phase === 'ringing'" class="call-actions">
@@ -56,6 +63,21 @@
         </div>
 
         <template v-else>
+          <div v-if="canDialExternal" class="dialer">
+            <div class="section-title dialer-title">
+              <span>Gọi số điện thoại</span>
+              <small>{{ zccEnabled ? 'Qua Zalo OA công ty' : fromNumber ? `Hiển thị số ${displayPhone(fromNumber)}` : 'Tổng đài tự chọn đầu số' }}</small>
+            </div>
+            <form class="dial-form" @submit.prevent="startPhoneCall">
+              <v-icon icon="mdi-dialpad" size="20" />
+              <input v-model="phoneInput" data-testid="phone-input" inputmode="tel" autocomplete="tel" placeholder="Nhập số, ví dụ 0909 123 456" />
+              <button type="submit" data-testid="call-phone" :disabled="!phoneInput.trim()" title="Gọi số điện thoại">
+                <v-icon icon="mdi-phone" size="19" />
+              </button>
+            </form>
+            <small v-if="errorMessage" class="dial-error">{{ errorMessage }}</small>
+          </div>
+
           <div class="section-title"><span>Nhân viên</span><small>{{ peers.length }} người khả dụng</small></div>
           <div v-if="!peers.length" class="empty-state">
             <v-icon icon="mdi-account-multiple-plus-outline" size="34" />
@@ -71,12 +93,45 @@
           </div>
 
           <div v-if="history.length" class="history">
-            <div class="section-title"><span>Gần đây</span></div>
-            <div v-for="item in history.slice(0, 5)" :key="item.id" class="history-row">
-              <v-icon :icon="historyIcon(item)" :class="item.status" size="17" />
-              <span class="history-copy"><strong>{{ item.peerUser.fullName }}</strong><small>{{ historyLabel(item) }}</small></span>
-              <time>{{ formatTime(item.startedAt) }}</time>
+            <div class="section-title">
+              <span>Lịch sử cuộc gọi</span>
+              <small>{{ historyTotal }} cuộc</small>
             </div>
+            <div v-for="item in visibleHistory" :key="item.id" class="history-entry">
+              <div class="history-row">
+                <v-icon :icon="historyIcon(item)" :class="item.status" size="17" />
+                <span class="history-copy"><strong>{{ historyName(item) }}</strong><small>{{ historyLabel(item) }}</small></span>
+                <button
+                  v-if="recordingUrl(item)"
+                  class="recording-btn"
+                  :title="playingRecordingId === item.id ? 'Đóng bản ghi âm' : 'Nghe lại ghi âm'"
+                  @click="toggleRecording(item.id)"
+                >
+                  <v-icon :icon="playingRecordingId === item.id ? 'mdi-stop-circle-outline' : 'mdi-play-circle-outline'" size="19" />
+                </button>
+                <time>{{ formatTime(item.startedAt) }}</time>
+              </div>
+              <div v-if="playingRecordingId === item.id && recordingUrl(item)" class="recording-player">
+                <audio controls preload="metadata" :src="recordingUrl(item)!" />
+                <a :href="recordingUrl(item)!" target="_blank" rel="noopener noreferrer" title="Mở hoặc tải file ghi âm">
+                  <v-icon icon="mdi-download-outline" size="18" />
+                </a>
+              </div>
+            </div>
+            <button v-if="!historyExpanded && history.length > 5" class="history-toggle" @click="historyExpanded = true">
+              Xem lịch sử ({{ historyTotal }} cuộc)
+            </button>
+            <button
+              v-if="historyExpanded && historyHasMore"
+              class="history-toggle"
+              :disabled="historyLoading"
+              @click="loadMoreHistory"
+            >
+              {{ historyLoading ? 'Đang tải…' : `Xem thêm ${Math.min(20, historyTotal - history.length)} cuộc` }}
+            </button>
+            <button v-if="historyExpanded && history.length > 5" class="history-collapse" @click="historyExpanded = false">
+              Thu gọn
+            </button>
           </div>
         </template>
       </section>
@@ -86,36 +141,62 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { useStringeeSoftphone, type CallHistoryItem } from '@/composables/use-stringee-softphone';
+import { useOmicallSoftphone, type CallHistoryItem } from '@/composables/use-omicall-softphone';
 
 const dialog = ref(false);
+const phoneInput = ref('');
+const historyExpanded = ref(false);
+const playingRecordingId = ref<string | null>(null);
 const {
-  phase, errorMessage, peers, history, activePeer, incoming, muted, elapsedSec, enabled, isBusy,
-  initialize, callPeer, answer, reject, hangup, toggleMute, resetEnded,
-} = useStringeeSoftphone();
+  phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
+  activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, isBusy,
+  fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
+  loadMoreHistory,
+} = useOmicallSoftphone();
 
 onMounted(() => void initialize());
 watch(incoming, (value) => { if (value) dialog.value = true; });
+watch(dialogRequest, () => { dialog.value = true; });
 
 const statusLabel = computed(() => ({
   calling: 'Đang gọi…', ringing: incoming.value ? 'Cuộc gọi đến' : 'Đang đổ chuông…',
   answered: 'Đang trò chuyện', ended: 'Cuộc gọi đã kết thúc',
 } as Record<string, string>)[phase.value] || 'Sẵn sàng');
 const timerLabel = computed(() => `${String(Math.floor(elapsedSec.value / 60)).padStart(2, '0')}:${String(elapsedSec.value % 60).padStart(2, '0')}`);
+const visibleHistory = computed(() => historyExpanded.value ? history.value : history.value.slice(0, 5));
+const canDialExternal = computed(() => enabled.value);
 
 function closeDialog() { dialog.value = false; resetEnded(); }
+function startPhoneCall() {
+  if (phoneInput.value.trim()) void callPhone(phoneInput.value).catch(() => undefined);
+}
 function initials(name: string) { return name.trim().split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase(); }
+function displayPhone(value: string) {
+  if (/^84\d{9,10}$/.test(value)) return `0${value.slice(2)}`;
+  return value;
+}
+function recordingUrl(item: CallHistoryItem) {
+  const url = item.recordingId?.trim();
+  return url && /^https:\/\//i.test(url) ? url : null;
+}
+function toggleRecording(id: string) {
+  playingRecordingId.value = playingRecordingId.value === id ? null : id;
+}
 function roleLabel(role: string) { return ({ owner: 'Chủ sở hữu', admin: 'Quản trị viên', member: 'Nhân viên' } as Record<string, string>)[role] || role; }
 function formatTime(value: string) { return new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date(value)); }
+function historyName(item: CallHistoryItem) {
+  return item.peerUser?.fullName || item.contact?.crmName || item.contact?.fullName || displayPhone(item.externalNumber || 'Không rõ số');
+}
 function historyIcon(item: CallHistoryItem) {
   if (['missed', 'failed', 'rejected'].includes(item.status)) return 'mdi-phone-missed-outline';
   return item.direction === 'inbound' ? 'mdi-phone-incoming-outline' : 'mdi-phone-outgoing-outline';
 }
 function historyLabel(item: CallHistoryItem) {
   const direction = item.direction === 'inbound' ? 'Cuộc gọi đến' : 'Cuộc gọi đi';
+  const channel = item.channel === 'zcc' ? ' · Zalo OA' : '';
   const duration = item.durationSec ? ` · ${Math.floor(item.durationSec / 60)}:${String(item.durationSec % 60).padStart(2, '0')}` : '';
   const failed = ['missed', 'failed', 'rejected'].includes(item.status) ? ' · Không kết nối' : '';
-  return `${direction}${duration}${failed}`;
+  return `${direction}${channel}${duration}${failed}`;
 }
 </script>
 
@@ -127,6 +208,8 @@ function historyLabel(item: CallHistoryItem) {
 .live-dot { position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #86efac; box-shadow: 0 0 0 2px #12645d; }
 .softphone { overflow: hidden; border-radius: 18px; background: #fff; color: #17212b; box-shadow: 0 24px 80px rgba(12,35,45,.24); }
 .phone-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 24px 18px; border-bottom: 1px solid #edf1f2; }
+.full-history-link { margin: 12px 24px 0; min-height: 38px; padding: 0 11px; display: flex; align-items: center; gap: 7px; border-radius: 9px; background: #edf7f4; color: #147d70; font-size: 13px; font-weight: 750; text-decoration: none; }
+.full-history-link :last-child { margin-left: auto; }
 .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .15em; color: #15947f; }
 .phone-head h2 { margin: 3px 0 0; font-size: 21px; letter-spacing: -.02em; }
 .close-btn { width: 34px; height: 34px; border: 0; border-radius: 9px; background: #f3f6f6; color: #65727a; cursor: pointer; }
@@ -142,6 +225,7 @@ function historyLabel(item: CallHistoryItem) {
 @keyframes phone-pulse { 0% { box-shadow: 0 0 0 7px rgba(22,160,133,.13) } 70% { box-shadow: 0 0 0 22px rgba(22,160,133,0) } 100% { box-shadow: 0 0 0 7px rgba(22,160,133,0) } }
 .active-call h3 { margin: 22px 0 4px; font-size: 22px; }
 .call-status { margin: 0; color: #617078; }
+.call-error { max-width: 330px; margin: 10px 0 0; color: #bd4049; font-size: 13px; line-height: 1.45; text-align: center; }
 .timer { margin-top: 8px; font-variant-numeric: tabular-nums; color: #263b43; font-weight: 700; }
 .call-actions { display: flex; gap: 34px; margin-top: 38px; }
 .round { width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; cursor: pointer; box-shadow: 0 8px 20px rgba(20,50,60,.15); }
@@ -155,5 +239,26 @@ function historyLabel(item: CallHistoryItem) {
 .peer-avatar { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: #dcefea; color: #147b6c; font-size: 12px; font-weight: 800; }
 .peer-copy, .history-copy { display: grid; flex: 1; gap: 2px; }.peer-copy small, .history-copy small { color: #829097; }.call-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: #e7f5f1; color: #148774; }
 .empty-state { margin: 8px 24px 24px; padding: 30px 24px; display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; border: 1px dashed #ccd8d7; border-radius: 13px; color: #65777d; }
-.history { border-top: 1px solid #edf1f2; padding-bottom: 14px; }.history-row { display: flex; align-items: center; gap: 11px; padding: 8px 24px; }.history-row > .v-icon { color: #168874; }.history-row > .v-icon.missed, .history-row > .v-icon.failed, .history-row > .v-icon.rejected { color: #d6535d; }.history-row time { color: #8a969b; font-size: 11px; }
+.dialer { padding-bottom: 8px; border-bottom: 1px solid #edf1f2; background: #f8fbfa; }
+.dialer-title { padding-top: 16px; }
+.dial-form { margin: 0 24px; height: 48px; padding: 0 7px 0 14px; display: flex; align-items: center; gap: 10px; border: 1px solid #cddbd8; border-radius: 12px; background: #fff; color: #60716f; }
+.dial-form:focus-within { border-color: #15947f; box-shadow: 0 0 0 3px rgba(21,148,127,.1); }
+.dial-form input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #17212b; font-size: 15px; }
+.dial-form button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #15947f; color: #fff; cursor: pointer; }
+.dial-form button:disabled { opacity: .4; cursor: not-allowed; }
+.dial-error { display: block; margin: 7px 24px 0; color: #c24850; }
+.history { max-height: 360px; overflow-y: auto; border-top: 1px solid #edf1f2; padding-bottom: 14px; }
+.history-entry { border-bottom: 1px solid #f1f4f4; }
+.history-row { display: flex; align-items: center; gap: 11px; padding: 8px 24px; }
+.history-row > .v-icon { color: #168874; }
+.history-row > .v-icon.missed, .history-row > .v-icon.failed, .history-row > .v-icon.rejected { color: #d6535d; }
+.history-row time { color: #8a969b; font-size: 11px; white-space: nowrap; }
+.recording-btn { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 50%; background: #e7f5f1; color: #148774; cursor: pointer; }
+.recording-btn:hover { background: #d5eee7; }
+.recording-player { display: flex; align-items: center; gap: 8px; padding: 0 24px 10px 52px; }
+.recording-player audio { min-width: 0; width: 100%; height: 34px; }
+.recording-player a { color: #148774; }
+.history-toggle { width: calc(100% - 48px); margin: 10px 24px 0; padding: 8px; border: 0; border-radius: 8px; background: #f0f6f5; color: #147d70; font-weight: 700; cursor: pointer; }
+.history-toggle:disabled { opacity: .55; cursor: wait; }
+.history-collapse { width: calc(100% - 48px); margin: 6px 24px 0; padding: 7px; border: 0; background: transparent; color: #6d7d82; cursor: pointer; }
 </style>

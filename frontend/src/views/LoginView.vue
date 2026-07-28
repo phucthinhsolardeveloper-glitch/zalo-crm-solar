@@ -97,7 +97,7 @@ const authStore = useAuthStore();
 // ── Branding hiển thị (mặc định = giá trị hardcode HS Holding) ────────────────
 // Login chạy pre-auth: render mặc định NGAY, fetch org-branding xong mới thay vào
 // (D4-A). Nếu endpoint lỗi/chậm/chưa có org → giữ mặc định, login không bị chặn.
-const DEFAULT_LOGO = '/brand/hs-monogram.png';
+const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
 const DEFAULT_PLACEHOLDER = `admin@hs.com hoặc ${SAMPLE_PHONE}`;
 const brandLogo = ref(DEFAULT_LOGO);
 const brandName = ref('HS Holding');

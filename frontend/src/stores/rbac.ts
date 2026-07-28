@@ -63,6 +63,7 @@ export interface RbacUser {
   avatarUrl: string | null;
   fullName: string;
   role: string;
+  omicallExtension: string | null;
   permissionGroupId: string | null;
   permissionGroup: { id: string; name: string; isSystem: boolean } | null;
   departmentMember: {

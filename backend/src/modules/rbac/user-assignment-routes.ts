@@ -44,6 +44,7 @@ export async function registerUserAssignmentRoutes(app: FastifyInstance): Promis
         lastLoginAt: true,
         fullName: true,
         role: true, // legacy
+        omicallExtension: true,
         permissionGroupId: true,
         permissionGroup: { select: { id: true, name: true, isSystem: true } },
         departmentMember: {
