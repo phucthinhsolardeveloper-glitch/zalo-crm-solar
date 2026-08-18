@@ -18,9 +18,11 @@ import { listProviderModels, invalidateModelCache } from './providers/list-model
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { DEFAULT_ZALO_CHATBOT_PROMPT, ingestKnowledgeDocument } from './ai-chatbot-service.js';
+import { extractDocumentText, isDocx, isPdf } from './document-parser.js';
 
 const CHATBOT_TEXT_MIME_TYPES = new Set([
   'text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/octet-stream',
+  'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]);
 
 function validClock(value: unknown): value is string {
@@ -499,18 +501,27 @@ export async function aiRoutes(app: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const file = await request.file({ limits: { fileSize: 1_000_000, files: 1 } });
       if (!file) return reply.status(400).send({ error: 'Vui lòng chọn file' });
-      const extensionOk = /\.(txt|md|markdown|csv|json)$/i.test(file.filename);
+      const extensionOk = /\.(txt|md|markdown|csv|json|pdf|docx)$/i.test(file.filename);
       if (!CHATBOT_TEXT_MIME_TYPES.has(file.mimetype) && !extensionOk) {
-        return reply.status(400).send({ error: 'Chỉ hỗ trợ TXT, Markdown, CSV và JSON' });
+        return reply.status(400).send({ error: 'Chỉ hỗ trợ TXT, Markdown, CSV, JSON, PDF và DOCX' });
       }
       try {
         const buffer = await file.toBuffer();
+        const isBinaryDoc = isPdf(file.mimetype, file.filename) || isDocx(file.mimetype, file.filename);
+        let content: string;
+        try {
+          content = await extractDocumentText(buffer, file.mimetype, file.filename);
+        } catch (parseErr) {
+          const kind = isBinaryDoc ? (isPdf(file.mimetype, file.filename) ? 'PDF' : 'DOCX') : 'file';
+          logger.warn(`[ai-chatbot] Failed to parse ${kind} document "${file.filename}": ${(parseErr as Error).message}`);
+          return reply.status(400).send({ error: `Không đọc được nội dung file ${kind} này. File có thể bị lỗi hoặc được bảo vệ mật khẩu.` });
+        }
         const document = await ingestKnowledgeDocument({
           orgId: request.user!.orgId,
           userId: request.user!.id,
           name: file.filename,
           mimeType: file.mimetype,
-          content: buffer.toString('utf8'),
+          content,
         });
         return reply.status(201).send(document);
       } catch (err) {

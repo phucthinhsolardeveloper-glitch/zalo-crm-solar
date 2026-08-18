@@ -82,9 +82,9 @@
 
       <section class="settings-section knowledge-section">
         <div class="section-heading">
-          <div><h2>Kho tài liệu</h2><p>TXT, Markdown, CSV hoặc JSON, tối đa 1 MB mỗi file.</p></div>
+          <div><h2>Kho tài liệu</h2><p>PDF, DOCX, TXT, Markdown, CSV hoặc JSON, tối đa 1 MB mỗi file.</p></div>
           <div class="heading-actions">
-            <input ref="fileInput" class="hidden-input" type="file" accept=".txt,.md,.markdown,.csv,.json" @change="uploadFile" />
+            <input ref="fileInput" class="hidden-input" type="file" accept=".txt,.md,.markdown,.csv,.json,.pdf,.docx" @change="uploadFile" />
             <button class="icon-button" title="Tải tài liệu lên" :disabled="uploading" @click="fileInput?.click()">
               <Upload :size="18" />
             </button>

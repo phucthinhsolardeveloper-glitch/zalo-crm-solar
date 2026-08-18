@@ -5,6 +5,18 @@ Các thay đổi đáng chú ý của ZCRM. Theo [Semantic Versioning](https://s
 > Các tag `v1.x`–`v3.3.x` là **lịch sử upstream** (locphamnguyen/ZaloCRM) — xem đầy đủ ở cuối file.
 > `v3.4.x` là dòng release hiện tại.
 
+## [Unreleased] - Tuỳ biến nội bộ Phúc Thịnh Solar
+
+### Added
+- **AI Chatbot: đọc file PDF/DOCX** — endpoint `POST /api/v1/ai/chatbot/documents/upload` giờ nhận
+  và trích xuất text thật từ PDF (`pdf-parse`) và DOCX (`mammoth`) thay vì chỉ TXT/MD/CSV/JSON.
+  File không đọc được (hỏng, có mật khẩu) trả lỗi rõ ràng thay vì nạp rác nhị phân vào knowledge base.
+
+### Security
+- `.gitignore` mở rộng để chặn commit nhầm `.env.production` (trước đây chỉ chặn đúng file `.env`).
+- Toàn bộ secret tự sinh trong `.env.production` (JWT, ENCRYPTION_KEY, TOKEN_ENCRYPTION_KEY,
+  DB password, webhook verify token FB/Zalo/Omicall) đã được rotate — không còn giá trị mặc định.
+
 ## [3.4.0] - 2026-06-20
 
 Đợt cập nhật lớn: **giao diện mới** + **Dashboard mới**, **nâng cao bảo mật**, **quét nhóm Zalo**, **bộ báo cáo mới**, **cầu Zalo ↔ Telegram**, **độ tin cậy chat**, và chuyển sang **mã nguồn mở AGPL-3.0**.
