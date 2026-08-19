@@ -87,7 +87,7 @@ function onCarePick(v: string) {
 </script>
 
 <style scoped>
-/* HS Holding theme — filter bar dạng .kpill (token brand #1786be) */
+/* Phúc Thịnh Solar theme — filter bar dạng .kpill (token brand #1786be) */
 .filter-bar {
   padding: 10px 22px;
   background: var(--surface);

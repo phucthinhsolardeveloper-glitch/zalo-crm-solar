@@ -542,7 +542,7 @@ function escapeHtml(s: string): string {
 /**
  * Apply mentions theo pos+len từ Zalo SDK (Anh chốt 2026-06-03 Lớp 2).
  * Pos là vị trí byte (UTF-8) trong raw text; len là độ dài full mention bao
- * gồm cả ký tự @ + tên đầy đủ (vd "@Trung Trường - Hs Holding" = len 27).
+ * gồm cả ký tự @ + tên đầy đủ (vd "@Trung Trường - Phúc Thịnh Solar" = len 27).
  *
  * Algorithm:
  *  1. Sort mentions theo pos tăng dần để xử lý từ đầu chuỗi.

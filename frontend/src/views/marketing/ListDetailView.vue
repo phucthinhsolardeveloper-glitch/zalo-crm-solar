@@ -1284,7 +1284,7 @@ function nickAvatarStyle(name: string): Record<string, string> {
 
 <style scoped>
 .list-detail-view {
-  /* 2026-06-06 — HS Holding Atlas theme */
+  /* 2026-06-06 — Phúc Thịnh Solar Atlas theme */
   padding: 22px 24px;
   max-width: 100%;
 }

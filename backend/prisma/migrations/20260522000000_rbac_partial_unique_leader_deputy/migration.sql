@@ -3,7 +3,7 @@
 -- Hệ quả: 2 UI (Sơ đồ tổ chức + Chi tiết NV) cho phép gán 2 trưởng/2 phó cùng dept.
 --
 -- IDEMPOTENT: dùng IF NOT EXISTS. Trước khi tạo, duplicate đã được resolve manually
--- (HS HOLDING: keep Phạm Chí Thành leader, demote test-ceo xuống member).
+-- (Phúc Thịnh Solar: keep Phạm Chí Thành leader, demote test-ceo xuống member).
 
 CREATE UNIQUE INDEX IF NOT EXISTS "uniq_one_leader_per_dept"
   ON "department_members"("department_id")

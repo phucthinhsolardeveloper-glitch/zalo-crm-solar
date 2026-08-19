@@ -6,6 +6,7 @@ import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
 import { logger } from '../../shared/utils/logger.js';
 import { persistOmicallRecording } from './omicall-recording.js';
 import { mapOmicallEventStatus } from './omicall-status.js';
+import { forwardCallToCrm } from './omicall-crm-forward.js';
 
 function hasValidWebhookKey(request: FastifyRequest): boolean {
   const query = request.query as Record<string, string | undefined>;
@@ -35,6 +36,9 @@ export async function omicallPublicRoutes(app: FastifyInstance) {
     const answeredAt = eventDate(body.time_start_to_answer);
     const endedAt = eventDate(body.time_end_call);
     const terminal = ['completed', 'rejected', 'missed', 'failed'].includes(status);
+    // Relay to crm-custom only on terminal state — mirrors how crm-custom's own
+    // AI-analysis trigger expects a final CDR, not intermediate ringing/answered.
+    if (terminal) forwardCallToCrm(body);
     const billSec = Number(body.bill_sec ?? 0);
     const recordingUrl = await persistOmicallRecording(body);
     const eventSipNumber = String(body.sip_number || body.hotline || '').trim();

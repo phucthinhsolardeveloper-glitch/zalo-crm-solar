@@ -571,7 +571,7 @@ function applyRichFormat(text: string, sList: StyleMark[], mList: MentionMark[])
 
 /** Fallback: format raw text without style marks — just escape + mention regex + linebreak.
  * Fix 2026-06-03 (Anh báo): sync với message-bubble.vue highlightText().
- * Tên có separator " - " (vd "Trung Trường - Hs Holding") phải bôi đầy đủ.
+ * Tên có separator " - " (vd "Trung Trường - Phúc Thịnh Solar") phải bôi đầy đủ.
  * Pattern: @ + 1-3 chữ hoa + (optional " - " + 1-3 chữ hoa).
  * Ràng buộc chữ hoa để loại từ thường VN (vd "@Đại Khánh thể" → chỉ bôi "@Đại Khánh"). */
 function plainFormat(text: string): string {

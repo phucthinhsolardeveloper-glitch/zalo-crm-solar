@@ -3,6 +3,7 @@ import { config } from '../../config/index.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
 import { persistOmicallRecording } from './omicall-recording.js';
+import { forwardCallToCrm } from './omicall-crm-forward.js';
 
 type OmicallHistoryItem = Record<string, any>;
 
@@ -133,6 +134,27 @@ export async function syncOmicallHistoryForUser(args: {
         endReason: String(item.hangup_cause || item.invite_failure_status || '').slice(0, 255) || null,
         recordingId,
       };
+
+      // Relay to crm-custom — same terminal-state forward as the live webhook
+      // path (omicall-public-routes.ts), reusing forwardCallToCrm() with a
+      // payload built from Call Transaction v3 fields (mostly the same field
+      // names as the webhook CDR shape crm-custom already expects).
+      if (['completed', 'missed', 'rejected'].includes(status)) {
+        forwardCallToCrm({
+          call_uuid: transactionId,
+          state: 'cdr',
+          direction,
+          phone_number: phoneNumber,
+          sip_user: args.extension,
+          bill_sec: durationSec,
+          answer_sec: Number(item.answer_sec ?? 0),
+          disposition: item.disposition ?? null,
+          hangup_cause: item.hangup_cause || item.invite_failure_status || null,
+          endby_name: item.endby_name ?? null,
+          recording_file_url: item.recording_file_url ?? null,
+          time_start_call: item.time_start_call ?? item.created_date ?? null,
+        });
+      }
 
       const pending = await prisma.telephonyCall.findFirst({
         where: {

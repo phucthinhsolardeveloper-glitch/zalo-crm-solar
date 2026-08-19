@@ -3,7 +3,7 @@
    Used by DefaultLayout (top nav), ChatView, ContactsView, FriendsView.
    ════════════════════════════════════════════════════════════ */
 :root {
-  /* Brand palette — HS Holding xanh ngọc (đổi từ #2962ff, /plan-design-review 2026-06-06) */
+  /* Brand palette — Phúc Thịnh Solar xanh ngọc (đổi từ #2962ff, /plan-design-review 2026-06-06) */
   --smax-primary: #1786be;
   --smax-primary-hover: #0f6fa0;
   --smax-primary-soft: #e4f1f8;

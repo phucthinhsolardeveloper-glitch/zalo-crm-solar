@@ -9,6 +9,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { checkZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { syncOmicallHistoryForUser } from './omicall-history-sync.js';
 import { decryptOmicallSecret } from './omicall-token.js';
+import { listUnassignedOmicallExtensions } from './omicall-directory.js';
 
 const DIRECTIONS = new Set(['inbound', 'outbound']);
 const STATUSES = new Set(['initiated', 'ringing', 'answered', 'completed', 'rejected', 'missed', 'failed']);
@@ -73,6 +74,25 @@ export async function telephonyRoutes(app: FastifyInstance) {
       },
       peers,
     };
+  });
+
+  // GET /api/v1/telephony/omicall/available-extensions — owner/admin only.
+  // Lists extensions already provisioned on the OmiCall dashboard but not yet
+  // linked to any user in this org — lets admin ASSIGN by picking instead of
+  // typing sip_user/password by hand. Does not create extensions (no such API).
+  app.get('/api/v1/telephony/omicall/available-extensions', async (request, reply) => {
+    const current = request.user!;
+    if (!['owner', 'admin'].includes(current.role)) {
+      return reply.status(403).send({ error: 'Không có quyền' });
+    }
+    if (!ensureConfigured(reply)) return;
+    try {
+      const extensions = await listUnassignedOmicallExtensions(current.orgId);
+      return { extensions };
+    } catch (err) {
+      logger.warn(`[telephony] available-extensions failed: ${(err as Error)?.message}`);
+      return reply.status(502).send({ error: 'Không lấy được danh sách extension từ OmiCall' });
+    }
   });
 
   app.post('/api/v1/telephony/omicall/resolve-conversation-target', async (request, reply) => {

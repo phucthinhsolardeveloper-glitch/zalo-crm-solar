@@ -191,6 +191,13 @@
           Chi tiết lỗi gửi tin: {{ createResult.zalo.error }}
         </div>
 
+        <div v-if="createResult.omicall.provisioned" class="cuwz-alert success">
+          ☎️ Đã tự động cấp extension OmiCall ({{ createResult.omicall.sipUser }}) — sale có thể gọi ngay, không cần setup thủ công.
+        </div>
+        <div v-else class="cuwz-alert warning">
+          ☎️ Chưa cấp được extension OmiCall tự động ({{ createResult.omicall.error || 'lỗi không xác định' }}) — vào Sửa nhân viên → gán extension thủ công nếu cần gọi ngay.
+        </div>
+
         <footer class="cuwz-footer">
           <button class="btn-primary" @click="finish">Đóng + xem danh sách</button>
         </footer>
@@ -237,6 +244,7 @@ interface CreateResult {
     fallbackSentToAdmin: boolean;
     error: string | null;
   };
+  omicall: { provisioned: boolean; sipUser?: string; error?: string };
 }
 
 const step = ref<1 | 2 | 3>(1);
@@ -453,6 +461,7 @@ watch(
 }
 .cuwz-alert.error { background: #fdecea; color: #b71c1c; border-color: #d9534f; }
 .cuwz-alert.warning { background: #fff8e1; color: #6d4c00; border-color: #fbc02d; }
+.cuwz-alert.success { background: #e8f5e9; color: #1b5e20; border-color: #43a047; }
 .cuwz-summary {
   background: rgba(0, 0, 0, 0.03); padding: 12px; border-radius: 9px; font-size: 13px;
   display: flex; flex-direction: column; gap: 4px;

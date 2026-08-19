@@ -575,20 +575,28 @@ export async function aiRoutes(app: FastifyInstance) {
         });
         if (!contact) return reply.status(404).send({ error: 'Contact not found' });
 
-        // M55.3 2026-05-30: Mở rộng whitelist — thêm tags + propertyNeed (lưu vào
-        // metadata.propertyNeed vì Contact schema chưa có cột riêng). Special handling:
+        // M55.3 + Solar: Mở rộng whitelist — thêm tags + solarNeed (lưu vào
+        // metadata.solarNeed vì Contact schema chưa có cột riêng). Special handling:
         // - tags: MERGE với tags hiện tại (không overwrite, dedup)
-        // - propertyNeed: serialize vào Contact.metadata.propertyNeed + tóm tắt vào notes
+        // - solarNeed / propertyNeed: serialize vào Contact.metadata + tóm tắt vào notes
         const ALLOWED_SCALAR = new Set([
           'fullName', 'gender', 'birthYear', 'occupation', 'incomeRange',
-          'province', 'district', 'ward', 'source',
+          'phone', 'province', 'district', 'ward', 'address', 'addressLine', 'source',
         ]);
         const update: Record<string, unknown> = {};
         const acceptedLog: Array<{ field: string; value: unknown }> = [];
 
         for (const item of body.acceptedFields) {
           if (ALLOWED_SCALAR.has(item.field)) {
-            update[item.field] = item.value;
+            if (item.field === 'address') {
+              update.addressLine = item.value;
+            } else if (item.field === 'gender') {
+              if (item.value === 'M' || item.value === 'male') update.gender = 'male';
+              else if (item.value === 'F' || item.value === 'female') update.gender = 'female';
+              else update.gender = item.value;
+            } else {
+              update[item.field] = item.value;
+            }
             acceptedLog.push(item);
           } else if (item.field === 'tags' && Array.isArray(item.value)) {
             // M57 Wave 3 /plan-eng-review: route qua tag-service (source=ai_suggest).
@@ -615,34 +623,74 @@ export async function aiRoutes(app: FastifyInstance) {
               }
             }
             acceptedLog.push(item);
+          } else if (item.field === 'solarNeed' && item.value && typeof item.value === 'object') {
+            // Lưu vào metadata.solarNeed — merge với existing metadata
+            const existingMeta = (contact.metadata && typeof contact.metadata === 'object')
+              ? contact.metadata as Record<string, unknown>
+              : {};
+            update.metadata = { ...existingMeta, solarNeed: item.value };
+            // Bonus: append tóm tắt vào notes để sale đọc nhanh
+            const sn = item.value as Record<string, unknown>;
+            const parts: string[] = [];
+            const PROJECT_LABELS: Record<string, string> = {
+              nha_o: 'Nhà ở', biet_thu: 'Biệt thự', nha_pho: 'Nhà phố', van_phong: 'Văn phòng',
+              cua_hang: 'Cửa hàng', nha_xuong: 'Nhà xưởng', kho: 'Kho bãi', trang_trai: 'Trang trại',
+              khach_san: 'Khách sạn', truong_hoc: 'Trường học', khac: 'Khác',
+            };
+            const USAGE_PURPOSE_LABELS: Record<string, string> = {
+              sinh_hoat: 'Sinh hoạt', kinh_doanh: 'Kinh doanh', san_xuat: 'Sản xuất', hon_hop: 'Hỗn hợp',
+            };
+            const ROOF_LABELS: Record<string, string> = {
+              mai_ton: 'Mái tôn', mai_ngoi: 'Mái ngói', mai_be_tong: 'Mái bê tông', mai_nha_xuong: 'Mái xưởng', khac: 'Mái khác',
+            };
+            const SYSTEM_LABELS: Record<string, string> = {
+              hoa_luoi: 'Hòa lưới', hoa_luoi_co_luu_tru: 'Hòa lưới có lưu trữ', doc_lap: 'Độc lập',
+            };
+            const PURPOSE_LABELS: Record<string, string> = {
+              giam_tien_dien: 'Giảm tiền điện', du_phong_mat_dien: 'Dự phòng mất điện', chu_dong_nguon_dien: 'Chủ động nguồn điện',
+              phuc_vu_san_xuat: 'Phục vụ sản xuất', toi_uu_chi_phi: 'Tối ưu chi phí',
+            };
+            const TIMELINE_LABELS: Record<string, string> = {
+              ngay: 'Lắp ngay', '1_thang': 'Trong 1 tháng', '1_3_thang': '1-3 tháng', '3_6_thang': '3-6 tháng',
+            };
+
+            if (sn.projectType) parts.push(PROJECT_LABELS[String(sn.projectType)] || String(sn.projectType));
+            if (sn.usagePurpose) parts.push(USAGE_PURPOSE_LABELS[String(sn.usagePurpose)] || String(sn.usagePurpose));
+            if (sn.monthlyElectricityBillMin || sn.monthlyElectricityBillMax) {
+              const min = typeof sn.monthlyElectricityBillMin === 'number'
+                ? (sn.monthlyElectricityBillMin >= 1000000 ? `${sn.monthlyElectricityBillMin / 1000000}tr` : `${sn.monthlyElectricityBillMin.toLocaleString()}đ`)
+                : null;
+              const max = typeof sn.monthlyElectricityBillMax === 'number'
+                ? (sn.monthlyElectricityBillMax >= 1000000 ? `${sn.monthlyElectricityBillMax / 1000000}tr` : `${sn.monthlyElectricityBillMax.toLocaleString()}đ`)
+                : null;
+              const billStr = min && max && min !== max ? `${min}-${max}/tháng` : `${max || min}/tháng`;
+              parts.push(`Tiền điện: ${billStr}`);
+            }
+            if (sn.monthlyConsumptionKwh) parts.push(`${sn.monthlyConsumptionKwh} kWh/tháng`);
+            if (sn.roofType || sn.roofAreaM2) {
+              const rT = sn.roofType ? ROOF_LABELS[String(sn.roofType)] || String(sn.roofType) : '';
+              const rA = sn.roofAreaM2 ? `${sn.roofAreaM2}m²` : '';
+              parts.push([rT, rA].filter(Boolean).join(' '));
+            }
+            if (sn.systemType) parts.push(SYSTEM_LABELS[String(sn.systemType)] || String(sn.systemType));
+            if (sn.batteryStorage === true) parts.push('Có pin lưu trữ');
+            if (sn.desiredCapacityKwp) parts.push(`CS: ${sn.desiredCapacityKwp} kWp`);
+            if (sn.purpose) parts.push(PURPOSE_LABELS[String(sn.purpose)] || String(sn.purpose));
+            if (sn.installationTimeline) parts.push(`TG: ${TIMELINE_LABELS[String(sn.installationTimeline)] || String(sn.installationTimeline)}`);
+            if (sn.location) parts.push(`Tại ${sn.location}`);
+
+            if (parts.length > 0) {
+              const summary = `[AI ${new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}] Nhu cầu ĐMT: ${parts.join(' · ')}`;
+              const oldNotes = (contact.notes || '').trim();
+              update.notes = oldNotes ? `${oldNotes}\n\n${summary}` : summary;
+            }
+            acceptedLog.push(item);
           } else if (item.field === 'propertyNeed' && item.value && typeof item.value === 'object') {
-            // Lưu vào metadata.propertyNeed — merge với existing metadata
+            // Legacy BĐS
             const existingMeta = (contact.metadata && typeof contact.metadata === 'object')
               ? contact.metadata as Record<string, unknown>
               : {};
             update.metadata = { ...existingMeta, propertyNeed: item.value };
-            // Bonus: append tóm tắt vào notes để sale đọc nhanh
-            const pn = item.value as {
-              type?: string;
-              budgetMin?: number;
-              budgetMax?: number;
-              purpose?: string;
-              area?: string;
-              decisionTimeline?: string;
-            };
-            const parts: string[] = [];
-            if (pn.type) parts.push(pn.type);
-            if (pn.budgetMin || pn.budgetMax) {
-              parts.push(pn.budgetMax ? `${pn.budgetMin || '?'}-${pn.budgetMax} tỷ` : `${pn.budgetMin} tỷ`);
-            }
-            if (pn.purpose) parts.push(pn.purpose);
-            if (pn.area) parts.push(`tại ${pn.area}`);
-            if (pn.decisionTimeline) parts.push(`quyết định ${pn.decisionTimeline}`);
-            if (parts.length > 0) {
-              const summary = `[AI ${new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}] Nhu cầu BĐS: ${parts.join(' · ')}`;
-              const oldNotes = (contact.notes || '').trim();
-              update.notes = oldNotes ? `${oldNotes}\n\n${summary}` : summary;
-            }
             acceptedLog.push(item);
           }
         }

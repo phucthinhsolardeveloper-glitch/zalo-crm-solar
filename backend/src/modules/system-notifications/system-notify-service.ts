@@ -48,7 +48,7 @@ function normalizeNameForCompare(name: string | null | undefined): string {
 
 /**
  * Đối chiếu tên UID trả về vs tên user đích. Khớp nếu một bên chứa "last word"
- * của bên kia (vd "Nguyễn Văn Đức" ↔ "Văn Đức Hs Holding" → khớp qua "duc"/"vanduc").
+ * của bên kia (vd "Nguyễn Văn Đức" ↔ "Văn Đức Phúc Thịnh Solar" → khớp qua "duc"/"vanduc").
  * Trả true = khớp (an toàn gửi), false = LỆCH (nghi nhầm người).
  */
 export function nameLooksMatched(zaloName: string | null, userName: string | null): boolean {

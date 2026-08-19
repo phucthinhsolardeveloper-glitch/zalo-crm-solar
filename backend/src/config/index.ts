@@ -74,6 +74,13 @@ export const config = {
   omicallApiKey: envValue('OMICALL_API_KEY') || '',
   omicallApiBaseUrl: (envValue('OMICALL_API_BASE_URL') || 'https://public-v1-stg.omicall.com').replace(/\/+$/, ''),
 
+  // Relay: forward completed OmiCall call events to crm-custom's webhook-endpoints
+  // receiver, so the same call also lands in crm-custom's CallLog (Lead status
+  // automation + AI summary). Optional — empty URL disables the relay, same
+  // disable-if-missing-env pattern as the rest of this integration.
+  crmCustomOmicallWebhookUrl: envValue('CRM_CUSTOM_OMICALL_WEBHOOK_URL') || '',
+  crmCustomOmicallWebhookSecret: envValue('CRM_CUSTOM_OMICALL_WEBHOOK_SECRET') || '',
+
   /* --- Storage driver selection (2026-06-20) ---
    * local — lưu file lên ổ đĩa VPS (UPLOAD_DIR), serve qua route tĩnh /files.
    *         Mặc định: chạy ngay, không cần cấu hình R2.

@@ -29,9 +29,9 @@ import { prisma } from '../../shared/database/prisma-client.js';
 // trên LoginView để trải nghiệm nhất quán dù endpoint trả defaults.
 const DEFAULTS = {
   logoUrl: null as string | null,
-  name: 'HS Holding',
+  name: 'Phúc Thịnh Solar',
   slogan: 'Bền vững · Trường tồn',
-  copyright: `© ${new Date().getFullYear()} HS Holding`,
+  copyright: `© ${new Date().getFullYear()} Phúc Thịnh Solar`,
   emailDomain: null as string | null,
 };
 

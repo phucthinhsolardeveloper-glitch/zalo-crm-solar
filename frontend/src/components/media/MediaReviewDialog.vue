@@ -229,7 +229,7 @@ onMounted(async () => {
 <style scoped>
 .mr-overlay { position: fixed; inset: 0; z-index: 140; background: rgba(15,23,42,.42); display: flex; align-items: center; justify-content: center; }
 .mr-box {
-  /* Theme Atlas v2 chuẩn (khớp MediaTabPanel/màn chat HS Holding). */
+  /* Theme Atlas v2 chuẩn (khớp MediaTabPanel/màn chat Phúc Thịnh Solar). */
   --ink:#141a24; --body:#475066; --muted:#8b93a7; --hairline:#e7eaf0; --canvas:#fff;
   --soft:#f1f4f9; --action:#1786be; --action-soft:#e4f1f8; --coral:#aa2d00;
   width: 460px; max-width: 94vw; max-height: 88vh; background: var(--canvas); border-radius: 12px;

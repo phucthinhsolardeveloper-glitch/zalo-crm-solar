@@ -7,7 +7,7 @@ import * as components from 'vuetify/components';
 import * as directives from 'vuetify/directives';
 
 /**
- * Vuetify theme — REDESIGN HS Holding CRM (migration 2026-06-05).
+ * Vuetify theme — REDESIGN Phúc Thịnh Solar CRM (migration 2026-06-05).
  * `hsLight` (default) = bộ token HS (teal-navy shell + metallic blue #1786be),
  * mirror PART 1 của hs-crm-theme.css. `smax-light`/`legacy-dark` giữ fallback
  * cho các view chưa migrate; sẽ rút ở cụm cleanup cuối.

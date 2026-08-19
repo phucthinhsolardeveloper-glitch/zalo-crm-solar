@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
-  <!-- 2026-06-09 (anh chốt): login 2 cột — banner thương hiệu HS Holding + form.
+  <!-- 2026-06-09 (anh chốt): login 2 cột — banner thương hiệu Phúc Thịnh Solar + form.
        Banner teal-navy: logo HS + ZaloCRM + slogan "Bền vững · Trường tồn".
        HD-first 1366×768; ≤900px xếp dọc (banner gọn trên, form dưới). -->
   <div class="login-card">
@@ -94,15 +94,15 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 
-// ── Branding hiển thị (mặc định = giá trị hardcode HS Holding) ────────────────
+// ── Branding hiển thị (mặc định = giá trị hardcode Phúc Thịnh Solar) ────────────────
 // Login chạy pre-auth: render mặc định NGAY, fetch org-branding xong mới thay vào
 // (D4-A). Nếu endpoint lỗi/chậm/chưa có org → giữ mặc định, login không bị chặn.
 const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
 const DEFAULT_PLACEHOLDER = `admin@hs.com hoặc ${SAMPLE_PHONE}`;
 const brandLogo = ref(DEFAULT_LOGO);
-const brandName = ref('HS Holding');
+const brandName = ref('Phúc Thịnh Solar');
 const brandSlogan = ref('Bền vững · Trường tồn');
-const brandCopyright = ref(`© ${new Date().getFullYear()} HS Holding`);
+const brandCopyright = ref(`© ${new Date().getFullYear()} Phúc Thịnh Solar`);
 const emailPlaceholder = ref(DEFAULT_PLACEHOLDER);
 
 // Phase Onboarding v1 — sau khi force change password thành công, redirect về /login?password-changed=1
@@ -123,7 +123,7 @@ onMounted(() => {
       // Org tồn tại → hiển thị ĐÚNG cấu hình: trường trống thì ẩn (banner v-if),
       // KHÔNG giữ chữ mặc định (fix slogan vẫn ra "Bền vững · Trường tồn").
       brandLogo.value = b.logoUrl || DEFAULT_LOGO;
-      brandName.value = b.name || 'HS Holding';
+      brandName.value = b.name || 'Phúc Thịnh Solar';
       brandSlogan.value = b.slogan || '';
       brandCopyright.value = b.copyright || '';
       emailPlaceholder.value = b.emailDomain

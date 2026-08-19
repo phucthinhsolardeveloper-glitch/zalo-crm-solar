@@ -4,7 +4,7 @@
 ═══════════════════════════════════════════════════════════════════════
  FollowUpCard — 1 card luồng bám đuổi trong tab FOLLOW-UP (redesign 2026-06-07)
 ═══════════════════════════════════════════════════════════════════════
- Chuẩn design system HS Holding (token --brand/--ink/--surface…), KHÔNG màu Jira.
+ Chuẩn design system Phúc Thịnh Solar (token --brand/--ink/--surface…), KHÔNG màu Jira.
  Mockup: ~/.gstack/projects/locphamnguyen-ZaloCRM/designs/chat-followup-20260607/
 
  State → action:

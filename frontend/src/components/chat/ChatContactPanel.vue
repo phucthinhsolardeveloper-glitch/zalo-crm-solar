@@ -494,9 +494,9 @@
     <div v-if="mainTab === 'ai'" class="main-tab-body">
       <div class="main-tab-placeholder">
         <div class="mtp-icon">✨</div>
-        <h3>Trợ lý AI Bất động sản</h3>
-        <p>Hỏi đáp về sản phẩm, dự án BĐS, giá, ưu đãi để tư vấn KH.</p>
-        <div class="mtp-coming">🚧 Đang phát triển — kết nối knowledge base BĐS HS Holding</div>
+        <h3>Trợ lý AI Điện Mặt Trời – Phúc Thịnh Solar</h3>
+        <p>Tư vấn thi công dự án điện năng lượng và đèn năng lượng mặt trời.</p>
+        <div class="mtp-coming">⚡ Sẵn sàng hỗ trợ — Tính công suất, báo giá và phân tích hiệu quả đầu tư.</div>
       </div>
     </div>
 

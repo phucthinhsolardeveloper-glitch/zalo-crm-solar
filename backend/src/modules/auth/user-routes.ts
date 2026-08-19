@@ -286,6 +286,7 @@ export async function userRoutes(app: FastifyInstance) {
         where: { id, orgId: currentUser.orgId },
         data: { omicallExtension: null, omicallExtensionSecret: null },
       });
+      await writeAudit(currentUser, 'user.omicall_extension_cleared', id, {});
       return { success: true };
     }
     if (!extension || !password) {
@@ -298,6 +299,7 @@ export async function userRoutes(app: FastifyInstance) {
       where: { id, orgId: currentUser.orgId },
       data: { omicallExtension: extension, omicallExtensionSecret: encryptOmicallSecret(password) },
     });
+    await writeAudit(currentUser, 'user.omicall_extension_assigned', id, { extension });
     return { success: true };
   });
 

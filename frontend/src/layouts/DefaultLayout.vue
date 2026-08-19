@@ -2,7 +2,7 @@
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-app class="smax-app">
-    <!-- ════════ TOP NAV — HS Holding teal-navy shell (redesign 2026-06-05, đảo lock Variant A) ════════ -->
+    <!-- ════════ TOP NAV — Phúc Thịnh Solar teal-navy shell (redesign 2026-06-05, đảo lock Variant A) ════════ -->
     <!-- Gradient teal-navy + monogram HS + wordmark · 7 tab + Báo cáo + Cài đặt · MDI line icon · active HS -->
     <header class="smax-topnav">
       <!-- Brand — logo + tên lấy theo hồ sơ tổ chức (đồng bộ /login, /setup-password) -->
@@ -249,7 +249,7 @@ function dismissInternalContactBanner() {
 // Brand lockup trên menu — logo + tên tổ chức (đồng bộ /login, /setup-password).
 const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
 const brandLogo = ref(DEFAULT_LOGO);
-const brandName = ref('HS Holding');
+const brandName = ref('Phúc Thịnh Solar');
 function onLogoError() {
   if (brandLogo.value !== DEFAULT_LOGO) brandLogo.value = DEFAULT_LOGO;
 }
@@ -266,7 +266,7 @@ onMounted(() => {
     .then((b) => {
       if (!b) return;
       brandLogo.value = b.logoUrl || DEFAULT_LOGO;
-      brandName.value = b.name || 'HS Holding';
+      brandName.value = b.name || 'Phúc Thịnh Solar';
     })
     .catch(() => {});
 });
@@ -391,7 +391,7 @@ function logout() {
 }
 .ic-banner-dismiss:hover { color: #78350F; }
 
-/* HS Holding shell — teal-navy gradient nav (redesign 2026-06-05, đảo lock Variant A sáng) */
+/* Phúc Thịnh Solar shell — teal-navy gradient nav (redesign 2026-06-05, đảo lock Variant A sáng) */
 .smax-topnav {
   background: linear-gradient(180deg, var(--nav-grad-a, #0e445a) 0%, var(--nav-grad-b, #06222f) 100%);
   color: rgba(255, 255, 255, 0.85);
@@ -403,7 +403,7 @@ function logout() {
   box-shadow: 0 1px 0 rgba(255,255,255,.06), 0 2px 8px rgba(0,0,0,.18);
 }
 
-/* Brand lockup — monogram HS + wordmark "HS Holding / CRM" */
+/* Brand lockup — monogram HS + wordmark "Phúc Thịnh Solar / CRM" */
 .hs-brand {
   display: flex; align-items: center; gap: 10px;
   margin-right: 14px; flex: none; text-decoration: none;

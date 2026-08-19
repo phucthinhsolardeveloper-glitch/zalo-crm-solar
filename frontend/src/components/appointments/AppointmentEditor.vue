@@ -1625,7 +1625,7 @@ if (typeof window !== 'undefined') {
   .picker-popup { width: 100%; }
 }
 
-/* ═══ HS Holding theme polish (anh chốt 2026-06-16) ═══════════════════════════
+/* ═══ Phúc Thịnh Solar theme polish (anh chốt 2026-06-16) ═══════════════════════════
    Đổi accent từ --at-ink (đen trung tính) → brand teal-blue HS; hàng KH liên kết
    từ coral (đỏ) → brand-soft. --brand* là token global (hs-crm-theme.css). Đặt
    CUỐI block để thắng cascade (cùng specificity → rule sau thắng). */

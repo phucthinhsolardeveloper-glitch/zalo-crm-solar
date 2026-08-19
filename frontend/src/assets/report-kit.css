@@ -1,4 +1,4 @@
-/* report-kit.css — Reports module design system (HS Holding). Scoped under .rpt-scope
+/* report-kit.css — Reports module design system (Phúc Thịnh Solar). Scoped under .rpt-scope
    so generic class names (.kpi/.card/.tbl…) never leak into the rest of the app.
    Imported globally in main.ts. Brand tokens fall back to hs-crm-theme.css :root. */
 .rpt-scope{

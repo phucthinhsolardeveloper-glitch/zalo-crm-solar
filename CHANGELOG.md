@@ -12,10 +12,50 @@ Các thay đổi đáng chú ý của ZCRM. Theo [Semantic Versioning](https://s
   và trích xuất text thật từ PDF (`pdf-parse`) và DOCX (`mammoth`) thay vì chỉ TXT/MD/CSV/JSON.
   File không đọc được (hỏng, có mật khẩu) trả lỗi rõ ràng thay vì nạp rác nhị phân vào knowledge base.
 
+### Changed
+- **AI Trợ Lý Virtual Chat: chuyển domain BĐS → Điện mặt trời** — prompt mẫu, schema trích xuất
+  (`ExtractedSolarNeed`: loại công trình, tiền điện, mái, công suất, hệ thống hoà lưới/độc lập...)
+  và UI gợi ý (`AiSuggestionCard.vue`) đổi theo nghiệp vụ điện mặt trời. `propertyNeed` BĐS cũ giữ lại
+  làm fallback cho dữ liệu lưu trước đây, không mất dữ liệu.
+
+### Fixed
+- **AI Trợ Lý Virtual Chat:** khi model AI quên phần reply text trước `---JSON---`, hệ thống trước đây
+  hiện nguyên khối JSON kỹ thuật (confidenceScore, missingFields...) vào tin nhắn cho sale xem — giờ
+  bỏ qua tin đó thay vì hiển thị nội dung không phù hợp.
+- **AI Trợ Lý Virtual Chat:** các trường số (tiền điện, diện tích mái, công suất kWp...) bị model AI
+  trả về dạng chuỗi (`"100"` thay vì `100`) trước đây bị âm thầm loại bỏ — giờ tự động ép kiểu trước
+  khi kiểm tra hợp lệ, không mất dữ liệu đã trích xuất đúng.
+
+### Added (3)
+- **Auto-provisioning OmiCall khi tạo nhân viên** — `telephony/omicall-agent-provisioning.ts` gọi
+  `POST /api/agent/invite` (OmiCall Employee API) ngay khi admin tạo user qua
+  `POST /api/v1/users/create-with-zalo`, tự cấp `sip_user`/`sip_password` thật (mã hoá lưu vào
+  `User.omicallExtension`/`omicallExtensionSecret`) — nhân viên gọi được ngay, KHÔNG cần admin
+  gán extension thủ công. Mọi user mới mặc định `role_name: "Sale"` (chưa map theo role CRM thật).
+  Nếu identify_info trùng (`agent_exists`), tự tra `GET-by-email` và gán lại extension đã có thay vì
+  fail. Best-effort — nếu OmiCall lỗi/không cấu hình, việc tạo user vẫn thành công bình thường, chỉ
+  báo rõ trên UI (`CreateUserWithZaloModal.vue`) rằng cần gán extension thủ công.
+
+### Added (2)
+- **OmiCall → crm-custom relay** — khi 1 cuộc gọi OmiCall kết thúc (completed/rejected/missed/failed),
+  `telephony/omicall-crm-forward.ts` chuyển tiếp sang webhook-endpoints của `crm-custom`, để cuộc gọi
+  cũng vào `CallLog` bên đó (tự chuyển trạng thái Lead + AI tóm tắt). Bắn từ 2 nơi: (1) webhook trực
+  tiếp `omicall-public-routes.ts` khi có địa chỉ public nhận webhook thật từ OmiCall, và (2)
+  `omicall-history-sync.ts` — đường kéo lịch sử qua Call Transaction API, dùng được ngay trên local
+  vì không cần OmiCall gọi ngược vào máy mình. Tùy chọn — tắt nếu không cấu hình
+  `CRM_CUSTOM_OMICALL_WEBHOOK_URL`/`_SECRET`. Không sửa gì bên `crm-custom` (dùng lại webhook-endpoints
+  framework có sẵn).
+  **Đã test thành công bằng dữ liệu thật** qua tài khoản OmiCall trial: sync 1 cuộc gọi outbound thật
+  (9s, đã trả lời, có link ghi âm thật từ OmiCall) → xuất hiện đúng trong `CallLog` bên crm-custom,
+  số điện thoại/thời lượng/hangup cause/disposition/link ghi âm đều khớp chính xác.
+
 ### Security
 - `.gitignore` mở rộng để chặn commit nhầm `.env.production` (trước đây chỉ chặn đúng file `.env`).
 - Toàn bộ secret tự sinh trong `.env.production` (JWT, ENCRYPTION_KEY, TOKEN_ENCRYPTION_KEY,
   DB password, webhook verify token FB/Zalo/Omicall) đã được rotate — không còn giá trị mặc định.
+- *(Chưa xử lý, chờ xác nhận riêng — xem `OMICALL-INTEGRATION-DISCOVERY-PHASE0.md` mục 11):*
+  `UserSipConfig.sipPassword` (crm-custom) lưu plaintext; route `telephony` (zalo-crm-solar) chưa
+  dùng `requireGrant()`; webhook OmiCall xác thực qua `?key=` query string thay vì chỉ header.
 
 ## [3.4.0] - 2026-06-20
 

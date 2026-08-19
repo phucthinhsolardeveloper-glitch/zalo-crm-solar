@@ -239,7 +239,7 @@ Dùng form trên màn hình `/setup` để tạo tổ chức và admin đầu ti
 
 Ví dụ thực tế đã dùng:
 
-- Tên tổ chức: HS Holding
+- Tên tổ chức: Phúc Thịnh Solar
 - Họ tên: Admin User
 - Email: admin@hs.com
 - Số điện thoại: 0901234567

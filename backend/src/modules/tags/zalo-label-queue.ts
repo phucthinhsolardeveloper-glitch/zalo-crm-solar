@@ -9,7 +9,7 @@
  *
  * Lý do defer:
  * Anh review T-D 2026-06-01 verify lại race scenario:
- *   - HS Holding model: mỗi sale chăm nick riêng, KHÔNG share nick chăm KH
+ *   - Phúc Thịnh Solar model: mỗi sale chăm nick riêng, KHÔNG share nick chăm KH
  *   - Race chỉ xảy ra khi 2+ sale CÙNG share quyền 1 nick + CÙNG assign tag
  *     cho 2 KH KHÁC NHAU trong window ~1-2s
  *   - Tần suất thực tế: 0 (chỉ internal/notify nick share, không chăm KH)

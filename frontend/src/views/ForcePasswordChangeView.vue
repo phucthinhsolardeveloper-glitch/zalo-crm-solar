@@ -4,7 +4,7 @@
   ForcePasswordChangeView — Phase Onboarding v1 2026-05-24.
   Block UI khi user mới lần đầu login (passwordChangedAt === null).
   Không thể skip / close / logout cho tới khi đổi xong password.
-  2026-06-07 — re-skin Atlas v2 / nhận diện HS Holding (brand metallic-blue, monogram + wordmark).
+  2026-06-07 — re-skin Atlas v2 / nhận diện Phúc Thịnh Solar (brand metallic-blue, monogram + wordmark).
 -->
 <template>
   <div class="fpc-page">
@@ -138,7 +138,7 @@ const auth = useAuthStore();
 // Branding lockup — đồng bộ logo + tên tổ chức với trang /login.
 const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
 const brandLogo = ref(DEFAULT_LOGO);
-const brandName = ref('HS Holding');
+const brandName = ref('Phúc Thịnh Solar');
 function onLogoError() {
   if (brandLogo.value !== DEFAULT_LOGO) brandLogo.value = DEFAULT_LOGO;
 }
@@ -147,7 +147,7 @@ onMounted(() => {
     .then((b) => {
       if (!b) return;
       brandLogo.value = b.logoUrl || DEFAULT_LOGO;
-      brandName.value = b.name || 'HS Holding';
+      brandName.value = b.name || 'Phúc Thịnh Solar';
     })
     .catch(() => {});
 });
@@ -191,7 +191,7 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-/* ── Atlas v2 / HS Holding identity ──────────────────────────────────────── */
+/* ── Atlas v2 / Phúc Thịnh Solar identity ──────────────────────────────────────── */
 .fpc-page {
   min-height: 100vh;
   display: flex;

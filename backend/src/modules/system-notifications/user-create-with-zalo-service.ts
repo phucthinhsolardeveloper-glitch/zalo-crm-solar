@@ -24,6 +24,7 @@ import { prisma, tenantTransaction } from '../../shared/database/prisma-client.j
 import { logger } from '../../shared/utils/logger.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
+import { provisionOmicallAgent } from '../telephony/omicall-agent-provisioning.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import {
@@ -359,6 +360,12 @@ export interface CreateUserResult {
     /** Tin fallback đã gửi admin (nếu tin chính fail và org có adminFallbackPhone). */
     fallbackSentToAdmin: boolean;
     error: string | null;
+  };
+  /** Best-effort auto-provision OmiCall agent — never blocks user creation on failure. */
+  omicall: {
+    provisioned: boolean;
+    sipUser?: string;
+    error?: string;
   };
 }
 
@@ -720,6 +727,30 @@ export async function createUserAndSendLogin(input: CreateUserInput): Promise<Cr
     throw err;
   }
 
+  // Auto-provision OmiCall agent so calling works with zero manual extension setup.
+  // Best-effort: never throws, never blocks/rolls back user creation on failure.
+  let omicallResult: CreateUserResult['omicall'] = { provisioned: false };
+  try {
+    const provision = await provisionOmicallAgent({
+      userId: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      phone: normalizedPhone,
+    });
+    if (provision.ok && provision.sipUser && provision.sipPasswordEncrypted) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { omicallExtension: provision.sipUser, omicallExtensionSecret: provision.sipPasswordEncrypted },
+      });
+      omicallResult = { provisioned: true, sipUser: provision.sipUser };
+    } else {
+      omicallResult = { provisioned: false, error: provision.error };
+    }
+  } catch (err) {
+    logger.warn(`[user-create-with-zalo] omicall provisioning threw for user=${user.id}: ${String(err)}`);
+    omicallResult = { provisioned: false, error: String(err) };
+  }
+
   // FIX codex MED-4 cont: auto-accept friend SAU khi DB committed. Nếu accept fail,
   // user vẫn tồn tại trong DB — admin có thể resend sau (tin sẽ vào Strangers).
   let autoAccepted = false;
@@ -796,6 +827,7 @@ export async function createUserAndSendLogin(input: CreateUserInput): Promise<Cr
     user: { id: user.id, fullName: user.fullName, email: user.email, phone: user.phone!, role: user.role },
     tempPassword,
     zalo: zaloResult,
+    omicall: omicallResult,
   };
 }
 
@@ -816,6 +848,7 @@ export async function resendLoginMessage(args: {
     select: {
       id: true, fullName: true, email: true, phone: true, role: true,
       permissionGroupId: true,
+      omicallExtension: true,
       permissionGroup: { select: { name: true } },
       departmentMember: { select: { id: true, deptRole: true, department: { select: { name: true } } } },
     },
@@ -913,5 +946,6 @@ export async function resendLoginMessage(args: {
     user: { id: target.id, fullName: target.fullName, email: target.email, phone: target.phone!, role: target.role },
     tempPassword,
     zalo: zaloResult,
+    omicall: { provisioned: !!target.omicallExtension, sipUser: target.omicallExtension ?? undefined },
   };
 }

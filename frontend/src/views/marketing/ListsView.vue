@@ -426,7 +426,7 @@ function progressPct(l: CustomerListSummary, kind: 'valid' | 'invalid' | 'dup'):
 
 <style scoped>
 /* ════════════════════════════════════════════════════════════
-   Tệp khách hàng (ListsView) — Atlas HS Holding re-skin 2026-06-06
+   Tệp khách hàng (ListsView) — Atlas Phúc Thịnh Solar re-skin 2026-06-06
    Scaffold dùng .mkt-top / .mkt-body / .mkt-stats từ hs-crm-theme.css.
    CSS-only override cho phần custom: status-tabs, key-chip, bar split,
    num-cell màu. Token hoá toàn bộ — KHÔNG hardcode hex lạ.

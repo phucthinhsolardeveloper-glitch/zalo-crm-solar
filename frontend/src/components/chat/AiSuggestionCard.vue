@@ -59,6 +59,29 @@
 import { ref, computed, reactive } from 'vue';
 import { api } from '@/api/index';
 
+interface SolarNeed {
+  projectType?: string;
+  usagePurpose?: string;
+  monthlyElectricityBillMin?: number;
+  monthlyElectricityBillMax?: number;
+  monthlyConsumptionKwh?: number;
+  usageTime?: string;
+  largeLoads?: string[];
+  roofType?: string;
+  roofAreaM2?: number;
+  roofCondition?: string;
+  shading?: string | null;
+  systemType?: string;
+  batteryStorage?: boolean | null;
+  desiredCapacityKwp?: number;
+  purpose?: string;
+  budgetMin?: number;
+  budgetMax?: number;
+  installationTimeline?: string;
+  interestLevel?: string;
+  location?: string;
+}
+
 interface PropertyNeed {
   type?: string;
   budgetMin?: number;
@@ -72,11 +95,16 @@ interface Entities {
   fullName?: string;
   gender?: 'M' | 'F' | null;
   birthYear?: number;
+  age?: number;
   occupation?: string;
   incomeRange?: string | null;
+  phone?: string;
   province?: string;
   district?: string;
   ward?: string;
+  address?: string;
+  addressLine?: string;
+  solarNeed?: SolarNeed;
   propertyNeed?: PropertyNeed;
   leadSource?: string;
   tags?: string[];
@@ -102,31 +130,65 @@ const confidencePercent = computed(() => {
   return typeof s === 'number' ? Math.round(s * 100) : null;
 });
 
-const PROPERTY_TYPE_LABEL: Record<string, string> = {
-  '1PN': 'Căn 1PN',
-  '2PN': 'Căn 2PN',
-  '3PN': 'Căn 3PN',
+const SOLAR_PROJECT_TYPE_LABEL: Record<string, string> = {
+  nha_o: 'Nhà ở',
   biet_thu: 'Biệt thự',
   nha_pho: 'Nhà phố',
-  shophouse: 'Shophouse',
+  van_phong: 'Văn phòng',
+  cua_hang: 'Cửa hàng',
+  nha_xuong: 'Nhà xưởng',
+  kho: 'Kho bãi',
+  trang_trai: 'Trang trại',
+  khach_san: 'Khách sạn',
+  truong_hoc: 'Trường học',
+  khac: 'Khác',
 };
-const PROPERTY_PURPOSE_LABEL: Record<string, string> = {
-  o_lien: 'Ở liền',
-  dau_tu: 'Đầu tư',
-  vua_o_vua_thue: 'Vừa ở vừa cho thuê',
+const SOLAR_USAGE_PURPOSE_LABEL: Record<string, string> = {
+  sinh_hoat: 'Sinh hoạt',
+  kinh_doanh: 'Kinh doanh',
+  san_xuat: 'Sản xuất',
+  hon_hop: 'Hỗn hợp',
+  khac: 'Khác',
 };
-const TIMELINE_LABEL: Record<string, string> = {
-  '1_thang': '1 tháng',
-  '3_thang': '3 tháng',
-  '6_thang': '6 tháng',
-  chua_ro: 'Chưa rõ',
+const SOLAR_ROOF_TYPE_LABEL: Record<string, string> = {
+  mai_ton: 'Mái tôn',
+  mai_ngoi: 'Mái ngói',
+  mai_be_tong: 'Mái bê tông',
+  mai_nha_xuong: 'Mái xưởng',
+  khac: 'Mái khác',
+  chua_ro: 'Chưa rõ mái',
+};
+const SOLAR_SYSTEM_TYPE_LABEL: Record<string, string> = {
+  hoa_luoi: 'Hòa lưới',
+  hoa_luoi_co_luu_tru: 'Hòa lưới có lưu trữ',
+  doc_lap: 'Độc lập',
+  chua_ro: 'Chưa rõ hệ thống',
+};
+const SOLAR_PURPOSE_LABEL: Record<string, string> = {
+  giam_tien_dien: 'Giảm tiền điện',
+  du_phong_mat_dien: 'Dự phòng mất điện',
+  chu_dong_nguon_dien: 'Chủ động nguồn điện',
+  phuc_vu_san_xuat: 'Phục vụ sản xuất',
+  toi_uu_chi_phi: 'Tối ưu chi phí',
+  khac: 'Khác',
+};
+const SOLAR_TIMELINE_LABEL: Record<string, string> = {
+  ngay: 'Lắp ngay',
+  '1_thang': 'Trong 1 tháng',
+  '1_3_thang': '1-3 tháng',
+  '3_6_thang': '3-6 tháng',
+  chua_xac_dinh: 'Chưa xác định',
 };
 const LEAD_SOURCE_LABEL: Record<string, string> = {
   facebook: 'Facebook',
   zalo: 'Zalo',
-  gioi_thieu: 'Giới thiệu',
-  hotline: 'Hotline',
+  tiktok: 'TikTok',
+  google: 'Google',
   website: 'Website',
+  gioi_thieu: 'Giới thiệu',
+  khach_cu: 'Khách cũ',
+  hotline: 'Hotline',
+  nhan_vien_tiep_can: 'Sale tiếp cận',
   khac: 'Khác',
 };
 const INCOME_LABEL: Record<string, string> = {
@@ -169,37 +231,77 @@ const rows = computed<SuggestionRow[]>(() => {
     add('birthYear', 'Năm sinh', e.birthYear, `${e.birthYear} (${age} tuổi)`);
   }
   if (e.occupation) add('occupation', 'Nghề nghiệp', e.occupation);
+  if (e.phone) add('phone', 'Số điện thoại', e.phone);
   if (e.incomeRange) add('incomeRange', 'Thu nhập', e.incomeRange, INCOME_LABEL[e.incomeRange] ?? e.incomeRange);
   if (e.province) add('province', 'Tỉnh/TP', e.province);
   if (e.district) add('district', 'Quận/Huyện', e.district);
   if (e.ward) add('ward', 'Phường/Xã', e.ward);
+  if (e.address || e.addressLine) add('address', 'Địa chỉ', e.address || e.addressLine);
   if (e.leadSource) add('source', 'Nguồn lead', e.leadSource, LEAD_SOURCE_LABEL[e.leadSource] ?? e.leadSource);
 
-  // M55.3 2026-05-30: tags AI → row checkable, BE merge với tags hiện có (dedup)
+  // Tags AI → row checkable
   if (e.tags && Array.isArray(e.tags) && e.tags.length > 0) {
     add('tags', 'Tags', e.tags, e.tags.join(', '));
   }
 
-  // M55.3 2026-05-30: propertyNeed → row checkable, BE lưu vào Contact.metadata.propertyNeed
-  // + tóm tắt vào Contact.notes. KHÔNG còn info-only nữa.
+  // SolarNeed → row checkable
+  if (e.solarNeed) {
+    const sn = e.solarNeed;
+    const parts: string[] = [];
+    if (sn.projectType) {
+      const pType = SOLAR_PROJECT_TYPE_LABEL[sn.projectType] ?? sn.projectType;
+      const uPurp = sn.usagePurpose ? ` (${SOLAR_USAGE_PURPOSE_LABEL[sn.usagePurpose] ?? sn.usagePurpose})` : '';
+      parts.push(`${pType}${uPurp}`);
+    }
+    if (sn.monthlyElectricityBillMin || sn.monthlyElectricityBillMax) {
+      const formatVnd = (num: number) => num >= 1000000 ? `${num / 1000000}tr` : `${num.toLocaleString()}đ`;
+      const min = sn.monthlyElectricityBillMin ? formatVnd(sn.monthlyElectricityBillMin) : null;
+      const max = sn.monthlyElectricityBillMax ? formatVnd(sn.monthlyElectricityBillMax) : null;
+      const billStr = min && max && min !== max ? `${min}-${max}/tháng` : `${max || min}/tháng`;
+      parts.push(`Tiền điện: ${billStr}`);
+    }
+    if (sn.monthlyConsumptionKwh) parts.push(`${sn.monthlyConsumptionKwh} kWh/tháng`);
+    if (sn.roofType || sn.roofAreaM2) {
+      const rType = sn.roofType ? SOLAR_ROOF_TYPE_LABEL[sn.roofType] ?? sn.roofType : '';
+      const rArea = sn.roofAreaM2 ? `${sn.roofAreaM2}m²` : '';
+      parts.push([rType, rArea].filter(Boolean).join(' '));
+    }
+    if (sn.systemType) parts.push(SOLAR_SYSTEM_TYPE_LABEL[sn.systemType] ?? sn.systemType);
+    if (sn.batteryStorage === true) parts.push('Có pin lưu trữ');
+    if (sn.desiredCapacityKwp) parts.push(`${sn.desiredCapacityKwp} kWp`);
+    if (sn.purpose) parts.push(SOLAR_PURPOSE_LABEL[sn.purpose] ?? sn.purpose);
+    if (sn.installationTimeline) parts.push(`(${SOLAR_TIMELINE_LABEL[sn.installationTimeline] ?? sn.installationTimeline})`);
+    if (sn.location) parts.push(`tại ${sn.location}`);
+
+    if (parts.length > 0) {
+      result.push({
+        field: 'solarNeed',
+        label: 'Nhu cầu điện MT',
+        value: sn,
+        displayValue: parts.join(' · '),
+        isExisting: false,
+      });
+    }
+  }
+
+  // Fallback: Legacy PropertyNeed
   if (e.propertyNeed) {
     const pn = e.propertyNeed;
     const parts: string[] = [];
-    if (pn.type) parts.push(PROPERTY_TYPE_LABEL[pn.type] ?? pn.type);
+    if (pn.type) parts.push(pn.type);
     if (pn.budgetMin || pn.budgetMax) {
       const b = pn.budgetMax ? `${pn.budgetMin}-${pn.budgetMax} tỷ` : `${pn.budgetMin} tỷ`;
       parts.push(b);
     }
-    if (pn.purpose) parts.push(PROPERTY_PURPOSE_LABEL[pn.purpose] ?? pn.purpose);
+    if (pn.purpose) parts.push(pn.purpose);
     if (pn.area) parts.push(`tại ${pn.area}`);
-    if (pn.decisionTimeline) parts.push(`(${TIMELINE_LABEL[pn.decisionTimeline] ?? pn.decisionTimeline})`);
     if (parts.length > 0) {
       result.push({
         field: 'propertyNeed',
-        label: 'Nhu cầu BĐS',
-        value: pn, // gửi nguyên object cho BE serialize vào metadata
+        label: 'Nhu cầu BĐS (cũ)',
+        value: pn,
         displayValue: parts.join(' '),
-        isExisting: false, // checkable, default UN-checked như field khác
+        isExisting: false,
       });
     }
   }

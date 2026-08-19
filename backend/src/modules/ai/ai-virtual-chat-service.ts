@@ -328,5 +328,8 @@ export function parseResponse(raw: string): {
     logger.warn(`[ai-virtual-chat] JSON parse failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  return { reply: replyPart || raw.trim(), entities };
+  // Nếu model quên phần reply trước ---JSON--- thì KHÔNG fallback về raw text —
+  // raw chứa nguyên khối JSON, lộ field kỹ thuật (confidenceScore, missingFields...)
+  // vào tin nhắn hiển thị cho sale. Trả rỗng để caller tự bỏ qua (đã có guard `if (!reply) return`).
+  return { reply: replyPart, entities };
 }
