@@ -485,9 +485,9 @@
               <button class="icon-btn" title="Xem chi tiết" @click="openDetailPanel(entry.id)">
                 <v-icon size="13">mdi-eye-outline</v-icon>
               </button>
-              <a v-if="entry.phoneE164 || entry.phoneLocal" class="icon-btn" title="Gọi" :href="`tel:${entry.phoneE164 || entry.phoneLocal}`">
+              <button v-if="entry.phoneE164 || entry.phoneLocal" class="icon-btn" title="Gọi" :disabled="rowCalling === entry.id" @click="onRowCall(entry)">
                 <v-icon size="13">mdi-phone-outline</v-icon>
-              </a>
+              </button>
               <button v-if="entry.hasZalo !== true" class="icon-btn zalo" title="Tìm Zalo cho KH này" :disabled="rowFinding === entry.id" @click="(e) => openRowFindZalo(entry, e)">
                 <v-icon size="13">mdi-magnify</v-icon>
               </button>
@@ -601,6 +601,7 @@ import LeadNotifyConfigDrawer from '@ee/automation/components/LeadNotifyConfigDr
 import LeadNotifyTimeline from '@ee/automation/components/LeadNotifyTimeline.vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
+import { useOmicallSoftphone } from '@/composables/use-omicall-softphone';
 import { useConfirm } from '@/composables/use-confirm';
 
 const route = useRoute();
@@ -655,6 +656,23 @@ function openDetailPanel(entryId: string) {
 }
 function openContact(contactId: string) {
   window.open(`/contacts/${contactId}`, '_blank');
+}
+
+// FIX 2026-08-20 (audit gọi/lịch sử): tel: không đi qua tổng đài/không log CallLog. Dùng chung
+// callPhone() của softphone — cùng service với mọi nơi gọi khác trong app.
+const { callPhone } = useOmicallSoftphone();
+const rowCalling = ref<string | null>(null);
+async function onRowCall(entry: CustomerListEntry) {
+  const phone = entry.phoneE164 || entry.phoneLocal;
+  if (!phone || rowCalling.value) return;
+  rowCalling.value = entry.id;
+  try {
+    await callPhone(phone, { fullName: entry.nameRaw || undefined });
+  } catch (e: any) {
+    toast.error(e?.response?.data?.error || e?.message || 'Không thể gọi');
+  } finally {
+    rowCalling.value = null;
+  }
 }
 function openRowChat(entry: CustomerListEntry) {
   const phone = entry.phoneLocal || entry.phoneE164 || '';

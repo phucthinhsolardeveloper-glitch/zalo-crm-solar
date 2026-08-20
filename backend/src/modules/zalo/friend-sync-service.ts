@@ -35,6 +35,7 @@ import { applyFriendTransition } from './friend-event-handler.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
 import { safeContactUpdate } from '../../shared/database/safe-contact-write.js';
 import { buildFriendUpdatedPayload } from '../../shared/friend-serializer.js';
+import { mirrorRemoteMediaUrl, isMirrorableUrl } from '../chat/message-handler.js';
 // getAllFriends() trả gender/dob/sdob cùng shape getUserInfo — tái dùng parse của cron.
 import { mapGender, parseBirthDate } from '../contacts/contact-profile-sync-cron.js';
 import { buildPhoneCapturePatch } from '../contacts/zalo-profile-capture.js';
@@ -183,15 +184,31 @@ async function syncFriendsForAccountImpl(
   // (rate limit, network) bubble lên outer try/catch.
   try {
     const liveRaw: any = await zaloOps.getAllFriends(accountId);
-    const sentRaw: any = await zaloOps.getSentFriendRequests(accountId);
     liveFriends = Array.isArray(liveRaw) ? liveRaw
       : Array.isArray(liveRaw?.data) ? liveRaw.data
       : Array.isArray(liveRaw?.items) ? liveRaw.items
       : [];
-    sentRequests = Array.isArray(sentRaw) ? sentRaw
-      : Array.isArray(sentRaw?.data) ? sentRaw.data
-      : Array.isArray(sentRaw?.items) ? sentRaw.items
-      : [];
+
+    // FIX 2026-08-20: zca-js's getSentFriendRequests THROWS zalo error code 112 when
+    // there are simply zero pending sent requests (documented in the library itself —
+    // not a real failure). Previously this shared the same try/catch as getAllFriends
+    // above, so an empty sent-requests list discarded an already-successful friend
+    // fetch every single cycle. Treat code 112 from THIS call specifically as "empty",
+    // not an error — any OTHER error (network/rate-limit/disconnect) still bubbles to
+    // the outer catch below, preserving the B4 fix (don't silently swallow real failures).
+    try {
+      const sentRaw: any = await zaloOps.getSentFriendRequests(accountId);
+      sentRequests = Array.isArray(sentRaw) ? sentRaw
+        : Array.isArray(sentRaw?.data) ? sentRaw.data
+        : Array.isArray(sentRaw?.items) ? sentRaw.items
+        : [];
+    } catch (sentErr: any) {
+      if (String(sentErr?.message || '').includes('[zalo:112]')) {
+        sentRequests = [];
+      } else {
+        throw sentErr;
+      }
+    }
   } catch (err) {
     result.errors++;
     logger.warn(`[friend-sync:${accountId}] SDK fetch failed:`, err);
@@ -230,10 +247,29 @@ async function syncFriendsForAccountImpl(
   });
   const existingByUid = new Map(existingFriends.map((f) => [f.zaloUidInNick, f]));
 
+  // FIX 2026-08-20 (avatar Zalo hết hạn): Zalo CDN avatar URL rồi sẽ expire → avatar
+  // biến mất vĩnh viễn về initials, không tự phục hồi. Groups đã có fix này
+  // (group-info-refresh.ts, mirror CDN→S3 nội bộ, URL không hết hạn) — Friend/Contact thì
+  // chưa. Mirror ở đây, CHỈ khi CHƯA có bản mirror (existing rỗng hoặc vẫn là URL Zalo
+  // thô) — tránh fetch+nén+upload lại cho MỌI friend mỗi 15 phút cron tick (khác group:
+  // ít hơn nhiều số lượng + cadence 6h, mirror lại mỗi lần chấp nhận được).
+  async function mirrorAvatarIfNeeded(
+    info: NonNullable<ReturnType<typeof extractFriendInfo>>,
+    existing: { zaloAvatarUrl: string | null } | undefined,
+  ): Promise<void> {
+    const raw = info.snapshot.zaloAvatarUrl;
+    if (!isMirrorableUrl(raw)) return;
+    if (existing?.zaloAvatarUrl && !isMirrorableUrl(existing.zaloAvatarUrl)) return; // đã mirror rồi
+    const mirrored = await mirrorRemoteMediaUrl(raw, 'image').catch(() => null);
+    if (mirrored) info.snapshot.zaloAvatarUrl = mirrored;
+  }
+
   // Process accepted friends → friendshipStatus='accepted'
   for (const live of liveFriends) {
     const info = extractFriendInfo(live);
     if (!info) continue;
+    const existing = existingByUid.get(info.uid);
+    await mirrorAvatarIfNeeded(info, existing);
     try {
       await processFriend({
         accountId,
@@ -246,7 +282,7 @@ async function syncFriendsForAccountImpl(
         targetStatus: 'accepted',
         fallbackName: info.snapshot.zaloDisplayName,
         fallbackAvatar: info.snapshot.zaloAvatarUrl,
-        existing: existingByUid.get(info.uid),
+        existing,
         io: opts.io ?? null,
         result,
       });
@@ -264,6 +300,8 @@ async function syncFriendsForAccountImpl(
   for (const req of sentRequests) {
     const info = extractFriendInfo(req);
     if (!info) continue;
+    const existing = existingByUid.get(info.uid);
+    await mirrorAvatarIfNeeded(info, existing);
     try {
       await processFriend({
         accountId,
@@ -276,7 +314,7 @@ async function syncFriendsForAccountImpl(
         targetStatus: 'pending_sent',
         fallbackName: info.snapshot.zaloDisplayName,
         fallbackAvatar: info.snapshot.zaloAvatarUrl,
-        existing: existingByUid.get(info.uid),
+        existing,
         io: opts.io ?? null,
         result,
       });
@@ -344,10 +382,10 @@ async function processFriend(args: ProcessFriendArgs): Promise<void> {
   const contactRow = await prisma.contact.findUnique({
     where: { id: resolved.id },
     select: { id: true, fullName: true, gender: true, genderLocked: true, birthDate: true,
-      phone: true, phone2: true, phone3: true, phonesExtra: true, metadata: true },
+      phone: true, phone2: true, phone3: true, phonesExtra: true, metadata: true, avatarUrl: true },
   });
   const contact = contactRow ?? { id: resolved.id, fullName: null, gender: null, genderLocked: false, birthDate: null,
-    phone: null, phone2: null, phone3: null, phonesExtra: [], metadata: {} };
+    phone: null, phone2: null, phone3: null, phonesExtra: [], metadata: {}, avatarUrl: null };
 
   // 1c. Gộp các backfill Cha (Contact) vào 1 update để tránh N+1:
   //   • B8 — fullName khi Contact stub 'Unknown' mà Friend đã có zaloDisplayName từ SDK.
@@ -367,6 +405,19 @@ async function processFriend(args: ProcessFriendArgs): Promise<void> {
     if (args.snapshot.zaloGlobalId) cPatch.zaloGlobalId = args.snapshot.zaloGlobalId;
     if (args.snapshot.zaloUsername) cPatch.zaloUsername = args.snapshot.zaloUsername;
     if (args.fallbackAvatar) cPatch.avatarUrl = args.fallbackAvatar;
+  }
+  // FIX 2026-08-20 (avatar Zalo hết hạn): nhánh trên chỉ set avatarUrl khi ĐỒNG THỜI đang
+  // backfill fullName rỗng — Contact có tên đã đủ nhưng avatarUrl vẫn trỏ URL Zalo CDN thô
+  // (đặt trước khi có mirroring) sẽ KHÔNG bao giờ được refresh. Bù riêng: nếu avatarUrl hiện
+  // tại rỗng HOẶC vẫn là URL bên ngoài (chưa mirror) và giờ đã có bản mirror mới → cập nhật.
+  // KHÔNG đụng avatarUrl nếu sale đã tự upload tay (khi đó nó đã là URL nội bộ → isMirrorableUrl=false).
+  if (
+    !cPatch.avatarUrl
+    && args.snapshot.zaloAvatarUrl
+    && (!contact.avatarUrl || isMirrorableUrl(contact.avatarUrl))
+    && args.snapshot.zaloAvatarUrl !== contact.avatarUrl
+  ) {
+    cPatch.avatarUrl = args.snapshot.zaloAvatarUrl;
   }
   if (args.gender && contact.gender == null && !contact.genderLocked) cPatch.gender = args.gender;
   if (args.birthDate && contact.birthDate == null) cPatch.birthDate = args.birthDate;

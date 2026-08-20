@@ -192,7 +192,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, resource: 'contact' },
   },
   {
-    // Tab "Hồ sơ KH tổng hợp" — SKELETON, render 3 field ẩn cột 4 (email/address/occupation)
+    // Tab "Hồ sơ KH tổng hợp" — SKELETON, render 3 field ẩn cột 4 (email/address/industry)
     // + aggregate Friend rows. Backend route stub, full impl ở phase sau.
     path: '/contacts/:id/profile',
     name: 'ContactProfile',

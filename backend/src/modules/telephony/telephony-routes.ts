@@ -10,6 +10,8 @@ import { checkZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { syncOmicallHistoryForUser } from './omicall-history-sync.js';
 import { decryptOmicallSecret } from './omicall-token.js';
 import { listUnassignedOmicallExtensions } from './omicall-directory.js';
+import { getObjectBuffer, keyFromPublicUrl } from '../../shared/storage/minio-client.js';
+import { assertSafeOutboundUrl } from '../../shared/utils/ssrf-guard.js';
 
 const DIRECTIONS = new Set(['inbound', 'outbound']);
 const STATUSES = new Set(['initiated', 'ringing', 'answered', 'completed', 'rejected', 'missed', 'failed']);
@@ -180,6 +182,81 @@ export async function telephonyRoutes(app: FastifyInstance) {
     };
   });
 
+  // GET /api/v1/telephony/dial-suggestions?q= — gợi ý khi gõ số trong popup gọi:
+  // khớp tên/SĐT khách hàng có sẵn trong CRM, kèm trạng thái + thời gian cuộc gọi gần nhất
+  // (nếu có) để sale biết đây là số quen hay lạ trước khi bấm gọi.
+  app.get('/api/v1/telephony/dial-suggestions', async (request) => {
+    const current = request.user!;
+    const query = String((request.query as { q?: string })?.q || '').trim();
+    if (query.length < 2) return { suggestions: [] };
+    const digitsOnly = query.replace(/\D/g, '');
+
+    const contacts = await prisma.contact.findMany({
+      where: {
+        orgId: current.orgId,
+        mergedInto: null,
+        OR: [
+          ...(digitsOnly.length >= 3
+            ? [
+                { phone: { contains: digitsOnly } },
+                { phone2: { contains: digitsOnly } },
+                { phone3: { contains: digitsOnly } },
+              ]
+            : []),
+          { fullName: { contains: query, mode: 'insensitive' as const } },
+          { crmName: { contains: query, mode: 'insensitive' as const } },
+        ],
+      },
+      select: { id: true, fullName: true, crmName: true, phone: true, avatarUrl: true },
+      orderBy: { lastActivity: { sort: 'desc', nulls: 'last' } },
+      take: 8,
+    });
+
+    const contactIds = contacts.map((c) => c.id);
+    const recentCalls = contactIds.length
+      ? await prisma.telephonyCall.findMany({
+          where: { orgId: current.orgId, contactId: { in: contactIds } },
+          orderBy: { startedAt: 'desc' },
+          select: { contactId: true, status: true, startedAt: true },
+        })
+      : [];
+    const lastCallByContact = new Map<string, { status: string; startedAt: Date }>();
+    for (const call of recentCalls) {
+      if (call.contactId && !lastCallByContact.has(call.contactId)) lastCallByContact.set(call.contactId, call);
+    }
+
+    const suggestions = contacts
+      .filter((c) => c.phone)
+      .map((c) => ({
+        contactId: c.id,
+        fullName: c.crmName || c.fullName || null,
+        avatarUrl: c.avatarUrl,
+        phone: c.phone,
+        lastCall: lastCallByContact.get(c.id) || null,
+      }));
+    return { suggestions };
+  });
+
+  // GET /api/v1/telephony/contacts/:contactId/latest-call — cuộc gọi gần nhất + ghi chú
+  // mới nhất của KH này, cho hover-preview ở khung chat (ChatContactPanel.vue). Đọc-only,
+  // scope theo org (giống các thông tin KH khác đã hiện sẵn trong panel chat).
+  app.get('/api/v1/telephony/contacts/:contactId/latest-call', async (request) => {
+    const current = request.user!;
+    const { contactId } = request.params as { contactId: string };
+    const call = await prisma.telephonyCall.findFirst({
+      where: { orgId: current.orgId, contactId },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true, status: true, startedAt: true, direction: true },
+    });
+    if (!call) return { call: null, latestNote: null };
+    const latestNote = await prisma.callNote.findFirst({
+      where: { orgId: current.orgId, callId: call.id },
+      orderBy: { createdAt: 'desc' },
+      include: { author: { select: { id: true, fullName: true } } },
+    });
+    return { call, latestNote };
+  });
+
   app.get('/api/v1/telephony/calls', async (request) => {
     const current = request.user!;
     const query = request.query as {
@@ -256,9 +333,25 @@ export async function telephonyRoutes(app: FastifyInstance) {
       prisma.telephonyCall.count({ where: { ...where, status: { in: ['missed', 'failed', 'rejected'] } } }),
       prisma.telephonyCall.count({ where: { ...where, recordingId: { not: null } } }),
     ]);
+    // Latest note per call — cho hover phone/preview ở call-history mà không cần
+    // mở dialog note riêng. Chỉ 1 query, giữ note mới nhất/call trong JS (page ≤100).
+    const callIds = calls.map((c) => c.id);
+    const latestNoteByCallId = new Map<string, { id: string; body: string; createdAt: Date; author: { id: string; fullName: string } }>();
+    if (callIds.length) {
+      const recentNotes = await prisma.callNote.findMany({
+        where: { callId: { in: callIds }, orgId: current.orgId },
+        orderBy: { createdAt: 'desc' },
+        include: { author: { select: { id: true, fullName: true } } },
+      });
+      for (const note of recentNotes) {
+        if (!latestNoteByCallId.has(note.callId)) latestNoteByCallId.set(note.callId, note);
+      }
+    }
+    const callsWithLatestNote = calls.map((c) => ({ ...c, latestNote: latestNoteByCallId.get(c.id) ?? null }));
+
     const totalPages = Math.ceil(total / pageSize);
     return {
-      calls,
+      calls: callsWithLatestNote,
       capabilities: { canViewOrganization },
       summary: {
         total,
@@ -339,9 +432,13 @@ export async function telephonyRoutes(app: FastifyInstance) {
       });
       if (!peer || peer.id === current.id) return reply.status(404).send({ error: 'Không tìm thấy nhân viên nhận cuộc gọi' });
     } else {
+      // FIX 2026-08-20: trước đây re-check STRICT (84 + 11-12 digit) sau khi đã qua
+      // normalizePhone() LOOSE → chặn nhầm số lịch sử/số nước ngoài mà normalizePhone()
+      // đã chấp nhận hợp lệ (vd số bàn, số nước ngoài giữ nguyên digits). Chỉ cần
+      // normalizePhone() trả về non-null là đủ — nó đã tự loại input rác (<9 hoặc >13 digit).
       externalNumber = normalizePhone(body.phoneNumber);
-      if (!externalNumber || !externalNumber.startsWith('84') || externalNumber.length < 11 || externalNumber.length > 12) {
-        return reply.status(400).send({ error: 'Số điện thoại Việt Nam không hợp lệ' });
+      if (!externalNumber) {
+        return reply.status(400).send({ error: 'Số điện thoại không hợp lệ' });
       }
       const variants = phoneVariants(externalNumber);
       contact = await prisma.contact.findFirst({
@@ -421,10 +518,25 @@ export async function telephonyRoutes(app: FastifyInstance) {
       providerCallId?: string;
       durationSec?: number;
       endReason?: string;
+      contactId?: string | null;
     };
     if (body.status && !STATUSES.has(body.status)) return reply.status(400).send({ error: 'Trạng thái cuộc gọi không hợp lệ' });
-    const existing = await prisma.telephonyCall.findFirst({ where: { id, orgId: current.orgId, ownerUserId: current.id } });
+    // contactId link (vd "Tạo khách hàng" từ số lạ ở Call History) — admin/owner có thể
+    // gắn cho MỌI cuộc gọi trong org; các field khác (status/duration/...) chỉ chính chủ
+    // cuộc gọi mới sửa được (vòng đời cuộc gọi, không phải hành động quản trị).
+    const canLinkAnyCall = current.role === 'owner' || current.role === 'admin';
+    const existing = await prisma.telephonyCall.findFirst({
+      where: { id, orgId: current.orgId, ...(canLinkAnyCall ? {} : { ownerUserId: current.id }) },
+    });
     if (!existing) return reply.status(404).send({ error: 'Không tìm thấy cuộc gọi' });
+    const mutatingLifecycleFields = body.status || body.providerCallId || body.durationSec !== undefined || body.endReason;
+    if (mutatingLifecycleFields && existing.ownerUserId !== current.id) {
+      return reply.status(403).send({ error: 'Chỉ chính chủ cuộc gọi mới sửa được trạng thái' });
+    }
+    if (body.contactId) {
+      const contact = await prisma.contact.findFirst({ where: { id: body.contactId, orgId: current.orgId }, select: { id: true } });
+      if (!contact) return reply.status(404).send({ error: 'Không tìm thấy khách hàng' });
+    }
     const now = new Date();
     const ending = body.status && ['completed', 'rejected', 'missed', 'failed'].includes(body.status);
     const call = await prisma.telephonyCall.update({
@@ -436,8 +548,90 @@ export async function telephonyRoutes(app: FastifyInstance) {
         ...(ending && !existing.endedAt ? { endedAt: now } : {}),
         ...(Number.isFinite(body.durationSec) ? { durationSec: Math.max(0, Math.round(body.durationSec!)) } : {}),
         ...(body.endReason ? { endReason: body.endReason.slice(0, 255) } : {}),
+        ...(body.contactId ? { contactId: body.contactId } : {}),
       },
+      include: { contact: { select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true } } },
     });
     return call;
+  });
+
+  // ── Call notes — ghi chú GẮN VỚI 1 CUỘC GỌI CỤ THỂ, khác Note chung của KH ──
+  async function assertCallVisible(orgId: string, userId: string, role: string, callId: string) {
+    const canViewOrganization = role === 'owner' || role === 'admin';
+    return prisma.telephonyCall.findFirst({
+      where: { id: callId, orgId, ...(canViewOrganization ? {} : { ownerUserId: userId }) },
+      select: { id: true },
+    });
+  }
+
+  app.get('/api/v1/telephony/calls/:id/notes', async (request: FastifyRequest, reply: FastifyReply) => {
+    const current = request.user!;
+    const { id } = request.params as { id: string };
+    const call = await assertCallVisible(current.orgId, current.id, current.role, id);
+    if (!call) return reply.status(404).send({ error: 'Không tìm thấy cuộc gọi' });
+    const notes = await prisma.callNote.findMany({
+      where: { callId: id, orgId: current.orgId },
+      // Newest first — timeline riêng của cuộc gọi này, không liên quan Note chung.
+      orderBy: { createdAt: 'desc' },
+      include: { author: { select: { id: true, fullName: true, avatarUrl: true } } },
+    });
+    return { notes };
+  });
+
+  app.post('/api/v1/telephony/calls/:id/notes', async (request: FastifyRequest, reply: FastifyReply) => {
+    const current = request.user!;
+    const { id } = request.params as { id: string };
+    const body = request.body as { body?: string };
+    const text = (body.body || '').trim();
+    if (!text) return reply.status(400).send({ error: 'Nội dung ghi chú không được để trống' });
+    if (text.length > 4000) return reply.status(400).send({ error: 'Ghi chú quá dài (tối đa 4000 ký tự)' });
+    const call = await assertCallVisible(current.orgId, current.id, current.role, id);
+    if (!call) return reply.status(404).send({ error: 'Không tìm thấy cuộc gọi' });
+    const note = await prisma.callNote.create({
+      data: { orgId: current.orgId, callId: id, authorUserId: current.id, body: text },
+      include: { author: { select: { id: true, fullName: true, avatarUrl: true } } },
+    });
+    return reply.status(201).send(note);
+  });
+
+  // ── Recording playback — proxy qua auth, KHÔNG lộ URL kho ─────────────────
+  // File ghi âm lưu ở /files/media/<hash>.mp3 (static, không auth — mọi ai có URL đều
+  // tải được, dù hash khó đoán). Endpoint này là đường phát CHÍNH THỨC: kiểm tra quyền
+  // xem cuộc gọi (assertCallVisible — chủ cuộc gọi hoặc owner/admin) trước khi trả byte,
+  // và xử lý êm URL hỏng/hết hạn thay vì để trình phát lỗi trắng.
+  app.get('/api/v1/telephony/calls/:id/recording', async (request: FastifyRequest, reply: FastifyReply) => {
+    const current = request.user!;
+    const { id } = request.params as { id: string };
+    const call = await assertCallVisible(current.orgId, current.id, current.role, id);
+    if (!call) return reply.status(404).send({ error: 'Không tìm thấy cuộc gọi' });
+
+    const full = await prisma.telephonyCall.findUnique({ where: { id }, select: { recordingId: true } });
+    const url = full?.recordingId;
+    if (!url) return reply.status(404).send({ error: 'Cuộc gọi này không có ghi âm' });
+
+    // Đã mirror vào kho lưu trữ của hệ thống (trường hợp bình thường) → đọc trực tiếp.
+    const key = keyFromPublicUrl(url);
+    if (key) {
+      const buf = await getObjectBuffer(key);
+      if (!buf) return reply.status(410).send({ error: 'Ghi âm không còn khả dụng (đã bị xóa khỏi kho lưu trữ).' });
+      reply.header('Content-Type', 'audio/mpeg').header('Cache-Control', 'private, max-age=0');
+      return reply.send(buf);
+    }
+
+    // Mirror lúc lưu CDR thất bại → recordingId là URL gốc từ OmiCall (có thể đã hết hạn).
+    // Fetch lại theo yêu cầu, KHÔNG lộ URL gốc cho FE — trả lỗi rõ ràng nếu hết hạn/không tải được.
+    try {
+      const safeUrl = assertSafeOutboundUrl(url);
+      const upstream = await fetch(safeUrl, { signal: AbortSignal.timeout(15_000) });
+      if (!upstream.ok || !upstream.body) {
+        return reply.status(410).send({ error: 'Ghi âm không còn khả dụng (đường dẫn từ tổng đài đã hết hạn).' });
+      }
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      reply.header('Content-Type', upstream.headers.get('content-type') || 'audio/mpeg').header('Cache-Control', 'private, max-age=0');
+      return reply.send(buf);
+    } catch (error) {
+      logger.warn({ callId: id, error: (error as Error).message }, '[telephony] recording fetch failed');
+      return reply.status(502).send({ error: 'Không tải được ghi âm từ tổng đài.' });
+    }
   });
 }

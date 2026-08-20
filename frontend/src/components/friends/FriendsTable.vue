@@ -239,6 +239,7 @@
           <td class="action-col" @click.stop>
             <div class="row-actions">
               <button title="Mở chat" @click="$emit('open-chat', f)">💬</button>
+              <button v-if="f.contact?.phone" title="Gọi" @click="$emit('call', f)">📞</button>
               <button title="Hồ sơ" @click="$emit('open-contact', f)">👤</button>
               <button title="Thêm">⋯</button>
             </div>
@@ -295,6 +296,7 @@ const emit = defineEmits<{
   (e: 'open-detail', f: DbFriend): void;
   (e: 'open-chat', f: DbFriend): void;
   (e: 'open-contact', f: DbFriend): void;
+  (e: 'call', f: DbFriend): void;
   (e: 'update:selected', s: Set<string>): void;
   (e: 'sort-by', v: SortBy): void;
 }>();

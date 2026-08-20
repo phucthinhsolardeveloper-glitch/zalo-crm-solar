@@ -10,7 +10,7 @@ vi.mock('../src/config/index.js', () => ({
 vi.mock('../src/shared/database/prisma-client.js', () => ({
   prisma: {
     contact: { findFirst: vi.fn() },
-    telephonyCall: { findFirst: vi.fn(), update: vi.fn(), upsert: vi.fn() },
+    telephonyCall: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
   },
 }));
 vi.mock('../src/modules/telephony/omicall-recording.js', () => ({
@@ -51,7 +51,8 @@ describe('syncOmicallHistoryForUser', () => {
     });
     (prisma.contact.findFirst as any).mockResolvedValue({ id: 'contact-1' });
     (prisma.telephonyCall.findFirst as any).mockResolvedValue(null);
-    (prisma.telephonyCall.upsert as any).mockResolvedValue({ id: 'call-1' });
+    (prisma.telephonyCall.findUnique as any).mockResolvedValue(null);
+    (prisma.telephonyCall.create as any).mockResolvedValue({ id: 'call-1' });
 
     const result = await syncOmicallHistoryForUser({
       userId: 'user-1',
@@ -68,9 +69,13 @@ describe('syncOmicallHistoryForUser', () => {
         headers: expect.objectContaining({ 'x-api-key': 'api-key' }),
       }),
     );
-    expect(prisma.telephonyCall.upsert).toHaveBeenCalledWith(
+    // FIX 2026-08-20: upsert() thay bằng create() tường minh khi cả `existing`
+    // (đã có row transactionId này) VÀ `pending` (row sống chờ đồng bộ) đều không có —
+    // tránh bug 502 khi update `pending` set providerCallId trùng `existing` (unique
+    // constraint ownerUserId+providerCallId), xem comment trong omicall-history-sync.ts.
+    expect(prisma.telephonyCall.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        create: expect.objectContaining({
+        data: expect.objectContaining({
           providerCallId: 'tx-history-1',
           status: 'completed',
           durationSec: 37,
@@ -107,7 +112,8 @@ describe('syncOmicallHistoryForUser', () => {
       });
     (prisma.contact.findFirst as any).mockResolvedValue(null);
     (prisma.telephonyCall.findFirst as any).mockResolvedValue(null);
-    (prisma.telephonyCall.upsert as any).mockResolvedValue({ id: 'call-page-2' });
+    (prisma.telephonyCall.findUnique as any).mockResolvedValue(null);
+    (prisma.telephonyCall.create as any).mockResolvedValue({ id: 'call-page-2' });
 
     const result = await syncOmicallHistoryForUser({
       userId: 'user-1',

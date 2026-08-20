@@ -28,7 +28,7 @@ export interface ContactProfileResponse {
     /** 3 field này ẨN khỏi ChatContactPanel cột 4, chỉ hiển thị ở đây */
     email: string | null;
     addressLine: string | null;
-    occupation: string | null;
+    industry: string | null;
     /** Multi-phone */
     phone: string | null;
     phone2: string | null;
@@ -118,7 +118,7 @@ function mockProfileResponse(contactId: string): ContactProfileResponse {
       crmName: null,
       email: null,
       addressLine: null,
-      occupation: null,
+      industry: null,
       phone: null,
       phone2: null,
       phone3: null,

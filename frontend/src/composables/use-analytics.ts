@@ -24,6 +24,11 @@ export interface TeamMember {
   contactsConverted: number;
   appointmentsCompleted: number;
   avgResponseTime: number | null;
+  totalCalls: number;
+  answeredCalls: number;
+  missedCalls: number;
+  totalCallDurationSec: number;
+  avgCallDurationSec: number | null;
 }
 
 export interface TeamPerformanceData {

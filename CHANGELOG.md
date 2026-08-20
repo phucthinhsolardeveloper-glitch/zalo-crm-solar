@@ -7,6 +7,224 @@ Các thay đổi đáng chú ý của ZCRM. Theo [Semantic Versioning](https://s
 
 ## [Unreleased] - Tuỳ biến nội bộ Phúc Thịnh Solar
 
+### Added (8) — Phase 2 Continued: Calling, Export, Recording & Final Verification 2026-08-20
+- **Xuất khách hàng .xlsx/.csv** — `GET /api/v1/contacts/export?format=xlsx|csv`, ĐÚNG field/
+  label/enum với Import (`contact-export-service.ts` phản chiếu `TARGET_FIELDS` của
+  `ContactImportDialog.vue`/`contact-import-service.ts`) — file xuất ra import lại được
+  không mất dữ liệu. Mang theo filter search + sale phụ trách đang áp dụng ở màn Danh sách
+  (2 filter thực sự có tác dụng hiện nay; `statusId` — bảng Status động chưa dùng — không
+  mang theo, tránh gây hiểu nhầm là filter đang hoạt động). RBAC scope giống hệt
+  `GET /contacts` (`getContactScope`). 2 nút mới ở toolbar Contacts: "📤 Xuất Excel"/"📤 Xuất CSV".
+- **Nghe ghi âm qua cổng có auth** — `GET /telephony/calls/:id/recording` (mới): kiểm tra
+  quyền xem cuộc gọi (`assertCallVisible` — chủ cuộc gọi hoặc owner/admin) trước khi trả
+  byte ghi âm, thay vì trước đây FE phát thẳng URL kho lưu trữ (`/files/media/<hash>.mp3`)
+  — URL đó phục vụ KHÔNG auth (route static dùng chung cho nhiều tính năng media khác, cố
+  tình không khoá lại toàn bộ vì rủi ro phá vỡ diện rộng — xem "Chưa làm/known limitation"
+  bên dưới). FE (`CallHistoryView.vue`, `TelephonySoftphone.vue`) đổi sang fetch blob qua
+  cổng auth này (cùng pattern tải file đã dùng ở `message-bubble.vue`) → xử lý êm khi ghi
+  âm hết hạn/bị xoá (báo lỗi rõ ràng thay vì trình phát vỡ trắng), không còn lộ URL kho ra
+  DOM. Mirror lỗi (chưa kịp tải về kho, `recordingId` còn là URL gốc OmiCall) → endpoint tự
+  fetch lại theo yêu cầu, không lộ URL gốc cho FE.
+  **Điều tra nguyên nhân "khách nghe được, sale không nghe được" (anh báo)**: audit code xác
+  nhận pipeline ghi âm (OmiCall → fetch → buffer thô → lưu kho) KHÔNG xử lý/chọn kênh nào —
+  fetch `ffprobe` thật trên 5 file ghi âm thật (qua `docker exec` vào container app, đọc
+  trực tiếp `/var/lib/zalo-crm/files/media/`) xác nhận **CẢ 5 file đều MONO (1 kênh),
+  22050Hz mp3**, thời lượng khớp `durationSec` trong DB (không bị cắt/lỗi file). Kết luận:
+  đây KHÔNG phải lỗi code CRM (không có kênh thứ 2 nào để chọn/mix) — OmiCall chỉ trả về 1
+  kênh duy nhất cho các cuộc gọi này. Nguyên nhân thực sự (phía OmiCall hoặc cấu hình ghi âm
+  server-side của OmiCall) cần xác nhận với OmiCall support hoặc kiểm tra cài đặt ghi âm
+  stereo/dual-track trong dashboard OmiCall — nằm ngoài khả năng sửa từ phía CRM.
+- **Gọi lại được cuộc gọi nội bộ ở Lịch sử cuộc gọi** — dòng kênh "Nội bộ" (đồng nghiệp gọi
+  nhau qua extension, không có SĐT ngoài) trước đây nút Gọi luôn tắt (vì dựa vào
+  `externalNumber`, luôn null cho cuộc gọi nội bộ) và tên khách hiện "Không rõ khách hàng".
+  `CallButton.vue` thêm prop `peer` (gọi qua `callPeer()` thay vì `callPhone()`);
+  `CallHistoryView.vue` khớp `call.peerUser.id` với danh sách peer đang tải (từ softphone
+  toàn cục) để lấy đúng extension hiện tại, hiện đúng tên đồng nghiệp. Nút "Tạo khách
+  hàng"/"Gắn vào khách hàng có sẵn" (vốn chỉ hợp lý cho SĐT ngoài) cũng ẩn đi cho dòng nội bộ.
+- **Nới lỏng validate SĐT khi gọi** — `normalizeVnPhone()` (FE, `use-omicall-softphone.ts`)
+  và re-check trùng lặp ở `POST /telephony/calls` (BE) trước đây CHỈ chấp nhận đúng
+  84+11-12-digit (mobile VN chuẩn) — chặn nhầm số lịch sử/số nước ngoài/số 9-digit mà
+  `normalizePhone()` (BE, dùng cho Contact) đã chấp nhận hợp lệ từ trước. Cả 2 phía giờ
+  dùng cùng quy tắc LOOSE như `normalizePhone()`. Verify thật: số 11-digit không phải VN
+  (`12025551234`) và số VN 9-digit không có số 0 đầu (`936668266`) đều tạo CallLog thành
+  công qua `POST /calls` sau khi sửa (trước đó bị từ chối "Số điện thoại Việt Nam không hợp lệ").
+- **`resolve-conversation-target` yêu cầu Contact đã liên kết** — audit + kiểm tra dữ liệu
+  thật (`SELECT count(*) FILTER (WHERE contact_id IS NULL AND "threadType"='user')` → 0/64
+  hội thoại) xác nhận ĐÂY KHÔNG PHẢI bug đang chặn use case thật nào — pipeline tạo tin nhắn
+  (`message-handler.ts`) luôn resolve/tạo Contact TRƯỚC khi tạo Conversation, nên
+  `conversation.contact` trong thực tế luôn có giá trị. Giữ nguyên (không sửa mù vào code
+  gọi qua Zalo OA/ZCC — rủi ro cao, không có use case thật để verify).
+- **Dead `tel:` links → gọi qua tổng đài thật** — `FriendsView.vue`, `ListDetailView.vue`,
+  `LeadDetailPanel.vue` (2 chỗ) trước đây dùng `<a href="tel:...">`/`window.location.href`
+  (mở app điện thoại native — không tồn tại trên desktop CRM, không tạo CallLog, không qua
+  RBAC/tổng đài). Đổi hết sang `useOmicallSoftphone().callPhone()` — cùng service với mọi
+  nơi gọi khác. `FriendsTable.vue` (bảng Bạn bè) trước đây KHÔNG có hành động gọi nào — thêm
+  nút 📞 mới, emit `call` lên `FriendsView.vue`.
+- **Fix parser CSV** (`use-spreadsheet-parser.ts`) — bản cũ chỉ `line.split(',')` thô, vỡ
+  với: cell có dấu phẩy trong ngoặc kép (`"123 Nguyễn Huệ, Q.1"`), escape `""` kiểu RFC4180,
+  xuống dòng trong 1 cell. Viết lại bằng state-machine char-by-char (không thêm thư viện
+  mới). 9 test case mới (`use-spreadsheet-parser.spec.ts`), gồm dữ liệu khách hàng điện mặt
+  trời tiếng Việt thật (tên/địa chỉ có dấu, có dấu phẩy) — chạy `npx vitest run` xác nhận
+  10/10 pass.
+- **Fix bug 502 lặp lại ở đồng bộ lịch sử cuộc gọi (phát hiện lúc verify E2E)** —
+  `omicall-history-sync.ts`: khi VỪA có `pending` (row sống tạo lúc bấm gọi) VỪA đã có
+  `existing` (row transactionId này từ 1 lần sync trước — vd gọi lại nhanh cùng số/khoảng
+  thời gian tạo nhiều `pending`), code cũ luôn ưu tiên update `pending` → set
+  `providerCallId` trùng `existing` → vỡ unique constraint (`ownerUserId`, `providerCallId`)
+  → CẢ sync request 502, các cuộc gọi còn lại trong trang không đồng bộ được. Bắt được qua
+  console browser thật lúc verify (không phải qua đọc code) — lặp lại y hệt mỗi ~1.5 phút
+  trên cùng 1 transaction id thật trong DB. Sửa: ưu tiên update `existing` (canonical) nếu
+  đã có, bỏ qua an toàn `pending` thay vì cố ghi đè gây lỗi; `upsert()` đổi thành nhánh
+  `update`/`update`/`create` tường minh không còn khả năng đụng độ. Cập nhật lại
+  `tests/omicall-history-sync.test.ts` theo hành vi mới — full suite xác nhận đúng 43 lỗi
+  baseline đã biết, không phát sinh regression mới.
+
+### Chưa làm / known limitation
+- URL ghi âm thô (`/files/media/<hash>.mp3`) vẫn phục vụ KHÔNG auth — route static dùng
+  chung cho ảnh/video/file media library khác, khoá lại toàn bộ rủi ro phá vỡ diện rộng
+  (avatar, ảnh chat, v.v.). Cổng auth mới (`/telephony/calls/:id/recording`) là đường
+  CHÍNH THỨC app dùng; URL kho vẫn kỹ thuật truy cập được nếu bị lộ (hash khó đoán, nhưng
+  không phải bảo mật thật). Cần thiết kế storage-key riêng cho ghi âm (khác namespace với
+  media library) nếu muốn khoá triệt để — chưa làm đợt này.
+- Nguyên nhân gốc "sale không nghe được" (mono từ phía OmiCall) — cần xác nhận/khắc phục
+  từ phía OmiCall (support hoặc cấu hình dashboard), không sửa được từ code CRM.
+- Dòng dữ liệu mồ côi trong Lịch sử cuộc gọi (1 dòng "Từ chối" 0335622260 13:54 20/08, tạo
+  lúc còn bug sync) — vô hại (hiện như 1 cuộc gọi bình thường, không có ghi âm/thời lượng),
+  không xoá vì không chắc chắn 100% không phải dữ liệu gọi thật của người dùng.
+
+### Added (7) — Phase 2 hoàn tất: link KH có sẵn + hover note + import Excel 2026-08-20
+- **"Gắn vào khách hàng có sẵn" ở Call History** — hoàn thiện post-call actions cho số lạ:
+  trước đây chỉ có "Tạo khách hàng" (luôn tạo mới), giờ có thêm ô tìm kiếm (dùng lại
+  `GET /telephony/dial-suggestions`) để gắn cuộc gọi vào 1 KH ĐÃ CÓ SẴN — đúng trường hợp
+  số này là SĐT phụ của khách cũ, không phải khách mới.
+- **Ghi chú mới nhất khi hover SĐT trong khung chat** — `ChatContactPanel.vue` hiện icon
+  cạnh ô SĐT, hover xem nhanh / bấm xem đầy đủ lịch sử ghi chú cuộc gọi gần nhất. Endpoint
+  mới `GET /telephony/contacts/:contactId/latest-call`.
+- **Import khách hàng từ Excel/CSV** — pipeline đầy đủ Upload → Column Mapping (tự đoán
+  cột theo tên tiêu đề, sửa tay được) → Preview (validate + phát hiện trùng SĐT, cả với
+  Contact có sẵn LẪN trùng nội bộ trong cùng file) → Import → Result (số dòng
+  tạo/bỏ qua/lỗi). Tái dùng: `use-spreadsheet-parser.ts` (tách từ `CreateListModal.vue`,
+  cùng thư viện `exceljs` đã audit bảo mật), `normalizePhone` + pattern dedup của
+  `quick-create` (contact-routes.ts). KHÔNG bao giờ insert mù — trùng SĐT/thiếu
+  tên/SĐT/SĐT sai định dạng đều bị skip và báo cáo rõ, không âm thầm bỏ qua.
+  Nhãn Trạng thái/Đối tượng tiếng Việt trong file ("Đã mua hàng", "Đại lý") tự map về đúng
+  slug nội bộ (`purchased`, `agent`) khớp dropdown CRM — không lưu nhầm text hiển thị.
+  Xử lý cả 2 lỗi Excel thường gặp: ô ngày sinh dạng Date object (không phải string) và
+  ngày viết tay dd/mm/yyyy (JS Date mặc định đọc kiểu Mỹ mm/dd/yyyy, dễ sai âm thầm — giờ
+  bị từ chối rõ ràng thay vì lưu nhầm ngày).
+  **Bug bắt được lúc test thật (không phải chỉ typecheck)**: `ContactImportRow.status`
+  (trạng thái KH mong muốn, vd "Đã mua hàng") và `ContactImportPreviewRow.status` (kết quả
+  validate: valid/invalid/duplicate) trùng tên field — TypeScript không báo lỗi (cả 2 đều
+  compatible với `string`), nhưng ở runtime field sau ghi đè field trước, khiến Contact
+  import ra bị lưu `status="valid"` (literal) thay vì `"purchased"`. Đổi tên field domain
+  thành `contactStatus` để hết đụng. Phát hiện qua test thật `POST .../commit` rồi đọc lại
+  Contact vừa tạo — không phải qua đọc code hay `tsc --noEmit`.
+
+### Fixed (4) — Phase 2 tiếp, phát hiện khi mở rộng analytics 2026-08-20
+- **Regression tự phát hiện: đổi status pipeline (đợt trước) làm hỏng 3 module analytics** —
+  `team-performance.ts`, `conversion-funnel.ts`, `custom-report.ts` đều hard-code
+  `status = 'converted'`/`STAGE_ORDER` theo pipeline generic cũ (5 bước). Sau khi đổi
+  `STATUS_OPTIONS` sang 10 bước thật, KHÔNG còn ai ghi `status='converted'` nữa → 3 báo cáo
+  này sẽ luôn hiện 0 cho mọi dữ liệu mới. Sửa: "converted" (cho mục đích báo cáo) = đã tới
+  1 trong 2 giai đoạn thành công (`closed_won`/`purchased`); `STAGE_ORDER` cập nhật đúng 10
+  bước thật. Phát hiện trong lúc code call-stats (đọc lại `team-performance.ts` mới thấy).
+- **Build "thành công" nhưng deploy code cũ** — `docker compose build app | tail -40` che
+  mất exit code thật (build FE fail vì lỗi type thật, không phải noise) → redeploy dùng lại
+  image cũ. Từ giờ luôn capture exit code riêng + verify code đã compile trong container
+  trước khi tin bất kỳ lần build/deploy nào.
+
+### Added (6) — Phase 2 tiếp: dialer autocomplete + call stats 2026-08-20
+- **`CallButton` gắn thêm vào**: bảng danh sách khách hàng (`ContactsView.vue`) và panel chi
+  tiết bên (`ContactDetailPanel.vue`) — còn `CustomerProfileDialog.vue` bỏ qua vì đó vẫn là
+  view "skeleton" (phone chỉ có ô nhập, không có view mode để gắn nút).
+- **Dialer autocomplete** — gõ tên/SĐT trong popup gọi (`TelephonySoftphone.vue`) hiện gợi ý
+  khớp khách hàng có sẵn trong CRM (debounce 250ms), kèm trạng thái + thời gian cuộc gọi gần
+  nhất nếu có. Bấm gợi ý gọi thẳng, tự gắn đúng `contactId`. Endpoint mới
+  `GET /telephony/dial-suggestions`.
+- **Thống kê cuộc gọi vào analytics chung** — `team-performance.ts` (bảng xếp hạng đội nhóm)
+  giờ có thêm: tổng cuộc gọi, đã nghe/tổng, tỷ lệ kết nối, thời gian gọi trung bình — tái
+  dùng đúng `TelephonyCall` (bảng Call History/softphone đã ghi sẵn), KHÔNG tạo bảng thống
+  kê riêng. Hiện ở `TeamLeaderboard.vue`.
+
+### Added (5) — Phase 2 calling core 2026-08-20
+- **`CallNote` — ghi chú GẮN VỚI 1 CUỘC GỌI CỤ THỂ**, khác hẳn `Note` (ghi chú chung của
+  khách hàng). Model mới + `GET/POST /telephony/calls/:id/notes`, chronological, mới nhất
+  hiện trước, KHÔNG BAO GIỜ ghi đè note cũ. `GET /telephony/calls` giờ trả kèm `latestNote`
+  mỗi dòng (1 query gộp, không N+1) để hiện preview mà không cần mở riêng.
+- **`CallButton.vue` — nút gọi tái dùng** (`frontend/src/components/telephony/CallButton.vue`),
+  bọc `useOmicallSoftphone().callPhone()` với UI/lỗi nhất quán. Đã gắn vào: header hồ sơ
+  khách hàng (`ContactDetailDialog.vue`, trước đây phone chỉ là text tĩnh) và mỗi dòng ở
+  Lịch sử cuộc gọi (`CallHistoryView.vue`, trước đây KHÔNG có nút gọi nào ở trang này).
+  `callPhone()` giờ nhận thêm `contactId`/`fullName`/`avatarUrl` để CallLog tự gắn đúng
+  khách hàng thay vì luôn tạo record "số lạ".
+- **Ghi chú ngay sau khi cúp máy** — `TelephonySoftphone.vue` hiện `CallNotesPanel` ngay ở
+  màn "Cuộc gọi đã kết thúc", gắn thẳng vào `CallNote` của đúng cuộc gọi vừa xong
+  (`activeCallLogId`, đổi từ biến private `localCallId` sang ref để UI đọc được).
+- **Số lạ ở Lịch sử cuộc gọi → Tạo khách hàng ngay** — nút "Tạo khách hàng" ở mỗi dòng chưa
+  có KH, dùng lại đúng `AddCustomerQuickDialog.vue` có sẵn (không xây dialog mới), tạo xong
+  tự động `PATCH` gắn `contactId` ngược vào đúng CallLog đã bấm.
+- `PATCH /telephony/calls/:id` mở rộng nhận `contactId` — owner/admin gắn được cho MỌI cuộc
+  gọi trong org (hành động quản trị), các field vòng đời khác (status/duration/...) vẫn giữ
+  nguyên chỉ chính chủ cuộc gọi mới sửa được.
+
+**Chưa làm trong đợt này** (vẫn nằm trong roadmap Phase 2): gắn `CallButton` vào danh sách
+khách hàng dạng bảng (`ContactsView.vue`) và các panel khác (`ContactDetailPanel.vue`,
+`CustomerProfileDialog.vue`); xem "ghi chú mới nhất" khi hover số điện thoại ở khung chat;
+dialer autocomplete theo call history/contacts; thống kê cuộc gọi trong analytics chung;
+import Excel khách hàng; multi-carrier routing.
+
+### Fixed (3) — Full-system audit 2026-08-20
+- **Avatar Zalo bạn bè/khách hàng hết hạn, không tự phục hồi** — `Friend.zaloAvatarUrl`/
+  `Contact.avatarUrl` trước đây lưu thẳng URL Zalo CDN (tự hết hạn) thay vì mirror về S3 nội bộ
+  như group avatar đã làm (`group-info-refresh.ts`). Áp dụng cùng cơ chế mirror cho
+  friend-sync (`friend-sync-service.ts`), chỉ mirror khi CHƯA có bản nội bộ (tránh fetch lại
+  mỗi 15 phút cho toàn bộ friend). Không đụng avatar sale đã tự upload tay.
+- **Đồng bộ bạn bè fail âm thầm mỗi chu kỳ** — `getSentFriendRequests` (zca-js) throw mã lỗi
+  112 khi đơn giản là KHÔNG có lời mời đang chờ (hành vi bình thường của thư viện, không phải
+  lỗi thật) — nhưng code cũ dùng chung 1 try/catch với `getAllFriends`, nên lỗi 112 huỷ luôn
+  kết quả `getAllFriends` đã thành công. Giờ bắt riêng mã 112 = danh sách rỗng, lỗi khác vẫn
+  bubble lên như cũ (giữ đúng tinh thần fix B4 trước đó — không nuốt lỗi thật).
+- **Log lỗi ERROR liên tục vô ích mỗi 60s** — `getFriendOnlines` 404 (endpoint đã bị caller
+  silent-fail sẵn) log ERROR mãi mãi không ai đọc. Hạ xuống debug, cùng cơ chế
+  `suppressErrorLog` đã có cho lỗi malformed-JSON.
+- **Toast "Máy chủ lỗi" sai bản chất ở nhiều chỗ khác** — mở rộng fix `skipErrorToast` (đã áp
+  dụng cho OmiCall connect/sync trước đó) sang `resolve-conversation-target` (gọi ZCC), gán/sửa
+  tag Zalo (`assign-thread`, PATCH label màu/tên) — các API này đã có toast lỗi riêng cụ thể,
+  không cần toast chung chung đè lên.
+
+### Added (4) — Full-system audit 2026-08-20
+- **Rename Occupation → Industry** trên toàn bộ DB/API/UI/form/AI (migration
+  `RENAME COLUMN`, giữ nguyên dữ liệu cũ) — theo đúng yêu cầu chuẩn hoá thuật ngữ.
+- **Thêm `storeName` (Tên cửa hàng) và `customerType` (Đối tượng: Đại lý/Dự án/Cá nhân)**
+  vào hồ sơ khách hàng — 2 cột mới, không ảnh hưởng dữ liệu cũ.
+- **Trạng thái khách hàng (Status) đổi thành đúng pipeline bán hàng thật** (Mới → Đã liên hệ →
+  Quan tâm → Báo giá → Đang follow → Chốt đơn → Không tiềm năng/Chuyển sale/Đã mua hàng/Ngừng
+  kinh doanh), thay placeholder generic cũ (Mới/Đã liên hệ/Quan tâm/Chuyển đổi/Mất). Dữ liệu cũ
+  (`converted`/`lost`) được remap sang giá trị tương đương gần nhất, không mất dữ liệu.
+- **Hạng khách hàng (A/B/C/D) và Độ ưu tiên (Rất cao/Cao/Bình thường/Thấp)** — hiển thị dạng
+  badge trên hồ sơ khách hàng, tính TỰ ĐỘNG từ `leadScore`/`priorityScore` đã có sẵn (không phải
+  field riêng, không trùng hệ thống chấm điểm) — hiện thực hoá đúng placeholder `auto_score` đã
+  khai báo sẵn trong `TagSource` nhưng chưa ai code.
+- **Gợi ý Tỉnh/Huyện/Xã khi nhập địa chỉ** — autocomplete dựa trên dữ liệu ĐÃ CÓ thật trong
+  chính hệ thống (không dùng dataset hành chính tĩnh — dễ sai/lỗi thời khi tỉnh huyện sáp nhập),
+  vẫn cho gõ tự do. Endpoint mới `GET /contacts/address-suggestions`, cùng pattern với
+  `/contacts/sources` có sẵn.
+
+### Fixed (2)
+- **Toast "Máy chủ lỗi, vui lòng thử lại" sai bản chất khi nhân viên chưa có extension** —
+  `GET /telephony/omicall/connect-config` và `POST /telephony/omicall/sync` trả 503 khi
+  nhân viên chưa được gán extension tổng đài (trạng thái nghiệp vụ bình thường, có message
+  cụ thể: "Bạn chưa được gán extension tổng đài — liên hệ quản trị viên"), nhưng interceptor
+  axios chung coi MỌI status ≥500 là lỗi server thật và đè lên bằng toast chung chung, khiến
+  nhân viên tưởng hệ thống bị crash thay vì hiểu đúng là "chưa được cấp quyền gọi". Sửa: thêm
+  cờ `skipErrorToast` cho 2 request này (UI đã tự xử lý message cụ thể qua `errorMessage`).
+- **Nhân viên tạo trước khi có tính năng auto-provisioning bị kẹt, không gọi được** — thêm
+  `POST /api/v1/users/:id/omicall-auto-provision` (owner/admin) để backfill extension OmiCall
+  cho nhân viên cũ, dùng lại đúng logic `provisionOmicallAgent()`. Nút "☎️ Tự động cấp extension
+  OmiCall" xuất hiện trong `UserEditPanel.vue` khi nhân viên chưa có extension. Đã test thật:
+  backfill cho 1 nhân viên thật (tạo trước khi có tính năng này) → OmiCall trả extension thật,
+  đăng ký SIP thành công (status "connected").
+
 ### Added
 - **AI Chatbot: đọc file PDF/DOCX** — endpoint `POST /api/v1/ai/chatbot/documents/upload` giờ nhận
   và trích xuất text thật từ PDF (`pdf-parse`) và DOCX (`mammoth`) thay vì chỉ TXT/MD/CSV/JSON.

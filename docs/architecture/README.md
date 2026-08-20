@@ -1,5 +1,11 @@
 # Kiến trúc code ZCRM
 
+**Bắt đầu từ đây (2026-08-20):** [SYSTEM-MAP.md](./SYSTEM-MAP.md) và bộ file `00`–`16` trong thư mục này — reverse-engineer từ source hiện tại.
+
+Sơ đồ PNG/mmd dưới đây tạo ngày **2026-06-16** (`/diagram`). **Đã lệch source 2026-08-20:** backend **27** module folders (không còn 23), Prisma **112** model (không còn 93), có thêm `telephony`/OmiCall. Giữ file cũ để tham khảo visual; lấy numbered docs làm sự thật.
+
+---
+
 Sơ đồ kiến trúc của ZCRM (fork `upstream` — CRM quản lý nhiều nick Zalo cá nhân trên 1 web app), tạo ngày **2026-06-16** bằng `/diagram`.
 
 Mỗi sơ đồ có bộ 3 file:

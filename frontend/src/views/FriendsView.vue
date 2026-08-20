@@ -124,6 +124,7 @@
           @open-detail="onOpenDetail"
           @open-chat="onOpenChat"
           @open-contact="onOpenContact"
+          @call="onCall"
           @sort-by="setSortBy"
         />
 
@@ -180,6 +181,7 @@ import FriendsBulkBar from '@/components/friends/FriendsBulkBar.vue';
 import FriendDetailPanel from '@/components/friends/FriendDetailPanel.vue';
 import CustomerProfileDialog from '@/components/contacts/CustomerProfileDialog.vue';
 import { useToast } from '@/composables/use-toast';
+import { useOmicallSoftphone } from '@/composables/use-omicall-softphone';
 import type { SmartHint } from '@/components/friends/FriendsSmartHints.vue';
 
 const router = useRouter();
@@ -434,9 +436,18 @@ function onOpenContact(f: DbFriend) {
   showProfileDialog.value = true;
 }
 
-function onCall(f: DbFriend) {
-  if (f.contact?.phone) {
-    window.location.href = `tel:${f.contact.phone}`;
+// FIX 2026-08-20 (audit gọi/lịch sử): tel: điều hướng cả tab (không có app điện thoại trên
+// desktop), không đi qua tổng đài/không log CallLog. Dùng chung callPhone() của softphone.
+const { callPhone } = useOmicallSoftphone();
+async function onCall(f: DbFriend) {
+  if (!f.contact?.phone) return;
+  try {
+    await callPhone(f.contact.phone, {
+      contactId: f.contact.id,
+      fullName: f.contact.crmName || f.contact.fullName || undefined,
+    });
+  } catch (e: any) {
+    toast.error(e?.response?.data?.error || e?.message || 'Không thể gọi');
   }
 }
 

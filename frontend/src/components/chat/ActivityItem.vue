@@ -232,7 +232,9 @@ const FIELD_LABELS: Record<string, string> = {
   gender: 'Giới tính',
   birthDate: 'Ngày sinh',
   addressLine: 'Địa chỉ',
-  occupation: 'Nghề nghiệp',
+  industry: 'Ngành nghề',
+  storeName: 'Tên cửa hàng',
+  customerType: 'Đối tượng',
   assignedUserId: 'Người phụ trách',
 };
 function fieldLabel(field: string): string {

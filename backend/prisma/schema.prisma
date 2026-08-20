@@ -66,6 +66,7 @@ model Organization {
   statuses                    Status[]
   parentCandidates            ParentCandidate[]
   notes                       Note[]
+  callNotes                   CallNote[]
   zaloLabels                  ZaloLabel[]
   crmTags                     CrmTag[]
   crmTagGroups                CrmTagGroup[]
@@ -281,6 +282,7 @@ model User {
   activityLogs              ActivityLog[]
   messageTemplates          MessageTemplate[]
   authoredNotes             Note[]                       @relation("NoteAuthor")
+  authoredCallNotes         CallNote[]                   @relation("CallNoteAuthor")
   noteReactions             NoteReaction[]
   preferences               UserPreference[]
   // Phase 6+ — Inbox Triage Filter (per-user)
@@ -358,6 +360,7 @@ model TelephonyCall {
   peerUser     User?         @relation("TelephonyCallPeer", fields: [peerUserId], references: [id], onDelete: Cascade)
   contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  callNotes    CallNote[]
 
   @@unique([ownerUserId, providerCallId])
   @@index([orgId, ownerUserId, startedAt(sort: Desc)])
@@ -366,6 +369,25 @@ model TelephonyCall {
   @@index([contactId, startedAt(sort: Desc)])
   @@index([conversationId, startedAt(sort: Desc)])
   @@map("telephony_calls")
+}
+
+// Ghi chú GẮN VỚI 1 CUỘC GỌI CỤ THỂ — khác Note (ghi chú chung của khách hàng, không
+// theo call nào). Append-only, KHÔNG BAO GIỜ ghi đè note cũ (giống Note) — mới nhất
+// hiện trước ở API/UI (order by createdAt desc), không sửa/xoá note của người khác.
+model CallNote {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  callId       String   @map("call_id")
+  authorUserId String   @map("author_user_id")
+  body         String   @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  org    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  call   TelephonyCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+  author User          @relation("CallNoteAuthor", fields: [authorUserId], references: [id])
+
+  @@index([orgId, callId, createdAt])
+  @@map("call_notes")
 }
 
 // Phase 2 bảo mật xác thực 2026-06-08 — refresh token rotation.
@@ -641,9 +663,11 @@ model Contact {
   gender         String? // male/female/other/unknown
   // 2026-06-18: true khi sale chỉnh giới tính TAY → sync SDK (zinstant/cron) KHÔNG đè ngược.
   genderLocked   Boolean   @default(false) @map("gender_locked")
-  birthYear      Int?      @map("birth_year")
+  birthYear      Int?      @map("birth_year") // legacy — birthDate is now the single source of truth going forward (edit form no longer offers this input)
   birthDate      DateTime? @map("birth_date") @db.Date
-  occupation     String?
+  industry       String? // renamed from `occupation` 2026-08-20 (data preserved via migration RENAME COLUMN)
+  storeName      String?   @map("store_name")
+  customerType   String?   @map("customer_type") // Đại lý / Dự án / Cá nhân — hardcoded options, see CUSTOMER_TYPE_OPTIONS
   incomeRange    String?   @map("income_range")
   socialFacebook String?   @map("social_facebook")
   socialTiktok   String?   @map("social_tiktok")

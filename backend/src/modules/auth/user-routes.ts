@@ -15,6 +15,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { sendSystemNotificationToUser } from '../system-notifications/system-notify-service.js';
 import { encryptOmicallSecret } from '../telephony/omicall-token.js';
+import { provisionOmicallAgent } from '../telephony/omicall-agent-provisioning.js';
 
 // 2026-06-09 (anh chốt audit) — ghi nhật ký hành động admin vào ActivityLog có sẵn
 // (category='admin'), KHÔNG tạo model mới. Fire-and-forget: lỗi log KHÔNG chặn nghiệp vụ.
@@ -301,6 +302,43 @@ export async function userRoutes(app: FastifyInstance) {
     });
     await writeAudit(currentUser, 'user.omicall_extension_assigned', id, { extension });
     return { success: true };
+  });
+
+  // POST /api/v1/users/:id/omicall-auto-provision — backfill an OmiCall agent for a
+  // user that predates auto-provisioning (added at create-with-zalo time). Reuses the
+  // same POST /api/agent/invite flow. owner/admin only. Not best-effort here — this is
+  // an explicit admin action, so real errors are surfaced instead of swallowed.
+  app.post('/api/v1/users/:id/omicall-auto-provision', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    if (!['owner', 'admin'].includes(currentUser.role)) {
+      return reply.status(403).send({ error: 'Không có quyền' });
+    }
+    const { id } = request.params as { id: string };
+    const target = await prisma.user.findFirst({
+      where: { id, orgId: currentUser.orgId },
+      select: { id: true, fullName: true, email: true, phone: true, omicallExtension: true },
+    });
+    if (!target) return reply.status(404).send({ error: 'Không tìm thấy nhân viên' });
+    if (!target.phone) return reply.status(400).send({ error: 'Nhân viên chưa có SĐT' });
+    if (target.omicallExtension) {
+      return reply.status(409).send({ error: `Nhân viên đã có extension "${target.omicallExtension}"` });
+    }
+
+    const result = await provisionOmicallAgent({
+      userId: target.id,
+      fullName: target.fullName,
+      email: target.email,
+      phone: target.phone,
+    });
+    if (!result.ok || !result.sipUser || !result.sipPasswordEncrypted) {
+      return reply.status(502).send({ error: `Cấp extension OmiCall thất bại: ${result.error || 'không rõ lý do'}` });
+    }
+    await prisma.user.update({
+      where: { id },
+      data: { omicallExtension: result.sipUser, omicallExtensionSecret: result.sipPasswordEncrypted },
+    });
+    await writeAudit(currentUser, 'user.omicall_extension_assigned', id, { extension: result.sipUser, source: 'auto_provision' });
+    return { success: true, extension: result.sipUser };
   });
 
   // DELETE /api/v1/users/:id — deactivate user (owner only)

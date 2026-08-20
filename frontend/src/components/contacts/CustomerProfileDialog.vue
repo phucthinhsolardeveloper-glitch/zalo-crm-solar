@@ -128,8 +128,8 @@
                     <span class="v"><input v-model="form.email" class="cpd-in" /></span>
                   </div>
                   <div class="kv">
-                    <span class="k">Nghề nghiệp</span>
-                    <span class="v"><input v-model="form.occupation" class="cpd-in" /></span>
+                    <span class="k">Ngành nghề</span>
+                    <span class="v"><input v-model="form.industry" class="cpd-in" /></span>
                   </div>
                   <div class="kv">
                     <span class="k">Địa chỉ</span>
@@ -495,7 +495,7 @@ const form = ref({
   phone: '' as string | null,
   extraPhones: [] as Array<{ phone: string; label: string }>,
   email: '' as string | null,
-  occupation: '' as string | null,
+  industry: '' as string | null,
   addressLine: '' as string | null,
   source: '' as string | null,
   assignedUserId: null as string | null,
@@ -511,7 +511,7 @@ function hydrateForm(ct: Contact) {
     phone: ct.phone || '',
     extraPhones: (ct.phonesExtra || []).map((p) => ({ phone: p.phone, label: p.label || '' })),
     email: ct.email || '',
-    occupation: ct.occupation || '',
+    industry: ct.industry || '',
     addressLine: ct.addressLine || '',
     source: ct.source || '',
     assignedUserId: ct.assignedUserId ?? ct.assignedUser?.id ?? null,
@@ -522,7 +522,7 @@ function hydrateForm(ct: Contact) {
 function emptyForm() {
   form.value = {
     fullName: '', gender: null, birthYear: '', phone: '', extraPhones: [],
-    email: '', occupation: '', addressLine: '', source: '', assignedUserId: null, tags: [],
+    email: '', industry: '', addressLine: '', source: '', assignedUserId: null, tags: [],
   };
 }
 
@@ -686,7 +686,7 @@ async function save() {
     phone: form.value.phone,
     phonesExtra: form.value.extraPhones.filter((p) => p.phone?.trim()),
     email: form.value.email,
-    occupation: form.value.occupation,
+    industry: form.value.industry,
     addressLine: form.value.addressLine,
     source: form.value.source,
     assignedUserId: form.value.assignedUserId,
@@ -878,7 +878,7 @@ const attrValues = computed<Record<string, string>>(() => {
     facebook: ct.socialFacebook ?? '',
     tiktok: ct.socialTiktok ?? '',
     age,
-    occupation: ct.occupation ?? '',
+    industry: ct.industry ?? '',
     province: ct.province ?? '',
     district: ct.district ?? '',
     ward: ct.ward ?? '',

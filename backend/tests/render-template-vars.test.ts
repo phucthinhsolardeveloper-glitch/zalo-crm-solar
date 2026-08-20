@@ -9,7 +9,7 @@ const VALS: Record<string, string> = {
   gender: 'Anh', name: 'Lộc', name_full: 'Trần Văn Lộc', name_first: 'Trần',
   crm_full: 'Lộc Q7', crm_first: 'Lộc', crm_last: 'Q7',
   phone: '0908278807', email: 'an@gmail.com', facebook: 'fb.com/an', tiktok: '@an',
-  age: '33', occupation: 'KD', province: 'Hà Nội', district: 'Cầu Giấy', ward: 'Dịch Vọng', address: 'Số 12', income: '30-50tr',
+  age: '33', industry: 'KD', province: 'Hà Nội', district: 'Cầu Giấy', ward: 'Dịch Vọng', address: 'Số 12', income: '30-50tr',
   status: 'Nóng', nick_status: 'Tiếp cận', source: 'FB', next_appt: '18/06', score: '86',
   first_active: '02/05/2026', last_active: '17/06/2026', last_message: 'Cho xin báo giá',
   last_inbound: '17/06', last_outbound: '17/06', last_interaction: '17/06', msg_count: '48/53',

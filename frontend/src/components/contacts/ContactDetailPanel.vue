@@ -26,7 +26,16 @@
             <span v-if="isOwner" class="cdp-crown" title="Chủ tổ chức">👑</span>
           </div>
           <div class="cdp-meta">
-            <span v-if="contact.phone" class="cdp-phone-line">📱 <code>{{ contact.phone }}</code></span>
+            <span v-if="contact.phone" class="cdp-phone-line">
+              📱 <code>{{ contact.phone }}</code>
+              <CallButton
+                :phone="contact.phone"
+                :contact-id="contact.id"
+                :full-name="(contact as any).crmName || displayName"
+                :avatar-url="contact.avatarUrl"
+                size="small"
+              />
+            </span>
             <span v-if="contact.email" class="cdp-email-line">✉ {{ contact.email }}</span>
             <span v-if="locationLine" class="cdp-loc-line">📍 {{ locationLine }}</span>
           </div>
@@ -232,6 +241,7 @@ import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import type { Contact } from '@/composables/use-contacts';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
+import CallButton from '@/components/telephony/CallButton.vue';
 
 const router = useRouter();
 
@@ -508,6 +518,7 @@ async function openVirtualChat() {
   letter-spacing: -0.01em;
 }
 .cdp-crown { font-size: 16px; }
+.cdp-phone-line { display: inline-flex; align-items: center; gap: 6px; }
 .cdp-meta {
   display: flex; flex-wrap: wrap; gap: 12px;
   font-size: 12.5px; color: #41454d;

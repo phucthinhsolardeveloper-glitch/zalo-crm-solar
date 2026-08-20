@@ -49,6 +49,9 @@
           <p v-if="phase === 'ended' && errorMessage" class="call-error" data-testid="call-error">{{ errorMessage }}</p>
           <div v-if="phase === 'answered' || (phase === 'ended' && elapsedSec)" class="timer">{{ timerLabel }}</div>
 
+          <!-- Ghi chú ngay sau khi cúp máy — không cần sale nhớ số rồi tự đi tìm KH -->
+          <CallNotesPanel v-if="phase === 'ended' && activeCallLogId" :call-id="activeCallLogId" class="post-call-notes" />
+
           <div v-if="incoming && phase === 'ringing'" class="call-actions">
             <button class="round reject" data-testid="reject-call" @click="reject"><v-icon icon="mdi-phone-hangup" /></button>
             <button class="round answer" data-testid="answer-call" @click="answer"><v-icon icon="mdi-phone" /></button>
@@ -70,11 +73,38 @@
             </div>
             <form class="dial-form" @submit.prevent="startPhoneCall">
               <v-icon icon="mdi-dialpad" size="20" />
-              <input v-model="phoneInput" data-testid="phone-input" inputmode="tel" autocomplete="tel" placeholder="Nhập số, ví dụ 0909 123 456" />
+              <input
+                v-model="phoneInput"
+                data-testid="phone-input"
+                inputmode="tel"
+                autocomplete="off"
+                placeholder="Nhập tên hoặc số, ví dụ 0909 123 456"
+                @input="onDialInput"
+                @focus="onDialInput"
+                @blur="onDialBlur"
+              />
               <button type="submit" data-testid="call-phone" :disabled="!phoneInput.trim()" title="Gọi số điện thoại">
                 <v-icon icon="mdi-phone" size="19" />
               </button>
             </form>
+            <!-- Gợi ý theo tên/SĐT đã có trong CRM — khớp đúng ask gốc "autocomplete từ call
+                 history + contacts", chỉ query nếu gõ ≥2 ký tự. -->
+            <div v-if="dialSuggestions.length" class="dial-suggestions">
+              <button
+                v-for="s in dialSuggestions"
+                :key="s.contactId"
+                type="button"
+                class="dial-suggestion-row"
+                @mousedown.prevent="pickDialSuggestion(s)"
+              >
+                <span class="ds-avatar">{{ initials(s.fullName || displayPhone(s.phone)) }}</span>
+                <span class="ds-copy">
+                  <strong>{{ s.fullName || 'Chưa rõ tên' }}</strong>
+                  <small>{{ displayPhone(s.phone) }}<template v-if="s.lastCall"> · {{ callStatusLabel(s.lastCall.status) }} · {{ formatTime(s.lastCall.startedAt) }}</template></small>
+                </span>
+                <v-icon icon="mdi-phone-outline" size="16" />
+              </button>
+            </div>
             <small v-if="errorMessage" class="dial-error">{{ errorMessage }}</small>
           </div>
 
@@ -112,10 +142,14 @@
                 <time>{{ formatTime(item.startedAt) }}</time>
               </div>
               <div v-if="playingRecordingId === item.id && recordingUrl(item)" class="recording-player">
-                <audio controls preload="metadata" :src="recordingUrl(item)!" />
-                <a :href="recordingUrl(item)!" target="_blank" rel="noopener noreferrer" title="Mở hoặc tải file ghi âm">
-                  <v-icon icon="mdi-download-outline" size="18" />
-                </a>
+                <span v-if="recordingLoading" class="recording-state">Đang tải…</span>
+                <span v-else-if="recordingLoadError" class="recording-state error">{{ recordingLoadError }}</span>
+                <template v-else-if="recordingBlobUrl">
+                  <audio controls preload="metadata" :src="recordingBlobUrl" />
+                  <button type="button" title="Tải file ghi âm" @click="downloadRecording(item.id)">
+                    <v-icon icon="mdi-download-outline" size="18" />
+                  </button>
+                </template>
               </div>
             </div>
             <button v-if="!historyExpanded && history.length > 5" class="history-toggle" @click="historyExpanded = true">
@@ -140,8 +174,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useOmicallSoftphone, type CallHistoryItem } from '@/composables/use-omicall-softphone';
+import { api } from '@/api';
+import CallNotesPanel from './CallNotesPanel.vue';
 
 const dialog = ref(false);
 const phoneInput = ref('');
@@ -149,7 +185,7 @@ const historyExpanded = ref(false);
 const playingRecordingId = ref<string | null>(null);
 const {
   phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
-  activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, isBusy,
+  activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, isBusy, activeCallLogId,
   fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
   loadMoreHistory,
 } = useOmicallSoftphone();
@@ -169,6 +205,44 @@ const canDialExternal = computed(() => enabled.value);
 function closeDialog() { dialog.value = false; resetEnded(); }
 function startPhoneCall() {
   if (phoneInput.value.trim()) void callPhone(phoneInput.value).catch(() => undefined);
+  dialSuggestions.value = [];
+}
+
+// Dial autocomplete — gõ tên/SĐT gợi ý khớp trong CRM, kèm trạng thái cuộc gọi gần nhất.
+interface DialSuggestion {
+  contactId: string;
+  fullName: string | null;
+  avatarUrl?: string | null;
+  phone: string;
+  lastCall: { status: string; startedAt: string } | null;
+}
+const dialSuggestions = ref<DialSuggestion[]>([]);
+let dialDebounce: ReturnType<typeof setTimeout> | null = null;
+function onDialInput() {
+  if (dialDebounce) clearTimeout(dialDebounce);
+  const q = phoneInput.value.trim();
+  if (q.length < 2) { dialSuggestions.value = []; return; }
+  dialDebounce = setTimeout(async () => {
+    try {
+      const { data } = await api.get('/telephony/dial-suggestions', { params: { q } });
+      dialSuggestions.value = data.suggestions || [];
+    } catch { dialSuggestions.value = []; }
+  }, 250);
+}
+function onDialBlur() {
+  // Delay để mousedown trên gợi ý (pickDialSuggestion) kịp chạy trước khi list bị ẩn.
+  setTimeout(() => { dialSuggestions.value = []; }, 150);
+}
+function pickDialSuggestion(s: DialSuggestion) {
+  dialSuggestions.value = [];
+  phoneInput.value = displayPhone(s.phone);
+  void callPhone(s.phone, { contactId: s.contactId, fullName: s.fullName || undefined, avatarUrl: s.avatarUrl }).catch(() => undefined);
+}
+function callStatusLabel(status: string) {
+  return ({
+    completed: 'Hoàn thành', answered: 'Đã trả lời', missed: 'Gọi nhỡ',
+    rejected: 'Từ chối', failed: 'Thất bại', initiated: 'Đang khởi tạo', ringing: 'Đang đổ chuông',
+  } as Record<string, string>)[status] || status;
 }
 function initials(name: string) { return name.trim().split(/\s+/).slice(-2).map((part) => part[0]).join('').toUpperCase(); }
 function displayPhone(value: string) {
@@ -179,9 +253,54 @@ function recordingUrl(item: CallHistoryItem) {
   const url = item.recordingId?.trim();
   return url && /^https:\/\//i.test(url) ? url : null;
 }
-function toggleRecording(id: string) {
-  playingRecordingId.value = playingRecordingId.value === id ? null : id;
+
+// Phát QUA cổng CRM có auth — không dùng thẳng URL kho (recordingId), cùng lý do/pattern
+// như CallHistoryView.vue.
+const recordingBlobUrl = ref<string | null>(null);
+const recordingLoading = ref(false);
+const recordingLoadError = ref('');
+
+function revokeRecordingBlob() {
+  if (recordingBlobUrl.value) URL.revokeObjectURL(recordingBlobUrl.value);
+  recordingBlobUrl.value = null;
 }
+
+async function toggleRecording(id: string) {
+  if (playingRecordingId.value === id) {
+    playingRecordingId.value = null;
+    revokeRecordingBlob();
+    return;
+  }
+  revokeRecordingBlob();
+  playingRecordingId.value = id;
+  recordingLoadError.value = '';
+  recordingLoading.value = true;
+  try {
+    const res = await api.get(`/telephony/calls/${id}/recording`, { responseType: 'blob', timeout: 30000 });
+    recordingBlobUrl.value = URL.createObjectURL(res.data as Blob);
+  } catch (e: any) {
+    const status = e?.response?.status;
+    recordingLoadError.value = status === 410
+      ? 'Ghi âm đã hết hạn hoặc bị xóa.'
+      : status === 404
+        ? 'Không có ghi âm.'
+        : 'Không tải được ghi âm.';
+  } finally {
+    recordingLoading.value = false;
+  }
+}
+
+function downloadRecording(id: string) {
+  if (!recordingBlobUrl.value) return;
+  const a = document.createElement('a');
+  a.href = recordingBlobUrl.value;
+  a.download = `cuoc-goi-${id}.mp3`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+onUnmounted(revokeRecordingBlob);
 function roleLabel(role: string) { return ({ owner: 'Chủ sở hữu', admin: 'Quản trị viên', member: 'Nhân viên' } as Record<string, string>)[role] || role; }
 function formatTime(value: string) { return new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date(value)); }
 function historyName(item: CallHistoryItem) {
@@ -227,6 +346,7 @@ function historyLabel(item: CallHistoryItem) {
 .call-status { margin: 0; color: #617078; }
 .call-error { max-width: 330px; margin: 10px 0 0; color: #bd4049; font-size: 13px; line-height: 1.45; text-align: center; }
 .timer { margin-top: 8px; font-variant-numeric: tabular-nums; color: #263b43; font-weight: 700; }
+.post-call-notes { width: 100%; margin-top: 16px; max-width: none; }
 .call-actions { display: flex; gap: 34px; margin-top: 38px; }
 .round { width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; cursor: pointer; box-shadow: 0 8px 20px rgba(20,50,60,.15); }
 .round.answer { background: #18a66f; }.round.reject { background: #e34d59; }.round.secondary { color: #4a5c63; background: #edf2f2; }.round.selected { background: #ccd7d7; }
@@ -247,6 +367,14 @@ function historyLabel(item: CallHistoryItem) {
 .dial-form button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #15947f; color: #fff; cursor: pointer; }
 .dial-form button:disabled { opacity: .4; cursor: not-allowed; }
 .dial-error { display: block; margin: 7px 24px 0; color: #c24850; }
+.dial-suggestions { margin: 6px 24px 0; border: 1px solid #e3e9e9; border-radius: 10px; overflow: hidden; background: #fff; }
+.dial-suggestion-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 0; border-bottom: 1px solid #f1f4f4; background: #fff; cursor: pointer; text-align: left; }
+.dial-suggestion-row:last-child { border-bottom: 0; }
+.dial-suggestion-row:hover { background: #f5f9f8; }
+.ds-avatar { flex: 0 0 auto; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: #deefeb; color: #176f63; font-size: 10px; font-weight: 800; }
+.ds-copy { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.ds-copy strong { font-size: 13px; color: #253238; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-copy small { font-size: 11px; color: #829097; }
 .history { max-height: 360px; overflow-y: auto; border-top: 1px solid #edf1f2; padding-bottom: 14px; }
 .history-entry { border-bottom: 1px solid #f1f4f4; }
 .history-row { display: flex; align-items: center; gap: 11px; padding: 8px 24px; }
@@ -257,7 +385,9 @@ function historyLabel(item: CallHistoryItem) {
 .recording-btn:hover { background: #d5eee7; }
 .recording-player { display: flex; align-items: center; gap: 8px; padding: 0 24px 10px 52px; }
 .recording-player audio { min-width: 0; width: 100%; height: 34px; }
-.recording-player a { color: #148774; }
+.recording-player a, .recording-player button { color: #148774; border: none; background: none; cursor: pointer; padding: 0; display: inline-flex; }
+.recording-state { font-size: 12px; color: #718087; }
+.recording-state.error { color: #b3453b; }
 .history-toggle { width: calc(100% - 48px); margin: 10px 24px 0; padding: 8px; border: 0; border-radius: 8px; background: #f0f6f5; color: #147d70; font-weight: 700; cursor: pointer; }
 .history-toggle:disabled { opacity: .55; cursor: wait; }
 .history-collapse { width: calc(100% - 48px); margin: 6px 24px 0; padding: 7px; border: 0; background: transparent; color: #6d7d82; cursor: pointer; }

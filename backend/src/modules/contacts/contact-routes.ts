@@ -23,6 +23,7 @@ import { backfillFriendDisplayName } from './backfill-friend-display-name.js';
 import { migrateStatusTable } from './status-migration.js';
 import { computeAggregateDisplay, computeViewerPreview, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
 import { getContactScope, assertContactVisible, attachContactCollaboratorByUser, assertContactEditable } from './contact-scope.js';
+import { leadScoreToGrade, priorityScoreToTier } from './score-tiers.js';
 import { getZaloScope } from '../zalo/zalo-scope.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
@@ -276,6 +277,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
             // #4: số lần gắn sequence (auto+manual) ở mức Cha (SĐT) — tổng + đang chạy.
             sequenceAttachCount: seqCountMap.get(c.id)?.total ?? 0,
             sequenceActiveCount: seqCountMap.get(c.id)?.active ?? 0,
+            grade: leadScoreToGrade(c.leadScore),
+            priorityTier: priorityScoreToTier(c.priorityScore ?? 0),
           };
         })
         .filter((c) => !multiNickOnly || (c.childrenCount ?? 0) > 1);
@@ -390,6 +393,39 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       logger.error('[contacts] Sources error:', err);
       return reply.status(500).send({ error: 'Failed to list sources' });
+    }
+  });
+
+  // ── GET /api/v1/contacts/address-suggestions — gợi ý tỉnh/huyện/xã đã có sẵn ──
+  // Không dùng dataset hành chính tĩnh (dễ sai/lỗi thời, số liệu tỉnh/huyện/xã VN
+  // hay sáp nhập) — gợi ý dựa trên dữ liệu THẬT đã nhập trong chính org này, cùng
+  // pattern với /contacts/sources ở trên. Autocomplete hỗ trợ gõ nhanh + nhất quán
+  // chính tả, KHÔNG ép buộc (field vẫn free text).
+  app.get('/api/v1/contacts/address-suggestions', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const [provinces, districts, wards] = await Promise.all([
+        prisma.contact.groupBy({
+          by: ['province'], where: { orgId: user.orgId, mergedInto: null, province: { not: null } },
+          _count: { province: true }, orderBy: { _count: { province: 'desc' } }, take: 200,
+        }),
+        prisma.contact.groupBy({
+          by: ['district'], where: { orgId: user.orgId, mergedInto: null, district: { not: null } },
+          _count: { district: true }, orderBy: { _count: { district: 'desc' } }, take: 500,
+        }),
+        prisma.contact.groupBy({
+          by: ['ward'], where: { orgId: user.orgId, mergedInto: null, ward: { not: null } },
+          _count: { ward: true }, orderBy: { _count: { ward: 'desc' } }, take: 500,
+        }),
+      ]);
+      return {
+        provinces: provinces.filter((g) => g.province).map((g) => g.province as string),
+        districts: districts.filter((g) => g.district).map((g) => g.district as string),
+        wards: wards.filter((g) => g.ward).map((g) => g.ward as string),
+      };
+    } catch (err) {
+      logger.error('[contacts] Address suggestions error:', err);
+      return reply.status(500).send({ error: 'Failed to list address suggestions' });
     }
   });
 
@@ -513,7 +549,14 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const { buildPrivacyContext, shouldRedactContactPii, redactContact } = await import('../privacy/redact.js');
       const privacyCtx = await buildPrivacyContext(request);
       const shouldRedact = await shouldRedactContactPii(contact.id, privacyCtx);
-      const merged = { ...contact, ...(preview ?? {}), ...display, viewerRole };
+      const merged = {
+        ...contact,
+        ...(preview ?? {}),
+        ...display,
+        viewerRole,
+        grade: leadScoreToGrade(contact.leadScore),
+        priorityTier: priorityScoreToTier(contact.priorityScore ?? 0),
+      };
       return shouldRedact ? redactContact(merged as any, privacyCtx) : merged;
     } catch (err) {
       logger.error('[contacts] Detail error:', err);
@@ -558,7 +601,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           tags: body.tags ?? [],
           metadata: body.metadata ?? {},
           gender: body.gender || undefined,
-          occupation: body.occupation || undefined,
+          industry: body.industry || undefined,
+          storeName: body.storeName || undefined,
+          customerType: body.customerType || undefined,
           addressLine: body.addressLine || undefined,
           birthYear: createBirthYear,
           phonesExtra: Array.isArray(body.phonesExtra)
@@ -997,7 +1042,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         select: {
           id: true, status: true, statusId: true, fullName: true, phone: true, source: true,
           assignedUserId: true, crmName: true, email: true, gender: true,
-          birthDate: true, leadScore: true, addressLine: true, occupation: true,
+          birthDate: true, leadScore: true, addressLine: true, industry: true,
         },
       });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
@@ -1079,7 +1124,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         updateData.gender = body.gender || null;
         updateData.genderLocked = !!body.gender;
       }
-      if (body.occupation !== undefined) updateData.occupation = body.occupation || null;
+      if (body.industry !== undefined) updateData.industry = body.industry || null;
+      if (body.storeName !== undefined) updateData.storeName = body.storeName || null;
+      if (body.customerType !== undefined) updateData.customerType = body.customerType || null;
       if (body.addressLine !== undefined) updateData.addressLine = body.addressLine || null;
       if (body.province !== undefined) updateData.province = body.province || null;
       if (body.district !== undefined) updateData.district = body.district || null;
@@ -1234,7 +1281,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const infoDiff = computeDiff(
         existing as Record<string, unknown>,
         updated as Record<string, unknown>,
-        ['fullName', 'crmName', 'phone', 'email', 'gender', 'birthDate', 'addressLine', 'occupation', 'assignedUserId'],
+        ['fullName', 'crmName', 'phone', 'email', 'gender', 'birthDate', 'addressLine', 'industry', 'storeName', 'customerType', 'assignedUserId'],
       );
       if (Object.keys(infoDiff).length > 0) {
         logActivity({

@@ -20,6 +20,13 @@
         <template #item.avgResponseTime="{ item }">
           {{ formatTime(item.avgResponseTime) }}
         </template>
+        <template #item.answeredCalls="{ item }">
+          {{ item.answeredCalls }}/{{ item.totalCalls }}
+          <span v-if="item.totalCalls" class="text-caption text-grey">({{ connectRate(item) }}%)</span>
+        </template>
+        <template #item.avgCallDurationSec="{ item }">
+          {{ formatTime(item.avgCallDurationSec) }}
+        </template>
       </v-data-table>
       <div v-else class="text-center pa-8 text-grey">Không có dữ liệu</div>
     </v-card-text>
@@ -39,6 +46,8 @@ const headers = [
   { title: 'KH chuyển đổi', key: 'contactsConverted', align: 'end' as const },
   { title: 'Lịch hẹn xong', key: 'appointmentsCompleted', align: 'end' as const },
   { title: 'TG trả lời TB', key: 'avgResponseTime', align: 'end' as const },
+  { title: 'Cuộc gọi (đã nghe/tổng)', key: 'answeredCalls', align: 'end' as const },
+  { title: 'TG gọi TB', key: 'avgCallDurationSec', align: 'end' as const },
 ];
 
 const rankedUsers = computed(() => {
@@ -49,8 +58,12 @@ const rankedUsers = computed(() => {
 function formatTime(seconds: number | null): string {
   if (seconds == null) return '—';
   const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  const s = Math.round(seconds % 60);
   if (m === 0) return `${s}s`;
   return `${m}p ${s}s`;
+}
+
+function connectRate(item: { totalCalls: number; answeredCalls: number }): number {
+  return item.totalCalls ? Math.round((item.answeredCalls / item.totalCalls) * 100) : 0;
 }
 </script>

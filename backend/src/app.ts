@@ -44,6 +44,8 @@ import { deviceRoutes } from './modules/devices/device-routes.js';
 import { configRoutes } from './modules/config/config-routes.js';
 import { mediaRoutes } from './modules/media/media-routes.js';
 import { contactRoutes } from './modules/contacts/contact-routes.js';
+import { contactImportRoutes } from './modules/contacts/contact-import-routes.js';
+import { contactExportRoutes } from './modules/contacts/contact-export-routes.js';
 import { statusRoutes } from './modules/contacts/status-routes.js';
 import { contactSubResourceRoutes } from './modules/contacts/contact-sub-resource-routes.js';
 import { cockpitRoutes } from './modules/contacts/cockpit-routes.js';
@@ -272,6 +274,8 @@ async function bootstrap() {
   await app.register(configRoutes);
   await app.register(mediaRoutes);
   await app.register(contactRoutes);
+  await app.register(contactImportRoutes);
+  await app.register(contactExportRoutes);
   await app.register(statusRoutes);
   await app.register(contactSubResourceRoutes);
   await app.register(cockpitRoutes);

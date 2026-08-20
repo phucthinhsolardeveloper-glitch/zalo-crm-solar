@@ -81,7 +81,7 @@ export interface TemplateVarValues {
   gender: string; name: string; name_full: string; name_first: string;
   crm_full: string; crm_first: string; crm_last: string;
   phone: string; email: string; facebook: string; tiktok: string;
-  age: string; occupation: string; province: string; district: string; ward: string; address: string; income: string;
+  age: string; industry: string; province: string; district: string; ward: string; address: string; income: string;
   status: string; nick_status: string; source: string; next_appt: string; score: string;
   first_active: string; last_active: string; last_message: string;
   last_inbound: string; last_outbound: string; last_interaction: string; msg_count: string;

@@ -1526,7 +1526,7 @@ async function onPickLabel(label: AccountLabelView) {
   // API call background — UI đã update sẵn
   try {
     const { api: apiClient } = await import('@/api/index');
-    await apiClient.post(`/zalo-accounts/${accId}/labels/assign-thread`, { threadId, labelId });
+    await apiClient.post(`/zalo-accounts/${accId}/labels/assign-thread`, { threadId, labelId }, { skipErrorToast: true } as any);
     // BE đã confirm — clear pending để các fetch sau dùng BE-authoritative value
     if (convId) clearPendingTags(convId);
     // Reconcile với BE — fetch fresh + dispatch event để các surface khác re-fetch

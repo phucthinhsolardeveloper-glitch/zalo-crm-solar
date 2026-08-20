@@ -34,7 +34,7 @@ export function useChatContactPanel(
     gender: null as string | null,
     birthDate: '',
     addressLine: '',
-    occupation: '',
+    industry: '',
     source: null as string | null,
     status: null as string | null,
     nextAppointmentDate: '',
@@ -71,7 +71,7 @@ export function useChatContactPanel(
     form.gender = c.gender ?? null;
     form.birthDate = c.birthDate ? c.birthDate.slice(0, 10) : '';
     form.addressLine = c.addressLine ?? '';
-    form.occupation = c.occupation ?? '';
+    form.industry = c.industry ?? '';
     form.source = c.source ?? null;
     form.status = c.status ?? null;
     form.nextAppointmentDate = c.nextAppointment
@@ -156,7 +156,7 @@ export function useChatContactPanel(
         ? new Date(form.birthDate + 'T00:00:00').toISOString()
         : null,
       addressLine: form.addressLine || null,
-      occupation: form.occupation || null,
+      industry: form.industry || null,
       source: form.source || null,
       status: form.status || null,
       nextAppointment: form.nextAppointmentDate

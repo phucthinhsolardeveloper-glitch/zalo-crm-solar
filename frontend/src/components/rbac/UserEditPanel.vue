@@ -206,6 +206,15 @@
           <section v-if="canConfigureOmicall" class="section">
             <h3 class="section-title">Extension tổng đài</h3>
             <p class="field-hint">Extension SIP đã tạo sẵn trên tổng đài</p>
+            <button
+              v-if="!omicallExtension"
+              class="btn-reset-pw"
+              :disabled="busy"
+              @click="autoProvisionOmicall"
+            >
+              ☎️ Tự động cấp extension OmiCall
+            </button>
+            <p v-if="!omicallExtension" class="field-hint">Hoặc gán tay 1 extension đã có sẵn bên dưới:</p>
             <label class="field-label">Extension</label>
             <input
               v-model="omicallExtension"
@@ -612,6 +621,21 @@ async function saveOmicallExtension() {
     emit('changed');
   } catch (e: any) {
     error.value = e?.response?.data?.error || 'Lỗi lưu extension tổng đài';
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function autoProvisionOmicall() {
+  if (!props.user) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const { data } = await api.post(`/users/${props.user.id}/omicall-auto-provision`);
+    omicallExtension.value = data.extension;
+    emit('changed');
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || 'Cấp extension OmiCall tự động thất bại';
   } finally {
     busy.value = false;
   }

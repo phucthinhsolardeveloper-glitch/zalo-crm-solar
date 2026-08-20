@@ -135,8 +135,11 @@ async function queryContactMetric(
   const dateCol = Prisma.raw(dateColName);
 
   // statusFilter is a fixed-shape fragment, not user input.
+  // FIX 2026-08-20: pipeline status đổi sang 10 bước thật — "converted" giờ = đã tới
+  // 1 trong 2 giai đoạn thành công (chốt đơn/đã mua), 'converted' generic cũ không còn
+  // ai ghi vào nữa.
   const statusFilter = type === 'converted'
-    ? Prisma.sql`AND status = 'converted'`
+    ? Prisma.sql`AND status IN ('closed_won', 'purchased')`
     : Prisma.empty;
 
   // sourceFilter — user input. ALWAYS bound, never interpolated.

@@ -16,7 +16,7 @@
               <div v-if="data?.entry.phoneLocal || data?.entry.phoneE164" class="ldp-phone">
                 <span class="ldp-phone-num">{{ formatPhone(data.entry.phoneLocal || data.entry.phoneE164 || '') }}</span>
                 <button class="ldp-phone-btn" title="Sao chép số" @click="copyPhone">⧉</button>
-                <a class="ldp-phone-btn call" :href="`tel:${data.entry.phoneE164 || data.entry.phoneLocal}`" title="Gọi">📞</a>
+                <button class="ldp-phone-btn call" :disabled="calling" title="Gọi" @click="onCallClick">📞</button>
               </div>
               <div v-if="customEmail" class="ldp-contact">📧 {{ customEmail }}</div>
               <div class="ldp-badges">
@@ -33,7 +33,7 @@
 
           <div class="ldp-actions">
             <button class="ldp-btn-primary" :disabled="data?.entry.hasZalo !== true" @click="openZaloChat">💬 Mở chat Zalo</button>
-            <a class="ldp-btn-ghost" :class="{ disabled: !canCall }" :href="canCall ? `tel:${data?.entry.phoneE164 || data?.entry.phoneLocal}` : undefined">📞 Gọi</a>
+            <button class="ldp-btn-ghost" :class="{ disabled: !canCall }" :disabled="!canCall || calling" @click="onCallClick">📞 Gọi</button>
             <button class="ldp-btn-ghost" @click="openNote">📝 Note</button>
             <button class="ldp-btn-ghost disabled" disabled title="Sắp có">↪ Chuyển tệp</button>
           </div>
@@ -217,6 +217,7 @@ import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
+import { useOmicallSoftphone } from '@/composables/use-omicall-softphone';
 import SourceMetaRow from './SourceMetaRow.vue';
 import NickPickerPopup, { type NickPickerAccount } from '@/components/zalo-accounts/NickPickerPopup.vue';
 
@@ -241,6 +242,24 @@ const noteDraft = ref('');
 const savingNote = ref(false);
 
 const canCall = computed(() => !!(data.value?.entry.phoneE164 || data.value?.entry.phoneLocal));
+
+// FIX 2026-08-20 (audit gọi/lịch sử): tel: mở app điện thoại native — không tồn tại trên
+// desktop CRM, không đi qua tổng đài/không log CallLog. Dùng chung callPhone() của softphone
+// (cùng service với mọi nơi gọi khác trong app) — giữ nguyên UI cũ (icon 📞), chỉ đổi hành vi.
+const { callPhone } = useOmicallSoftphone();
+const calling = ref(false);
+async function onCallClick() {
+  const phone = data.value?.entry.phoneE164 || data.value?.entry.phoneLocal;
+  if (!phone || calling.value) return;
+  calling.value = true;
+  try {
+    await callPhone(phone, { fullName: data.value?.entry.nameRaw || undefined });
+  } catch (e: any) {
+    toast.error(e?.response?.data?.error || e?.message || 'Không thể gọi');
+  } finally {
+    calling.value = false;
+  }
+}
 
 function onFindZaloClick() {
   if (!data.value?.entry.phoneValid) {

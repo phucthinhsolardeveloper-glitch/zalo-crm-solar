@@ -28,10 +28,25 @@
               >⚪ Chưa tìm</v-chip>
               <v-chip v-if="contact?.source" size="x-small" variant="tonal" color="info">{{ contact.source }}</v-chip>
               <v-chip v-if="contact?.status" size="x-small" variant="tonal" color="warning">{{ contact.status }}</v-chip>
+              <!-- Grade/Priority: tính từ leadScore/priorityScore có sẵn, KHÔNG phải field riêng — xem score-tiers.ts -->
+              <v-chip v-if="contact?.grade" size="x-small" variant="flat" :color="gradeColor(contact.grade)">
+                Hạng {{ contact.grade }}
+              </v-chip>
+              <v-chip v-if="contact?.priorityTier" size="x-small" variant="tonal" :color="priorityColor(contact.priorityTier)">
+                {{ priorityLabel(contact.priorityTier) }}
+              </v-chip>
             </div>
             <div class="cdd-phone-row">
               <v-icon size="14">mdi-phone</v-icon>
               <span>{{ contact?.phone || '— chưa có SĐT —' }}</span>
+              <CallButton
+                v-if="contact?.phone"
+                :phone="contact.phone"
+                :contact-id="contact.id"
+                :full-name="contact.crmName || contact.fullName"
+                :avatar-url="contact.avatarUrl"
+                size="small"
+              />
               <span v-if="contact?.email" class="cdd-email">
                 <v-icon size="14">mdi-email-outline</v-icon>{{ contact.email }}
               </span>
@@ -208,8 +223,24 @@
 
               <v-col cols="12" sm="6">
                 <v-text-field
-                  v-model="form.occupation"
-                  label="Nghề nghiệp"
+                  v-model="form.industry"
+                  label="Ngành nghề"
+                />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-text-field
+                  v-model="form.storeName"
+                  label="Tên cửa hàng"
+                />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="form.customerType"
+                  :items="CUSTOMER_TYPE_OPTIONS"
+                  item-title="text"
+                  item-value="value"
+                  label="Đối tượng"
+                  clearable
                 />
               </v-col>
 
@@ -377,13 +408,26 @@
           <v-tabs-window-item value="address">
             <v-row dense>
               <v-col cols="12" sm="4">
-                <v-text-field v-model="form.province" label="Tỉnh/Thành phố" />
+                <v-combobox
+                  v-model="form.province"
+                  :items="addressSuggestions.provinces"
+                  label="Tỉnh/Thành phố"
+                  hint="Gợi ý từ dữ liệu đã nhập — vẫn gõ tự do được"
+                />
               </v-col>
               <v-col cols="12" sm="4">
-                <v-text-field v-model="form.district" label="Quận/Huyện" />
+                <v-combobox
+                  v-model="form.district"
+                  :items="addressSuggestions.districts"
+                  label="Quận/Huyện"
+                />
               </v-col>
               <v-col cols="12" sm="4">
-                <v-text-field v-model="form.ward" label="Phường/Xã" />
+                <v-combobox
+                  v-model="form.ward"
+                  :items="addressSuggestions.wards"
+                  label="Phường/Xã"
+                />
               </v-col>
               <v-col cols="12">
                 <v-textarea
@@ -708,10 +752,12 @@ import { useToast } from '@/composables/use-toast';
 import type { Contact } from '@/composables/use-contacts';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
+import CallButton from '@/components/telephony/CallButton.vue';
 import {
   SOURCE_OPTIONS,
   STATUS_OPTIONS,
   GENDER_OPTIONS,
+  CUSTOMER_TYPE_OPTIONS,
   INCOME_RANGE_OPTIONS,
   CONSENT_OPTIONS,
   useContacts,
@@ -768,7 +814,9 @@ interface FormState {
   gender: string;
   birthYear: number | null;
   birthDate: string;
-  occupation: string;
+  industry: string;
+  storeName: string;
+  customerType: string;
   incomeRange: string;
   socialFacebook: string;
   socialTiktok: string;
@@ -800,7 +848,9 @@ function emptyForm(): FormState {
     gender: '',
     birthYear: null,
     birthDate: '',
-    occupation: '',
+    industry: '',
+    storeName: '',
+    customerType: '',
     incomeRange: '',
     socialFacebook: '',
     socialTiktok: '',
@@ -815,6 +865,24 @@ function emptyForm(): FormState {
 }
 
 const form = ref<FormState>(emptyForm());
+
+// Gợi ý tỉnh/huyện/xã từ dữ liệu đã có trong org (KHÔNG dùng dataset hành chính
+// tĩnh — dễ lỗi thời/sai khi tỉnh huyện sáp nhập). Lazy-load 1 lần khi dialog mở.
+const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wards: string[] }>({
+  provinces: [], districts: [], wards: [],
+});
+let addressSuggestionsLoaded = false;
+async function loadAddressSuggestions() {
+  if (addressSuggestionsLoaded) return;
+  addressSuggestionsLoaded = true;
+  try {
+    const { data } = await api.get('/contacts/address-suggestions');
+    addressSuggestions.value = data;
+  } catch {
+    // Gợi ý chỉ là tiện ích — field vẫn free text nếu load lỗi.
+  }
+}
+watch(show, (open) => { if (open) void loadAddressSuggestions(); });
 
 // Attempts on activity tab
 const attempts = ref<Array<{
@@ -935,6 +1003,17 @@ function kindChipLabel(kind: string): string {
   } as Record<string, string>)[kind] || kind;
 }
 
+// Grade/Priority — tính từ leadScore/priorityScore có sẵn (backend score-tiers.ts), chỉ hiển thị.
+function gradeColor(grade: string): string {
+  return ({ A: 'success', B: 'info', C: 'warning', D: 'grey' } as Record<string, string>)[grade] || 'grey';
+}
+function priorityColor(tier: string): string {
+  return ({ critical: 'error', high: 'warning', normal: 'info', low: 'grey' } as Record<string, string>)[tier] || 'grey';
+}
+function priorityLabel(tier: string): string {
+  return ({ critical: 'Rất cao', high: 'Cao', normal: 'Bình thường', low: 'Thấp' } as Record<string, string>)[tier] || tier;
+}
+
 // ══════ Profile completion progress ════════════════════════════════════
 const FIELD_WEIGHTS: Array<{ key: keyof FormState; label: string; weight: number }> = [
   { key: 'fullName', label: 'Tên', weight: 15 },
@@ -943,7 +1022,7 @@ const FIELD_WEIGHTS: Array<{ key: keyof FormState; label: string; weight: number
   { key: 'birthDate', label: 'Ngày sinh', weight: 10 },
   { key: 'source', label: 'Nguồn', weight: 10 },
   { key: 'email', label: 'Email', weight: 8 },
-  { key: 'occupation', label: 'Nghề', weight: 7 },
+  { key: 'industry', label: 'Ngành nghề', weight: 7 },
   { key: 'addressLine', label: 'Địa chỉ', weight: 8 },
   { key: 'status', label: 'Trạng thái', weight: 7 },
 ];
@@ -1005,7 +1084,9 @@ watch(() => props.contact, (c) => {
       birthDate: c.birthDate
         ? new Date(c.birthDate).toISOString().split('T')[0]
         : '',
-      occupation: c.occupation ?? '',
+      industry: c.industry ?? '',
+      storeName: c.storeName ?? '',
+      customerType: c.customerType ?? '',
       incomeRange: c.incomeRange ?? '',
       socialFacebook: c.socialFacebook ?? '',
       socialTiktok: c.socialTiktok ?? '',
@@ -1106,7 +1187,9 @@ async function onSave() {
     birthDate: form.value.birthDate
       ? new Date(form.value.birthDate + 'T00:00:00').toISOString()
       : null,
-    occupation: form.value.occupation || null,
+    industry: form.value.industry || null,
+    storeName: form.value.storeName || null,
+    customerType: form.value.customerType || null,
     incomeRange: form.value.incomeRange || null,
     socialFacebook: form.value.socialFacebook || null,
     socialTiktok: form.value.socialTiktok || null,

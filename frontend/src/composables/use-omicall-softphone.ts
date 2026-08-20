@@ -86,7 +86,9 @@ const zccEnabled = ref(false);
 const zccSipNumber = ref<string | null>(null);
 const dialogRequest = ref(0);
 let activeCall: OmicallCallData | null = null;
-let localCallId: string | null = null;
+// Exposed as activeCallLogId so UI can attach a post-call note to the exact call
+// (e.g. right after it ends) without re-deriving which TelephonyCall row it was.
+const activeCallLogId = ref<string | null>(null);
 let timer: ReturnType<typeof setInterval> | null = null;
 let initialized: Promise<void> | null = null;
 let sdkInitialized = false;
@@ -115,10 +117,23 @@ function providerCallId(call?: OmicallCallData): string | undefined {
   return call?.transaction_id || call?.transactionId || call?.call_uuid || call?.uuid || call?.callId || call?.id;
 }
 
+// LOOSE — khớp normalizePhone() backend (shared/utils/phone.ts): chấp nhận số bàn/số cũ/
+// SĐT nước ngoài, KHÔNG chỉ mobile VN 84+11-12 digit. FIX 2026-08-20: bản cũ (STRICT,
+// chỉ nhận 84+11-12 digit) chặn gọi lại số lịch sử/số nước ngoài dù backend đã lưu được —
+// nút Gọi hiện ra nhưng bấm báo "Số điện thoại Việt Nam không hợp lệ". Giữ permission-check
+// (được phép gọi AI) tách biệt khỏi format-check này.
 function normalizeVnPhone(raw: string): string | null {
-  let digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('0')) digits = `84${digits.slice(1)}`;
-  if (!digits.startsWith('84') || digits.length < 11 || digits.length > 12) return null;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 9 || digits.length > 13) return null;
+  if (digits.startsWith('0') && (digits.length === 10 || digits.length === 11)) {
+    return `84${digits.slice(1)}`;
+  }
+  if (digits.startsWith('84') && (digits.length === 11 || digits.length === 12)) {
+    return digits;
+  }
+  if (digits.length === 9) return `84${digits}`;
+  // Số khác (nước ngoài/dạng lạ) — giữ nguyên digits, để tổng đài/backend tự quyết định
+  // có gọi được không thay vì chặn cứng ở FE.
   return digits;
 }
 
@@ -157,7 +172,7 @@ async function syncHistory() {
   // pages and should not leave the history panel empty while it is running.
   await refreshHistory();
   try {
-    await api.post('/telephony/omicall/sync', { days: 30 });
+    await api.post('/telephony/omicall/sync', { days: 30 }, { skipErrorToast: true } as any);
   } catch {
     // Webhook-only mode remains fully usable when OMICALL_API_KEY is absent.
   } finally {
@@ -174,8 +189,8 @@ function scheduleCdrRefresh() {
 }
 
 async function patchLog(status: string, extra: Record<string, unknown> = {}) {
-  if (!localCallId) return;
-  try { await api.patch(`/telephony/calls/${localCallId}`, { status, ...extra }); } catch { /* best effort */ }
+  if (!activeCallLogId.value) return;
+  try { await api.patch(`/telephony/calls/${activeCallLogId.value}`, { status, ...extra }); } catch { /* best effort */ }
 }
 
 function startTimer() {
@@ -222,7 +237,7 @@ async function createLog(
     direction,
     providerCallId: providerCallId(call),
   });
-  localCallId = data.id;
+  activeCallLogId.value = data.id;
 }
 
 async function handleIncoming(callData: OmicallCallData) {
@@ -320,7 +335,10 @@ async function connect() {
   errorMessage.value = '';
   try {
     const [{ data }] = await Promise.all([
-      api.get('/telephony/omicall/connect-config'),
+      // skipErrorToast: 503 "chưa được gán extension" là trạng thái nghiệp vụ bình
+      // thường (nhân viên mới/chưa cấp), không phải server lỗi — UI dưới đây tự xử lý
+      // qua errorMessage, không cần toast "Máy chủ lỗi" gây hoang mang.
+      api.get('/telephony/omicall/connect-config', { skipErrorToast: true } as any),
       loadSdk(),
     ]);
     enabled.value = Boolean(data.enabled);
@@ -408,7 +426,7 @@ async function callPeer(peer: PhonePeer) {
   await startOutgoing(peer, peer.omicallExtension);
 }
 
-async function callPhone(rawPhone: string) {
+async function callPhone(rawPhone: string, opts: { contactId?: string; fullName?: string; avatarUrl?: string | null } = {}) {
   const phoneNumber = normalizeVnPhone(rawPhone);
   if (!phoneNumber) {
     errorMessage.value = 'Số điện thoại Việt Nam không hợp lệ';
@@ -418,7 +436,9 @@ async function callPhone(rawPhone: string) {
   await startOutgoing({
     kind: 'external',
     phoneNumber,
-    fullName: phoneNumber,
+    fullName: opts.fullName || phoneNumber,
+    avatarUrl: opts.avatarUrl,
+    contactId: opts.contactId,
     channel: zccEnabled.value ? 'zcc' : 'pstn',
     sipNumber: zccEnabled.value ? zccSipNumber.value : null,
   }, phoneNumber);
@@ -436,7 +456,7 @@ async function callConversation(conversationId: string) {
     channel: 'pstn' | 'zcc';
     sipNumber?: string | null;
     contact: { id: string; fullName: string; avatarUrl?: string | null; phone: string };
-  }>('/telephony/omicall/resolve-conversation-target', { conversationId });
+  }>('/telephony/omicall/resolve-conversation-target', { conversationId }, { skipErrorToast: true } as any);
   await startOutgoing({
     kind: 'external',
     phoneNumber: data.contact.phone,
@@ -457,7 +477,7 @@ function resetEnded() {
   if (phase.value === 'ended') {
     phase.value = window.OMICallSDK ? 'ready' : 'connecting';
     activePeer.value = null;
-    localCallId = null;
+    activeCallLogId.value = null;
     elapsedSec.value = 0;
   }
 }
@@ -465,7 +485,7 @@ function resetEnded() {
 export function useOmicallSoftphone() {
   return {
     phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
-    activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest,
+    activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, activeCallLogId,
     isBusy: computed(() => ['calling', 'ringing', 'answered'].includes(phase.value)),
     fromNumber, initialize, callPeer, callPhone, callConversation,
     answer, reject, hangup, toggleMute, resetEnded, loadMoreHistory,

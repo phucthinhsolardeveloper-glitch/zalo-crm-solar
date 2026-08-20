@@ -72,7 +72,9 @@ export interface Contact {
   gender?: string | null;
   birthYear?: number | null;
   birthDate?: string | null;
-  occupation?: string | null;
+  industry?: string | null;
+  storeName?: string | null;
+  customerType?: string | null;
   incomeRange?: string | null;
   socialFacebook?: string | null;
   socialTiktok?: string | null;
@@ -134,6 +136,11 @@ export interface Contact {
   // Phase 8.C — Priority Score (combined Lead × 0.55 + Engagement × 0.30 + trend)
   priorityScore?: number | null;
   priorityUpdatedAt?: string | null;
+
+  // 2026-08-20: computed display-only tiers — derived server-side from leadScore/
+  // priorityScore (score-tiers.ts), NOT independently stored/editable fields.
+  grade?: 'A' | 'B' | 'C' | 'D';
+  priorityTier?: 'critical' | 'high' | 'normal' | 'low';
 }
 
 export const GENDER_OPTIONS = [
@@ -296,12 +303,26 @@ export const SOURCE_OPTIONS = [
   { text: 'Cá nhân', value: 'CN' },
 ];
 
+// 2026-08-20: thay pipeline placeholder cũ (5 bước generic) bằng đúng quy trình bán hàng
+// thật của công ty (theo file Excel thực tế) — 10 bước từ Mới đến Đã mua hàng/Ngừng kinh doanh.
 export const STATUS_OPTIONS = [
   { text: 'Mới', value: 'new' },
   { text: 'Đã liên hệ', value: 'contacted' },
   { text: 'Quan tâm', value: 'interested' },
-  { text: 'Chuyển đổi', value: 'converted' },
-  { text: 'Mất', value: 'lost' },
+  { text: 'Báo giá', value: 'quoted' },
+  { text: 'Đang follow', value: 'following' },
+  { text: 'Chốt đơn', value: 'closed_won' },
+  { text: 'Không tiềm năng', value: 'not_potential' },
+  { text: 'Chuyển sale', value: 'transferred' },
+  { text: 'Đã mua hàng', value: 'purchased' },
+  { text: 'Ngừng kinh doanh', value: 'discontinued' },
+];
+
+// Đối tượng khách hàng — độc lập với Trạng thái ở trên.
+export const CUSTOMER_TYPE_OPTIONS = [
+  { text: 'Đại lý', value: 'agent' },
+  { text: 'Dự án', value: 'project' },
+  { text: 'Cá nhân', value: 'individual' },
 ];
 
 export function useContacts() {

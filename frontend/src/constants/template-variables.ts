@@ -42,7 +42,7 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   { code: '{tiktok}',     label: 'Link TikTok',            icon: 'mdi-music-note',         group: 'kh',   example: '@an',           cat: 'Liên hệ' },
   // ── Nhân khẩu & địa chỉ ──
   { code: '{age}',        label: 'Tuổi',                   icon: 'mdi-cake-variant',       group: 'kh',   example: '33',            cat: 'Nhân khẩu & Địa chỉ' },
-  { code: '{occupation}', label: 'Nghề nghiệp',            icon: 'mdi-briefcase-outline',  group: 'kh',   example: 'Kinh doanh',    cat: 'Nhân khẩu & Địa chỉ' },
+  { code: '{industry}',   label: 'Ngành nghề',             icon: 'mdi-briefcase-outline',  group: 'kh',   example: 'Kinh doanh',    cat: 'Nhân khẩu & Địa chỉ' },
   { code: '{province}',   label: 'Tỉnh / Thành',           icon: 'mdi-map-marker-outline', group: 'kh',   example: 'Hà Nội',        cat: 'Nhân khẩu & Địa chỉ' },
   { code: '{district}',   label: 'Quận / Huyện',           icon: 'mdi-map-marker-outline', group: 'kh',   example: 'Cầu Giấy',      cat: 'Nhân khẩu & Địa chỉ' },
   { code: '{ward}',       label: 'Phường / Xã',            icon: 'mdi-map-marker-outline', group: 'kh',   example: 'Dịch Vọng',     cat: 'Nhân khẩu & Địa chỉ' },

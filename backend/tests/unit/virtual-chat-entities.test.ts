@@ -10,7 +10,7 @@ describe('safeParseEntities — Solar extracted entities', () => {
       fullName: 'Nguyễn Văn Nam',
       gender: 'M',
       birthYear: 1980,
-      occupation: 'Kinh doanh tự do',
+      industry: 'Kinh doanh tự do',
       phone: '0901234567',
       province: 'Đà Nẵng',
       district: 'Hải Châu',

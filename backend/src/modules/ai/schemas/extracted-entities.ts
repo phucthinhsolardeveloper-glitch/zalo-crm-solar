@@ -93,7 +93,7 @@ export interface ExtractedEntities {
   gender?: Gender;
   birthYear?: number;
   age?: number;
-  occupation?: string;
+  industry?: string;
   phone?: string;
   province?: string;
   district?: string;
@@ -177,8 +177,8 @@ export function safeParseEntities(input: unknown): { success: true; data: Extrac
       out.birthYear = new Date().getFullYear() - out.age;
     }
   }
-  if (typeof obj.occupation === 'string' && obj.occupation.trim().length > 0 && obj.occupation.length <= 200) {
-    out.occupation = obj.occupation.trim();
+  if (typeof obj.industry === 'string' && obj.industry.trim().length > 0 && obj.industry.length <= 200) {
+    out.industry = obj.industry.trim();
   }
   if (typeof obj.phone === 'string' && obj.phone.trim().length >= 8 && obj.phone.length <= 30) {
     out.phone = obj.phone.trim();

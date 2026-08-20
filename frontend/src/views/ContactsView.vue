@@ -117,6 +117,15 @@
       <button class="btn btn-quick-add" @click="showAddCustomerDialog = true" title="Thêm khách hàng nhanh">
         ⚡ Thêm KH Nhanh
       </button>
+      <button class="btn btn-quick-add" title="Import khách hàng từ Excel/CSV" @click="showImportDialog = true">
+        📥 Import Excel/CSV
+      </button>
+      <button class="btn btn-quick-add" title="Xuất danh sách ra Excel (.xlsx)" :disabled="exporting" @click="exportContacts('xlsx')">
+        📤 Xuất Excel
+      </button>
+      <button class="btn btn-quick-add" title="Xuất danh sách ra CSV" :disabled="exporting" @click="exportContacts('csv')">
+        📤 Xuất CSV
+      </button>
       <button v-if="hasAnyFilter" class="btn-clear" @click="clearAllFilters" title="Xoá tất cả bộ lọc">
         × Xoá lọc
       </button>
@@ -305,7 +314,18 @@
               <td>
                 <!-- 2026-06-03: SĐT multi-line — số chính đậm + số phụ nhãn -->
                 <div class="phones-cell">
-                  <span class="phone-cell phone-main">{{ formatVnPhone(contact.phone) }}</span>
+                  <span v-if="contact.phone" class="phone-main-row">
+                    <span class="phone-cell phone-main">{{ formatVnPhone(contact.phone) }}</span>
+                    <CallButton
+                      :phone="contact.phone"
+                      :contact-id="contact.id"
+                      :full-name="contact.crmName || contact.fullName"
+                      :avatar-url="contact.avatarUrl"
+                      size="small"
+                      @click.stop
+                    />
+                  </span>
+                  <span v-else class="phone-cell phone-main">{{ formatVnPhone(contact.phone) }}</span>
                   <span
                     v-for="(p, pi) in (contact.phonesExtra || [])" :key="pi"
                     class="phone-extra"
@@ -660,6 +680,7 @@
       lead-source="contacts_quick"
       @created="onContactQuickCreated"
     />
+    <ContactImportDialog v-model="showImportDialog" @imported="onContactsImported" />
   </div>
 </template>
 
@@ -672,8 +693,10 @@ import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import ParentCandidateDialog from '@/components/contacts/ParentCandidateDialog.vue';
 import DuplicateReviewDialog from '@/components/contacts/DuplicateReviewDialog.vue';
 import AddCustomerQuickDialog from '@/components/contacts/AddCustomerQuickDialog.vue';
+import ContactImportDialog from '@/components/contacts/ContactImportDialog.vue';
 import type { CareStatusValue } from '@/constants/care-status';
 import Avatar from '@/components/ui/Avatar.vue';
+import CallButton from '@/components/telephony/CallButton.vue';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
 import {
@@ -781,6 +804,45 @@ function onContactCreated(_c: { id: string; fullName: string | null; phone: stri
 function onContactQuickCreated(_c: { id: string; fullName: string | null; phone: string | null }) {
   // Reload list ngay để KH mới xuất hiện đầu danh sách
   fetchContacts();
+}
+
+const showImportDialog = ref(false);
+function onContactsImported() {
+  fetchContacts();
+  loadStats();
+}
+
+// Xuất Excel/CSV — cùng field/label với Import (contact-export-service.ts backend), mang
+// theo filter đang áp dụng (search + sale phụ trách — 2 filter thực sự có tác dụng trên
+// danh sách hiện tại; statusId lọc theo bảng Status động chưa dùng nên không mang theo).
+const exporting = ref(false);
+async function exportContacts(format: 'xlsx' | 'csv') {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    const res = await api.get('/contacts/export', {
+      params: {
+        format,
+        search: filters.search || undefined,
+        assignedUserId: filters.assignedUserId || undefined,
+      },
+      responseType: 'blob',
+      timeout: 60000,
+    });
+    const blobUrl = URL.createObjectURL(res.data as Blob);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `khach-hang-${stamp}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+  } catch (e: any) {
+    toast.error(e?.response?.data?.error || e?.message || 'Không xuất được danh sách khách hàng');
+  } finally {
+    exporting.value = false;
+  }
 }
 
 // Phase Dual View 2026-05-28: viewMode persist localStorage
@@ -2552,6 +2614,7 @@ watch(
 /* SĐT multi-line */
 .phones-cell { display: flex; flex-direction: column; gap: 1px; }
 .phone-cell.phone-main { font-weight: 600; color: var(--smax-text); }
+.phone-main-row { display: flex; align-items: center; gap: 6px; }
 .phone-extra { font-size: 11px; color: var(--smax-grey-700); font-variant-numeric: tabular-nums; }
 .phone-extra .phone-lbl {
   font-size: 9px; color: var(--smax-grey-400);

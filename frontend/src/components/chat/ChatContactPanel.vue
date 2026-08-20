@@ -111,6 +111,21 @@
               >
                 {{ showExtraPhones ? '−' : '+' }} {{ form.phonesExtra.length }}
               </button>
+              <!-- Ghi chú mới nhất của cuộc gọi gần nhất — hover xem nhanh, bấm xem đầy đủ lịch sử -->
+              <v-menu v-if="latestCallInfo?.call" :close-on-content-click="false" location="bottom end">
+                <template #activator="{ props: menuProps }">
+                  <button
+                    class="call-note-hint"
+                    v-bind="menuProps"
+                    :title="latestCallInfo.latestNote?.body || 'Xem ghi chú cuộc gọi gần nhất'"
+                  >
+                    <v-icon icon="mdi-note-text-outline" size="15" />
+                  </button>
+                </template>
+                <v-card class="call-note-hint-card">
+                  <CallNotesPanel :call-id="latestCallInfo.call.id" />
+                </v-card>
+              </v-menu>
             </div>
           </div>
 
@@ -593,6 +608,7 @@ import AddFlowModal from './AddFlowModal.vue';
 import MediaTabPanel from './MediaTabPanel.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
+import CallNotesPanel from '@/components/telephony/CallNotesPanel.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
@@ -917,7 +933,7 @@ function onEnrolled(): void {
 // ════════ Hồ sơ KH tổng hợp (phase sau) ════════
 // Tạm thời chỉ navigate sang route /contacts/:id/profile (skeleton view).
 // Sau khi backend GET /api/v1/contacts/:id/profile sẵn sàng + ContactProfileView
-// implement đầy đủ → tab này hiển thị 3 field Email/Address/Occupation đã ẩn ở cột 4.
+// implement đầy đủ → tab này hiển thị 3 field Email/Address/Industry đã ẩn ở cột 4.
 function openFullProfile() {
   if (!props.contact?.id) return;
   router.push(`/contacts/${props.contact.id}/profile`);
@@ -974,7 +990,23 @@ watch(() => props.contactId, (id) => {
   }
   // Reset suggest text
   suggestText.value = '';
+  void loadLatestCallInfo(id);
 }, { immediate: true });
+
+// Ghi chú mới nhất của cuộc gọi gần nhất — hover nhanh cạnh SĐT (mdi-note-text-outline).
+interface LatestCallInfo {
+  call: { id: string; status: string; startedAt: string; direction: string } | null;
+  latestNote: { id: string; body: string; createdAt: string; author: { id: string; fullName: string } } | null;
+}
+const latestCallInfo = ref<LatestCallInfo | null>(null);
+async function loadLatestCallInfo(contactId: string | null | undefined) {
+  latestCallInfo.value = null;
+  if (!contactId) return;
+  try {
+    const { data } = await api.get(`/telephony/contacts/${contactId}/latest-call`);
+    latestCallInfo.value = data;
+  } catch { /* chỉ là hint tiện ích, im lặng nếu lỗi */ }
+}
 
 function relativeTime(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -1545,7 +1577,7 @@ async function onRegenerateHandoff() {
   margin-left: 3px;
 }
 
-/* Link Hồ sơ KH tổng hợp — thay thế 3 field email/address/occupation ẩn ở cột 4 */
+/* Link Hồ sơ KH tổng hợp — thay thế 3 field email/address/industry ẩn ở cột 4 */
 .info-fullprofile-link {
   display: flex;
   align-items: center;
@@ -1615,6 +1647,12 @@ async function onRegenerateHandoff() {
   flex-shrink: 0;
 }
 .show-extra-phones:hover { background: var(--smax-primary-soft); color: var(--smax-primary); }
+.call-note-hint {
+  flex-shrink: 0; width: 22px; height: 22px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--smax-grey-700); cursor: pointer;
+}
+.call-note-hint:hover { background: var(--smax-primary-soft); color: var(--smax-primary); }
+.call-note-hint-card { padding: 12px; }
 
 /* ════════ SĐT phụ — list động nhãn tự nhập (2026-06-06) ════════
    Override grid của .ip-form-row.sub: dùng flex để nhãn + số + nút xoá nằm 1 hàng,

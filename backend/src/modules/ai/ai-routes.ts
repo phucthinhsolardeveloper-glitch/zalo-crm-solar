@@ -580,7 +580,7 @@ export async function aiRoutes(app: FastifyInstance) {
         // - tags: MERGE với tags hiện tại (không overwrite, dedup)
         // - solarNeed / propertyNeed: serialize vào Contact.metadata + tóm tắt vào notes
         const ALLOWED_SCALAR = new Set([
-          'fullName', 'gender', 'birthYear', 'occupation', 'incomeRange',
+          'fullName', 'gender', 'birthYear', 'industry', 'incomeRange',
           'phone', 'province', 'district', 'ward', 'address', 'addressLine', 'source',
         ]);
         const update: Record<string, unknown> = {};

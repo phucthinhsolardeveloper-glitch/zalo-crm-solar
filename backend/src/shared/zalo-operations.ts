@@ -147,6 +147,11 @@ function isMalformedJsonResponseError(err: any): boolean {
   );
 }
 
+/** HTTP 404 from the underlying zca-js/Zalo call — used to downgrade known-noisy endpoints. */
+function isHttp404Error(err: any): boolean {
+  return String(err?.message || err || '').includes('status code 404');
+}
+
 // ── Core execution engine ───────────────────────────────────────────────────
 /**
  * Execute a zca-js operation with all safety layers.
@@ -627,7 +632,11 @@ async function getFriendOnlines(accountId: string) {
         accountId,
         category: 'friend_read',
         operation: 'getFriendOnlines',
-        suppressErrorLog: isMalformedJsonResponseError,
+        // FIX 2026-08-20: endpoint này 404 liên tục mỗi 60s cron tick (khả năng zca-js/Zalo
+        // API drift), nhưng caller (presence-service.ts) đã "Silent fail" từ trước — chỉ log
+        // ERROR mãi mãi không ai xem, không có tác dụng gì. Hạ xuống debug như malformed-JSON
+        // case ở dưới, tránh làm loãng log thật.
+        suppressErrorLog: (err) => isMalformedJsonResponseError(err) || isHttp404Error(err),
       },
       (api) => api.getFriendOnlines(),
     );
@@ -666,8 +675,19 @@ async function cancelFriendRequest(accountId: string, userId: string) {
 }
 
 async function getSentFriendRequests(accountId: string) {
-  return exec({ accountId, category: 'friend_read', operation: 'getSentFriendRequests' },
-    (api) => api.getSentFriendRequest());
+  return exec(
+    {
+      accountId,
+      category: 'friend_read',
+      operation: 'getSentFriendRequests',
+      // FIX 2026-08-20: zca-js throws code 112 khi đơn giản là KHÔNG có lời mời đang chờ
+      // (hành vi bình thường của thư viện, không phải lỗi thật) — friend-sync-service.ts
+      // đã xử lý coi đây là danh sách rỗng, nhưng log ERROR ở đây vẫn bắn ra mỗi lần dù
+      // không phải sự cố thật. Hạ xuống debug như getFriendOnlines ở trên.
+      suppressErrorLog: (err) => err?.code === 112,
+    },
+    (api) => api.getSentFriendRequest(),
+  );
 }
 
 async function getFriendRequestStatus(accountId: string, userId: string) {

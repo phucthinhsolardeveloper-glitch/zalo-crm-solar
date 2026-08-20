@@ -175,14 +175,21 @@ api.interceptors.response.use(
       console.warn(`[api] 404 Not Found: ${url}`);
     } else if (typeof status === 'number' && status >= 500) {
       console.error(`[api] ${status} server error: ${url}`, error.response?.data);
-      const now = Date.now();
-      if (now - last5xxToastAt > TOAST_5XX_THROTTLE_MS) {
-        last5xxToastAt = now;
-        try {
-          useToast().error('Máy chủ lỗi, vui lòng thử lại');
-        } catch (e) {
-          // Fallback nếu toast queue chưa sẵn sàng (vd lỗi trong app init)
-          console.error('[api] toast unavailable', e);
+      // FIX 2026-08-20 (báo lỗi "Máy chủ lỗi" gây hoang mang khi thật ra là trạng
+      // thái NGHIỆP VỤ bình thường, vd chưa được gán extension tổng đài — 503 nhưng
+      // không phải server crash). Caller tự set skipErrorToast khi ĐÃ có UI riêng
+      // xử lý lỗi cụ thể (đọc error.response.data.error), tránh đè lên bằng toast
+      // chung chung sai bản chất.
+      if (!original.skipErrorToast) {
+        const now = Date.now();
+        if (now - last5xxToastAt > TOAST_5XX_THROTTLE_MS) {
+          last5xxToastAt = now;
+          try {
+            useToast().error('Máy chủ lỗi, vui lòng thử lại');
+          } catch (e) {
+            // Fallback nếu toast queue chưa sẵn sàng (vd lỗi trong app init)
+            console.error('[api] toast unavailable', e);
+          }
         }
       }
     }

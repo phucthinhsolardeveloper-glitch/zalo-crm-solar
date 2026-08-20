@@ -17,7 +17,16 @@ export interface ConversionFunnelResult {
   avgConversionDays: number | null; // avg days from creation to "converted"
 }
 
-const STAGE_ORDER = ['new', 'contacted', 'interested', 'converted', 'lost'];
+// FIX 2026-08-20: STAGE_ORDER phải khớp đúng pipeline thật (use-contacts.ts STATUS_OPTIONS,
+// đổi từ placeholder generic 5 bước sang 10 bước thật của công ty audit trước đó) — giữ
+// nguyên list cũ ở đây sẽ khiến funnel hiện toàn 0 cho MỌI contact mới vì status thật không
+// còn khớp 'converted'/'interested' generic nữa.
+const STAGE_ORDER = [
+  'new', 'contacted', 'interested', 'quoted', 'following',
+  'closed_won', 'not_potential', 'transferred', 'purchased', 'discontinued',
+];
+// "Converted" cho mục đích funnel = đã tới 1 trong 2 giai đoạn thành công (chốt đơn/đã mua).
+const CONVERTED_STATUSES = ['closed_won', 'purchased'];
 
 export async function getConversionFunnel(
   orgId: string,
@@ -53,7 +62,7 @@ export async function getConversionFunnel(
     SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400)::float AS avg_days
     FROM contacts
     WHERE org_id = ${orgId}
-      AND status = 'converted'
+      AND status = ANY(${CONVERTED_STATUSES})
       AND created_at >= ${gte}
       AND created_at < ${lt}
   `;

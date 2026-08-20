@@ -156,7 +156,7 @@ async function syncAccount(accountId: string) {
 
 async function patchLabel(accountId: string, labelId: number, body: { color?: string; text?: string; emoji?: string }) {
   try {
-    await api.patch(`/zalo-accounts/${accountId}/labels/${labelId}`, body);
+    await api.patch(`/zalo-accounts/${accountId}/labels/${labelId}`, body, { skipErrorToast: true } as any);
     toast.success('✓ Đã cập nhật & ghi ngược về Zalo');
     await fetchOverview();
   } catch (err: any) {

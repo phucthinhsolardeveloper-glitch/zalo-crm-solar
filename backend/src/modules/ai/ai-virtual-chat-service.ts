@@ -222,7 +222,7 @@ interface ContextData {
     phone: string | null;
     gender: string | null;
     birthYear: number | null;
-    occupation: string | null;
+    industry: string | null;
     incomeRange: string | null;
     province: string | null;
     district: string | null;
@@ -241,7 +241,7 @@ async function buildContext(conversationId: string, orgId: string): Promise<Cont
           phone: true,
           gender: true,
           birthYear: true,
-          occupation: true,
+          industry: true,
           incomeRange: true,
           province: true,
           district: true,
@@ -267,7 +267,7 @@ async function buildContext(conversationId: string, orgId: string): Promise<Cont
     })),
     contact: conv.contact ?? {
       fullName: null, phone: null, gender: null, birthYear: null,
-      occupation: null, incomeRange: null, province: null, district: null, source: null,
+      industry: null, incomeRange: null, province: null, district: null, source: null,
     },
     latestSaleMessage: latestSale.content ?? '',
   };

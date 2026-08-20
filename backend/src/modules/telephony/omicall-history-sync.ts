@@ -135,27 +135,6 @@ export async function syncOmicallHistoryForUser(args: {
         recordingId,
       };
 
-      // Relay to crm-custom — same terminal-state forward as the live webhook
-      // path (omicall-public-routes.ts), reusing forwardCallToCrm() with a
-      // payload built from Call Transaction v3 fields (mostly the same field
-      // names as the webhook CDR shape crm-custom already expects).
-      if (['completed', 'missed', 'rejected'].includes(status)) {
-        forwardCallToCrm({
-          call_uuid: transactionId,
-          state: 'cdr',
-          direction,
-          phone_number: phoneNumber,
-          sip_user: args.extension,
-          bill_sec: durationSec,
-          answer_sec: Number(item.answer_sec ?? 0),
-          disposition: item.disposition ?? null,
-          hangup_cause: item.hangup_cause || item.invite_failure_status || null,
-          endby_name: item.endby_name ?? null,
-          recording_file_url: item.recording_file_url ?? null,
-          time_start_call: item.time_start_call ?? item.created_date ?? null,
-        });
-      }
-
       const pending = await prisma.telephonyCall.findFirst({
         where: {
           orgId: args.orgId,
@@ -172,21 +151,60 @@ export async function syncOmicallHistoryForUser(args: {
         orderBy: { startedAt: 'desc' },
         select: { id: true },
       });
-      if (pending) {
+
+      // FIX 2026-08-20 (crm-custom bị 429 flood): mỗi lần sync trước đây forward
+      // LẠI toàn bộ cuộc gọi trong khoảng lookback (kể cả đã forward ở lần sync
+      // trước) vì chưa check đã lưu DB chưa trước khi gọi forwardCallToCrm().
+      // Sync chạy mỗi lần softphone connect → gửi lặp hàng chục webhook giống hệt
+      // nhau liên tục, bị crm-custom rate-limit. Giờ chỉ forward khi đây THỰC SỰ
+      // là lần đầu ghi nhận cuộc gọi này (pending vừa chuyển terminal, hoặc chưa
+      // từng có record providerCallId này trong DB).
+      const existing = await prisma.telephonyCall.findUnique({
+        where: { ownerUserId_providerCallId: { ownerUserId: args.userId, providerCallId: transactionId } },
+        select: { id: true },
+      });
+      const alreadySynced = pending ? false : Boolean(existing);
+
+      // Relay to crm-custom — same terminal-state forward as the live webhook
+      // path (omicall-public-routes.ts), reusing forwardCallToCrm() with a
+      // payload built from Call Transaction v3 fields (mostly the same field
+      // names as the webhook CDR shape crm-custom already expects).
+      if (!alreadySynced && ['completed', 'missed', 'rejected'].includes(status)) {
+        forwardCallToCrm({
+          call_uuid: transactionId,
+          state: 'cdr',
+          direction,
+          phone_number: phoneNumber,
+          sip_user: args.extension,
+          bill_sec: durationSec,
+          answer_sec: Number(item.answer_sec ?? 0),
+          disposition: item.disposition ?? null,
+          hangup_cause: item.hangup_cause || item.invite_failure_status || null,
+          endby_name: item.endby_name ?? null,
+          recording_file_url: item.recording_file_url ?? null,
+          time_start_call: item.time_start_call ?? item.created_date ?? null,
+        });
+      }
+
+      // BUG 2026-08-20 (phát hiện lúc verify E2E, KHÔNG phải mới gây ra bởi đợt sửa này):
+      // trước đây nếu VỪA có `pending` (row tạo sống lúc bấm gọi, providerCallId=null)
+      // VỪA đã có `existing` (row transactionId này từ 1 lần sync TRƯỚC — vd sync chạy
+      // lại, hoặc 2 lần bấm gọi cùng số/khoảng thời gian tạo 2 `pending` gần nhau), code cũ
+      // luôn ưu tiên update `pending` → set providerCallId trùng với `existing` → vỡ unique
+      // constraint (ownerUserId, providerCallId) → toàn bộ sync 502, dừng giữa chừng, các
+      // cuộc gọi sau trong cùng trang KHÔNG được đồng bộ. Giờ ưu tiên `existing` (đã có
+      // transactionId này rồi thì đó là bản ghi canonical) — `pending` bị bỏ qua an toàn
+      // thay vì cố ghi đè gây lỗi (sẽ còn là 1 dòng "Đang khởi tạo" mồ côi, dọn riêng).
+      if (existing) {
+        await prisma.telephonyCall.update({ where: { id: existing.id }, data });
+      } else if (pending) {
         await prisma.telephonyCall.update({
           where: { id: pending.id },
           data: { providerCallId: transactionId, ...data },
         });
       } else {
-        await prisma.telephonyCall.upsert({
-          where: {
-            ownerUserId_providerCallId: {
-              ownerUserId: args.userId,
-              providerCallId: transactionId,
-            },
-          },
-          update: data,
-          create: {
+        await prisma.telephonyCall.create({
+          data: {
             orgId: args.orgId,
             ownerUserId: args.userId,
             provider: 'omicall',
