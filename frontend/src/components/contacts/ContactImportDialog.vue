@@ -23,6 +23,10 @@
             <strong>Chọn file .xlsx / .xls / .csv</strong>
             <span>Dòng đầu tiên được coi là tiêu đề cột</span>
           </button>
+          <button class="btn-secondary" type="button" @click="downloadCsvTemplate">
+            <v-icon icon="mdi-file-download-outline" size="18" />
+            Tải file CSV mẫu
+          </button>
           <div v-if="uploadError" class="cid-alert error">{{ uploadError }}</div>
         </div>
 
@@ -140,9 +144,10 @@ const TARGET_FIELDS = [
   { key: 'fullName', label: 'Họ tên *' },
   { key: 'phone', label: 'SĐT *' },
   { key: 'email', label: 'Email' },
-  { key: 'industry', label: 'Ngành nghề' },
+  { key: 'industry', label: 'Ngành hàng' },
   { key: 'storeName', label: 'Tên cửa hàng' },
   { key: 'customerType', label: 'Đối tượng' },
+  { key: 'importanceLevel', label: 'Mức độ quan trọng' },
   { key: 'province', label: 'Tỉnh/Thành phố' },
   { key: 'district', label: 'Quận/Huyện' },
   { key: 'ward', label: 'Phường/Xã' },
@@ -158,9 +163,10 @@ const HEADER_GUESSES: Array<{ field: TargetField; patterns: RegExp }> = [
   { field: 'fullName', patterns: /h[oọ]\s*t[eê]n|full\s*name|^t[eê]n$|khách\s*h[aà]ng/i },
   { field: 'phone', patterns: /s[dđ]t|s[oố]\s*[dđ]i[eệ]n\s*tho[aạ]i|phone|mobile/i },
   { field: 'email', patterns: /email|mail/i },
-  { field: 'industry', patterns: /ng[aà]nh\s*ngh[eề]|ngh[eề]\s*nghi[eệ]p|industry/i },
+  { field: 'industry', patterns: /ng[aà]nh\s*(?:h[aà]ng|ngh[eề])|ngh[eề]\s*nghi[eệ]p|industry/i },
   { field: 'storeName', patterns: /t[eê]n\s*c[uử]a\s*h[aà]ng|store/i },
   { field: 'customerType', patterns: /[dđ][oố]i\s*t[uượ]ng|customer\s*type|lo[aạ]i\s*kh[aá]ch/i },
+  { field: 'importanceLevel', patterns: /m[uứ]c\s*[dđ][oộ]\s*quan\s*tr[oọ]ng|importance|priority/i },
   { field: 'province', patterns: /t[iỉ]nh|th[aà]nh\s*ph[oố]|province/i },
   { field: 'district', patterns: /qu[aậ]n|huy[eệ]n|district/i },
   { field: 'ward', patterns: /ph[uườ]ng|x[aã]|ward/i },
@@ -169,6 +175,30 @@ const HEADER_GUESSES: Array<{ field: TargetField; patterns: RegExp }> = [
   { field: 'source', patterns: /ngu[oồ]n|source/i },
   { field: 'status', patterns: /tr[aạ]ng\s*th[aá]i|status/i },
 ];
+
+/**
+ * Mẫu dùng đúng label mà auto-mapping nhận biết và đúng enum mà backend import hỗ trợ.
+ * Có BOM để Excel trên Windows mở tiếng Việt đúng encoding; địa chỉ chứa dấu phẩy được
+ * quote nhằm kiểm chứng luôn đường CSV RFC4180.
+ */
+function downloadCsvTemplate() {
+  const headers = TARGET_FIELDS.map((field) => field.label.replace(/ \*$/, ''));
+  const sample = [
+    'Nguyễn Văn An', '0901234567', 'an@example.com', 'Bất động sản',
+    'Cửa hàng An Phát', 'Đại lý', 'Quan trọng', 'TP Hồ Chí Minh', 'Quận 1', 'Phường Bến Nghé',
+    '12 Nguyễn Huệ, tầng 2', '1990-01-31', 'import', 'Mới',
+  ];
+  const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+  const csv = `\uFEFF${headers.map(csvCell).join(',')}\r\n${sample.map(csvCell).join(',')}\r\n`;
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = 'mau-import-khach-hang.csv';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
 
 interface SourceColumn { index: number; header: string; sample: string }
 const sourceColumns = ref<SourceColumn[]>([]);

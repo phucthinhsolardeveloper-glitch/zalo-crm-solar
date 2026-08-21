@@ -2,15 +2,18 @@
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 import { ref } from 'vue';
 
-const MOBILE_BREAKPOINT = 768;
+// Đồng bộ với breakpoint `md` của Vuetify. Trước đây raw resize <768 làm layout
+// desktop/mobile remount chập chờn quanh mép DevTools và tablet 768px vẫn nhận UI desktop.
+const MOBILE_MEDIA_QUERY = '(max-width: 959px)';
 
 const isMobile = ref(false);
 const isOnline = ref(true);
 
 let initialized = false;
+let mobileMedia: MediaQueryList | null = null;
 
-function updateMobile() {
-  isMobile.value = window.innerWidth < MOBILE_BREAKPOINT;
+function updateMobile(event?: MediaQueryListEvent) {
+  isMobile.value = event?.matches ?? mobileMedia?.matches ?? false;
 }
 
 function updateOnline() {
@@ -23,7 +26,9 @@ export function useMobile() {
     if (typeof window !== 'undefined') {
       updateMobile();
       updateOnline();
-      window.addEventListener('resize', updateMobile);
+      mobileMedia = window.matchMedia(MOBILE_MEDIA_QUERY);
+      updateMobile();
+      mobileMedia.addEventListener('change', updateMobile);
       window.addEventListener('online', updateOnline);
       window.addEventListener('offline', updateOnline);
     }

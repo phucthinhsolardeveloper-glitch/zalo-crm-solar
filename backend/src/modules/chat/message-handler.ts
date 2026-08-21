@@ -21,6 +21,7 @@ import { syncReminderFromMessage } from '../contacts/reminder-sync.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { compressImage } from '../media/media-service.js';
 import { config } from '../../config/index.js';
+import { scanOrPass } from '../../shared/security/clamav-client.js';
 // Open-core: customer-reply care-session reaction moved to extension engine
 // (emitted via the shared automation event bus below).
 
@@ -176,6 +177,11 @@ export async function mirrorRemoteMediaUrl(url: string, contentType: string): Pr
     if (buffer.length > 0) break;
   }
   if (!buffer || buffer.length === 0) throw new Error('empty response');
+  const av = await scanOrPass(buffer, {
+    filename: fileNameFromUrl(url, contentType, mimeType),
+    blockUnscanned: contentType === 'file',
+  });
+  if (av.blocked) throw new Error(`remote media blocked by antivirus: ${av.result.status}`);
   // 2026-06-22: NÉN ảnh khách gửi vào trước khi LƯU mirror (R2) — nguồn ảnh lớn nhất. Bản mirror
   // là bản CRM hiển thị + lưu trữ; nén webp giảm ~55% dung lượng. compressImage tự bỏ qua
   // video/voice/gif + fallback bytes gốc nếu sharp lỗi (ảnh hỏng/format lạ).

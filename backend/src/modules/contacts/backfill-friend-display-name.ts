@@ -49,10 +49,11 @@ export interface FriendDisplayNameResult {
   failed: number;
 }
 
-export async function backfillFriendDisplayName(batchSize: number = 50): Promise<FriendDisplayNameResult> {
+export async function backfillFriendDisplayName(orgId: string, batchSize: number = 50): Promise<FriendDisplayNameResult> {
   // Quét Friend rows thiếu zaloDisplayName HOẶC zaloAvatarUrl (any missing → resolve lại).
   const friends = await prisma.friend.findMany({
     where: {
+      orgId,
       OR: [
         { zaloDisplayName: null },
         { zaloAvatarUrl: null },

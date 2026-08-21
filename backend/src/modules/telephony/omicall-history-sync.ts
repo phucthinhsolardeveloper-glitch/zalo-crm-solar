@@ -222,5 +222,25 @@ export async function syncOmicallHistoryForUser(args: {
     if (items.length < pageSize) break;
     page += 1;
   }
+  // Một lần bấm gọi tạo row `initiated` trước khi OmiCall trả transactionId. Nếu SDK,
+  // webhook và history sync đều không trả kết quả (mạng rớt/tab đóng/provider lỗi), row
+  // này trước đây treo vĩnh viễn và làm Call History báo sai trạng thái. 15 phút vượt xa
+  // thời gian ringing hợp lệ; kết thúc mềm để giữ audit trail/notes thay vì xóa dữ liệu.
+  await prisma.telephonyCall.updateMany({
+    where: {
+      orgId: args.orgId,
+      ownerUserId: args.userId,
+      provider: 'omicall',
+      providerCallId: null,
+      status: { in: ['initiated', 'ringing'] },
+      startedAt: { lt: new Date(Date.now() - 15 * 60_000) },
+    },
+    data: {
+      status: 'failed',
+      endedAt: new Date(),
+      endReason: 'Không nhận được trạng thái kết thúc từ tổng đài',
+    },
+  });
+
   return { synced, total, pages };
 }

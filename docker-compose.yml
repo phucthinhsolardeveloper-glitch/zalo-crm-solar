@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   app:
     build:
@@ -21,13 +19,13 @@ services:
       # Set to 'false' or remove for REAL mode.
       - AUTOMATION_STUB_MODE=${AUTOMATION_STUB_MODE:-false}
       # Friend Invite Queue test mode: 60s tick delay instead of 20-40min.
-      - FRIEND_INVITE_TEST_MODE=${FRIEND_INVITE_TEST_MODE:-true}
+      - FRIEND_INVITE_TEST_MODE=${FRIEND_INVITE_TEST_MODE:-false}
       # ── Luồng Mục Tiêu M1 (2026-06-01) ── BullMQ Redis URL
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
-      # ── GĐ13b (2026-06-13) Antivirus ClamAV ── mặc định TẮT (fail-open). Bật bằng
-      # MEDIA_AV_ENABLED=1 trong .env SAU khi service clamav 'healthy' (tải DB virus xong ~vài phút).
-      - MEDIA_AV_ENABLED=${MEDIA_AV_ENABLED:-0}
-      - MEDIA_AV_FAIL_CLOSED=${MEDIA_AV_FAIL_CLOSED:-0}
+      # Antivirus: mặc định quét + fail-closed. App vẫn boot độc lập; upload tạm bị
+      # từ chối nếu ClamAV chưa healthy, thay vì lưu file chưa kiểm tra.
+      - MEDIA_AV_ENABLED=${MEDIA_AV_ENABLED:-1}
+      - MEDIA_AV_FAIL_CLOSED=${MEDIA_AV_FAIL_CLOSED:-1}
       - CLAMAV_HOST=${CLAMAV_HOST:-clamav}
       - CLAMAV_PORT=${CLAMAV_PORT:-3310}
     depends_on:
@@ -43,6 +41,12 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     # FIX 2026-06-08: log driver json-file CŨ bị đóng băng (docker logs kẹt 1 mốc, không
     # stream log mới) → không debug được worker. Giới hạn + rotate để tránh corrupt/đầy.
     logging:

@@ -50,12 +50,14 @@ function pickNextCursors(messages: any[]): string[] {
 
 // ThreadType from zca-js: 0 = User (DM), 1 = Group
 const THREAD_TYPE_USER = 0;
+const THREAD_TYPE_GROUP = 1;
 
 export interface BackfillResult {
   friendsSynced: number;
   groupsSynced: number;
   messagesBackfilled: number;
   dmPagesRequested: number;
+  groupPagesRequested: number;
   errors: number;
 }
 
@@ -108,7 +110,7 @@ async function pumpOldMessages(api: any, threadType: number, accountId: string):
 
       const threadTypeLabel = threadType === THREAD_TYPE_USER ? 'user' : 'group';
       stats.messagesReceived += messages.length;
-      logger.info(`[backfill:${accountId}] DM page received: ${messages.length} message(s) (received total=${stats.messagesReceived})`);
+      logger.info(`[backfill:${accountId}] ${threadTypeLabel} page received: ${messages.length} message(s) (received total=${stats.messagesReceived})`);
 
       // Persist each message directly. Use senderUid as fallback threadId for
       // self messages, since Zalo's payload puts the peer in idTo.
@@ -145,7 +147,7 @@ async function pumpOldMessages(api: any, threadType: number, accountId: string):
           });
           if (inserted) stats.messagesInserted++;
         } catch (err) {
-          logger.warn(`[backfill:${accountId}] DM insert failed:`, err);
+          logger.warn(`[backfill:${accountId}] ${threadTypeLabel} insert failed:`, err);
         }
       }
 
@@ -172,6 +174,7 @@ export async function backfillAccountHistory(api: any, accountId: string): Promi
     groupsSynced: 0,
     messagesBackfilled: 0,
     dmPagesRequested: 0,
+    groupPagesRequested: 0,
     errors: 0,
   };
 
@@ -237,61 +240,16 @@ export async function backfillAccountHistory(api: any, accountId: string): Promi
   }
 
   const groupSubset = groups.slice(0, MAX_GROUPS);
-  for (const group of groupSubset) {
-    const groupId = String(group?.groupId || group?.id || '');
-    if (!groupId) continue;
+  result.groupsSynced = groupSubset.filter((group) => group?.groupId || group?.id).length;
 
-    try {
-      const groupName = group?.name || group?.groupName || 'Nhóm';
-      const groupAvatar = group?.avt || group?.avatar || null;
-      const membersCount = group?.totalMember ?? group?.memberCount ?? null;
-
-      const history = await api.getGroupChatHistory(groupId, MESSAGES_PER_GROUP);
-      const messages = history?.groupMsgs || history?.data?.groupMsgs || [];
-
-      for (const msg of messages as any[]) {
-        try {
-          const zaloMsgId = String(msg?.data?.msgId || msg?.data?.cliMsgId || '');
-          if (!zaloMsgId) continue;
-
-          const rawContent = msg?.data?.content;
-          const content =
-            typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
-          const contentType = detectContentType(msg?.data?.msgType, rawContent);
-          const album = extractAlbumInfo(contentType, rawContent);
-
-          const inserted = await handleIncomingMessage({
-            accountId,
-            senderUid: String(msg?.data?.uidFrom || ''),
-            senderName: msg?.data?.dName || '',
-            content,
-            contentType,
-            msgId: zaloMsgId,
-            timestamp: parseInt(msg?.data?.ts || String(Date.now())),
-            isSelf: Boolean(msg?.isSelf),
-            threadId: groupId,
-            threadType: 'group',
-            groupName,
-            groupAvatarUrl: groupAvatar || undefined,
-            groupMembersCount: typeof membersCount === 'number' ? membersCount : undefined,
-            attachments: [],
-            quote: msg?.data?.quote,
-            albumKey: album.albumKey,
-            albumIndex: album.albumIndex,
-            albumTotal: album.albumTotal,
-            isBackfill: true,
-          });
-          if (inserted) result.messagesBackfilled++;
-        } catch (err) {
-          result.errors++;
-          logger.warn(`[backfill:${accountId}] Group ${groupId} message insert failed:`, err);
-        }
-      }
-      result.groupsSynced++;
-    } catch (err) {
-      result.errors++;
-      logger.warn(`[backfill:${accountId}] Group ${groupId} history fetch failed:`, err);
-    }
+  // zca-js HTTP /api/group/history hiện trả 404 ở provider. Dùng WebSocket
+  // old_messages group (cmd 511) — cùng kênh listener realtime, có phân trang.
+  if (api?.listener?.requestOldMessages) {
+    const stats = await pumpOldMessages(api, THREAD_TYPE_GROUP, accountId);
+    result.groupPagesRequested = stats.pagesRequested;
+    result.messagesBackfilled += stats.messagesReceived;
+  } else {
+    logger.warn(`[backfill:${accountId}] api.listener.requestOldMessages unavailable — skipping group backfill`);
   }
 
   // ── 3. DM history via requestOldMessages pagination ────────────────────
@@ -325,7 +283,7 @@ export async function backfillAccountHistory(api: any, accountId: string): Promi
 
   logger.info(
     `[backfill:${accountId}] Done — friends=${result.friendsSynced} groups=${result.groupsSynced} ` +
-    `dmReceived=${dmReceived} dmPages=${result.dmPagesRequested} errors=${result.errors} ` +
+    `groupPages=${result.groupPagesRequested} dmReceived=${dmReceived} dmPages=${result.dmPagesRequested} errors=${result.errors} ` +
     `| DB now has ${dbCounts[0]} conversation(s), ${dbCounts[1]} message(s) for this account`,
   );
   return result;

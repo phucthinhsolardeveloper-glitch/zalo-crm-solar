@@ -8,6 +8,7 @@ import { mockUser, mockZaloOps } from './test-helpers.js';
 
 // ── Hoisted mock state ────────────────────────────────────────────────────────
 const zaloOpsMock = mockZaloOps();
+const getPresenceMock = vi.fn();
 
 vi.mock('../src/shared/database/prisma-client.js', () => ({
   prisma: {
@@ -36,6 +37,9 @@ vi.mock('../src/modules/zalo/zalo-route-helpers.js', () => ({
   handleError: vi.fn().mockImplementation((reply: any, err: any) => {
     reply.status(500).send({ error: err?.message || 'Error' });
   }),
+}));
+vi.mock('../src/modules/zalo/presence-service.js', () => ({
+  getPresence: getPresenceMock,
 }));
 
 const { profileRoutes } = await import('../src/modules/zalo/profile-routes.js');
@@ -72,17 +76,22 @@ describe('GET /profile', () => {
 describe('GET /profile/last-online/:userId', () => {
   it('happy path — returns last online timestamp', async () => {
     const ts = 1700000000000;
-    zaloOpsMock.getLastOnline.mockResolvedValue({ lastOnline: ts });
+    getPresenceMock.mockResolvedValue({ lastOnline: ts, showStatus: true, fetchedAt: ts + 1 });
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/last-online/u1` });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toMatchObject({ lastOnline: { lastOnline: ts } });
-    expect(zaloOpsMock.getLastOnline).toHaveBeenCalledWith('za-1', 'u1');
+    expect(JSON.parse(res.body)).toMatchObject({ lastOnline: ts, showStatus: true });
+    expect(getPresenceMock).toHaveBeenCalledWith('za-1', 'u1');
   });
 
-  it('returns 500 when zaloOps throws', async () => {
-    zaloOpsMock.getLastOnline.mockRejectedValue(new Error('lookup failed'));
+  it('returns unknown presence when provider lookup fails', async () => {
+    getPresenceMock.mockResolvedValue(null);
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/last-online/u1` });
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      lastOnline: null,
+      showStatus: false,
+      isOnline: false,
+    });
   });
 });
 

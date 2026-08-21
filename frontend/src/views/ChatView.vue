@@ -475,7 +475,13 @@ const toast = useToast();
 
 async function onDeleteMessage(msgId: string) {
   if (!selectedConvId.value) return;
-  await deleteMessage(selectedConvId.value, msgId);
+  try {
+    await deleteMessage(selectedConvId.value, msgId);
+    toast.success('Đã xóa tin nhắn khỏi cuộc trò chuyện này');
+    await fetchMessages(selectedConvId.value);
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error || 'Không xóa được tin');
+  }
 }
 async function onUndoMessage(msgId: string) {
   if (!selectedConvId.value) return;

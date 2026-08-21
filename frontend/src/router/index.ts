@@ -192,8 +192,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, resource: 'contact' },
   },
   {
-    // Tab "Hồ sơ KH tổng hợp" — SKELETON, render 3 field ẩn cột 4 (email/address/industry)
-    // + aggregate Friend rows. Backend route stub, full impl ở phase sau.
+    // Route adapter mở hồ sơ thật bằng CustomerProfileDialog dùng chung.
     path: '/contacts/:id/profile',
     name: 'ContactProfile',
     component: () => import('@/views/ContactProfileView.vue'),

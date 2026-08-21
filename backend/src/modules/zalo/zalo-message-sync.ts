@@ -2,20 +2,16 @@
 // Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-message-sync.ts — polling backup for group message history.
- * Runs periodically per connected account, calls getGroupChatHistory()
- * for active groups, and inserts any messages missing from the database.
+ * Runs periodically per connected account and asks the SDK listener for the
+ * latest group-message page. The old HTTP getGroupChatHistory endpoint now
+ * returns 404 at provider level; WebSocket old_messages remains supported.
  *
  * This is a safety net — the primary sync path is selfListen + old_messages.
  */
-import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
-import { handleIncomingMessage } from '../chat/message-handler.js';
-import { detectContentType, extractAlbumInfo } from './zalo-message-helpers.js';
-import { withTenant, runSystemQuery } from '../../shared/tenant/tenant-context.js';
 
 const SYNC_INTERVAL_MS = 5 * 60_000; // 5 minutes
-const MAX_GROUPS_PER_SYNC = 20;
-const MESSAGES_PER_GROUP = 50;
+const THREAD_TYPE_GROUP = 1;
 
 // Track active sync intervals per account
 const syncIntervals = new Map<string, ReturnType<typeof setInterval>>();
@@ -24,87 +20,15 @@ const syncIntervals = new Map<string, ReturnType<typeof setInterval>>();
  * Sync recent group messages for one account.
  * Returns the number of newly inserted messages.
  */
-async function syncGroupMessages(api: any, accountId: string): Promise<number> {
-  // Lookup org của account TRƯỚC khi có tenant context (account-by-id, cross-org discovery).
-  const account = await runSystemQuery(() =>
-    prisma.zaloAccount.findUnique({
-      where: { id: accountId },
-      select: { orgId: true },
-    }),
-  );
-  if (!account) return 0;
-
-  // Toàn bộ phần sync org-scoped chạy trong tenant context của account.
-  return withTenant(account.orgId, () => syncGroupMessagesInOrg(api, accountId));
-}
-
-async function syncGroupMessagesInOrg(api: any, accountId: string): Promise<number> {
-  // Get most recently active group conversations
-  const groupConvs = await prisma.conversation.findMany({
-    where: { zaloAccountId: accountId, threadType: 'group' },
-    select: { id: true, externalThreadId: true },
-    take: MAX_GROUPS_PER_SYNC,
-    orderBy: { lastMessageAt: 'desc' },
-  });
-
-  let synced = 0;
-
-  for (const conv of groupConvs) {
-    try {
-      const history = await api.getGroupChatHistory(conv.externalThreadId, MESSAGES_PER_GROUP);
-      const messages = history?.groupMsgs || history?.data?.groupMsgs || [];
-
-      // Collect all msgIds for batch dedup check
-      const msgIdMap = new Map<string, any>();
-      for (const msg of messages) {
-        const zaloMsgId = String(msg.data?.msgId || msg.data?.cliMsgId || '');
-        if (zaloMsgId) msgIdMap.set(zaloMsgId, msg);
-      }
-      if (msgIdMap.size === 0) continue;
-
-      // Batch existence check — single query per group
-      const existing = await prisma.message.findMany({
-        where: { conversationId: conv.id, zaloMsgId: { in: [...msgIdMap.keys()] } },
-        select: { zaloMsgId: true },
-      });
-      const existingIds = new Set(existing.map((m: any) => m.zaloMsgId));
-
-      for (const [zaloMsgId, msg] of msgIdMap) {
-        if (existingIds.has(zaloMsgId)) continue;
-
-        const rawContent = msg.data?.content;
-        const content =
-          typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
-        const contentType = detectContentType(msg.data?.msgType, rawContent);
-        const album = extractAlbumInfo(contentType, rawContent);
-
-        const result = await handleIncomingMessage({
-          accountId,
-          senderUid: String(msg.data?.uidFrom || ''),
-          senderName: msg.data?.dName || '',
-          content,
-          contentType,
-          msgId: zaloMsgId,
-          timestamp: parseInt(msg.data?.ts || String(Date.now())),
-          isSelf: msg.isSelf || false,
-          threadId: conv.externalThreadId!,
-          threadType: 'group',
-          attachments: [],
-          quote: msg.data?.quote,
-          albumKey: album.albumKey,
-          albumIndex: album.albumIndex,
-          albumTotal: album.albumTotal,
-          isBackfill: true,
-        });
-
-        if (result) synced++;
-      }
-    } catch (err) {
-      logger.warn(`[sync:${accountId}] Group ${conv.externalThreadId} failed:`, err);
-    }
+function requestGroupMessages(api: any, accountId: string): void {
+  if (!api?.listener?.requestOldMessages) {
+    logger.debug(`[sync:${accountId}] requestOldMessages unavailable; skip group backup tick`);
+    return;
   }
-
-  return synced;
+  // Main listener's old_messages handler owns persistence and already performs
+  // idempotent message dedup. One request returns the newest group page globally,
+  // avoiding N HTTP requests (and the provider's current 404) per account.
+  api.listener.requestOldMessages(THREAD_TYPE_GROUP, null);
 }
 
 /** Start periodic group sync for an account. */
@@ -114,10 +38,7 @@ export function startMessageSync(api: any, accountId: string): void {
 
   const interval = setInterval(async () => {
     try {
-      const count = await syncGroupMessages(api, accountId);
-      if (count > 0) {
-        logger.info(`[sync:${accountId}] Backfilled ${count} group messages`);
-      }
+      requestGroupMessages(api, accountId);
     } catch (err) {
       logger.warn(`[sync:${accountId}] Sync error:`, err);
     }

@@ -230,7 +230,7 @@ const rows = computed<SuggestionRow[]>(() => {
     const age = new Date().getFullYear() - e.birthYear;
     add('birthYear', 'Năm sinh', e.birthYear, `${e.birthYear} (${age} tuổi)`);
   }
-  if (e.industry) add('industry', 'Ngành nghề', e.industry);
+  if (e.industry) add('industry', 'Ngành hàng', e.industry);
   if (e.phone) add('phone', 'Số điện thoại', e.phone);
   if (e.incomeRange) add('incomeRange', 'Thu nhập', e.incomeRange, INCOME_LABEL[e.incomeRange] ?? e.incomeRange);
   if (e.province) add('province', 'Tỉnh/TP', e.province);

@@ -31,6 +31,7 @@ interface ResolvedMessageRefs {
   content: string | null;
   contentType: string;
   sentAt: Date;
+  metadata: unknown;
 }
 
 async function resolveMessageRefs(conversationId: string, messageId: string, userOrgId: string): Promise<ResolvedMessageRefs | null> {
@@ -42,7 +43,7 @@ async function resolveMessageRefs(conversationId: string, messageId: string, use
     },
     select: {
       id: true, zaloMsgId: true, zaloCliMsgId: true, senderUid: true, senderType: true,
-      repliedByUserId: true, content: true, contentType: true, sentAt: true,
+      repliedByUserId: true, content: true, contentType: true, sentAt: true, metadata: true,
     },
   });
 
@@ -57,6 +58,7 @@ async function resolveMessageRefs(conversationId: string, messageId: string, use
     content: message.content,
     contentType: message.contentType,
     sentAt: message.sentAt,
+    metadata: message.metadata,
   };
 }
 
@@ -305,7 +307,10 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
   app.delete('/api/v1/conversations/:id/messages/:msgId', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id, msgId } = request.params as { id: string; msgId: string };
-    const { onlyMe = false } = (request.body ?? {}) as { onlyMe?: boolean };
+    // `deleteMessage` của zca-js chỉ dùng cho xóa phía mình. Xóa cho mọi người là
+    // API undo và đã có endpoint /undo riêng. Mặc định true để client cũ không vô
+    // tình gọi sai chế độ rồi nhận lỗi khó hiểu từ Zalo.
+    const { onlyMe = true } = (request.body ?? {}) as { onlyMe?: boolean };
 
     const conv = await getConversation(id, user.orgId, reply);
     if (!conv) return;
@@ -313,16 +318,36 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
     const refs = await resolveMessageRefs(id, msgId, user.orgId);
     if (!refs) return reply.status(404).send({ error: 'Message not found' });
 
+    if (!onlyMe) {
+      return reply.status(400).send({ error: 'Muốn thu hồi cho mọi người, hãy dùng thao tác Thu hồi' });
+    }
+    if (refs.senderType !== 'self') {
+      return reply.status(403).send({ error: 'Chỉ xóa được tin do bạn gửi' });
+    }
+
     try {
       const threadType = conv.threadType === 'group' ? 1 : 0;
       await zaloOps.deleteMessage(conv.zaloAccountId, refs.zaloMsgId, refs.cliMsgId ?? refs.zaloMsgId, refs.ownerId, conv.externalThreadId || '', threadType, onlyMe);
 
-      if (!onlyMe) {
-        await prisma.message.update({ where: { id: refs.messageId }, data: { isDeleted: true, deletedAt: new Date() } });
-      }
+      const currentMetadata = refs.metadata && typeof refs.metadata === 'object' && !Array.isArray(refs.metadata)
+        ? refs.metadata as Record<string, unknown>
+        : {};
+      await prisma.message.update({
+        where: { id: refs.messageId },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          metadata: { ...currentMetadata, deletionMode: 'only_me' },
+        },
+      });
 
       const io = (app as any).io as Server;
-      io?.emit('chat:deleted', { conversationId: id, messageId: refs.messageId, zaloMsgId: refs.zaloMsgId });
+      io?.emit('chat:deleted', {
+        conversationId: id,
+        messageId: refs.messageId,
+        zaloMsgId: refs.zaloMsgId,
+        deletionMode: 'only_me',
+      });
       return { success: true };
     } catch (err) { return handleError(err, reply); }
   });

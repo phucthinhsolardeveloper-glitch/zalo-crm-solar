@@ -8,16 +8,15 @@
  *   nhận: "stream: OK\0"  hoặc  "stream: <Tên> FOUND\0"
  *
  * THIẾT KẾ AN TOÀN (CEO must-fix GĐ13b):
- *  - FAIL-OPEN mặc định: clamd chưa bật / lỗi / timeout → CHO upload qua (chỉ log warn),
- *    KHÔNG chặn người dùng vì hạ tầng AV trục trặc. Bật fail-closed bằng MEDIA_AV_FAIL_CLOSED=1.
- *  - Cờ MEDIA_AV_ENABLED: mặc định TẮT → scanBuffer trả 'skipped' ngay (không kết nối).
- *    → Deploy code này KHÔNG vỡ gì kể cả khi chưa thêm container clamav.
- *  - File > MAX_SCAN_BYTES (50MB): KHÔNG quét (clamd mặc định giới hạn 25-100MB, gửi to dễ
+ *  - Production bật FAIL-CLOSED: clamd lỗi/timeout → chặn upload; có thể đổi policy bằng
+ *    MEDIA_AV_FAIL_CLOSED=0 khi xử lý sự cố vận hành có phê duyệt.
+ *  - Cờ MEDIA_AV_ENABLED cho phép tắt khẩn cấp; compose mặc định bật.
+ *  - File > MAX_SCAN_BYTES (100MB): KHÔNG quét (khớp StreamMaxLength production, gửi to dễ
  *    timeout/đầy RAM) → trả 'unscanned' để caller LOG cảnh báo (không câm — CEO must-fix).
  *
  *   upload buffer ──► scanBuffer()
  *      │                  ├─ AV tắt ──────────► 'skipped'  (cho qua)
- *      │                  ├─ >50MB ───────────► 'unscanned'(cho qua + caller log warn)
+ *      │                  ├─ >100MB ──────────► 'unscanned'(file/archive chặn; video cảnh báo)
  *      │                  ├─ clamd OK sạch ───► 'clean'    (cho qua)
  *      │                  ├─ clamd FOUND ─────► 'infected' (CHẶN 422)
  *      │                  └─ clamd lỗi/timeout ┐
@@ -33,12 +32,13 @@ export type ScanResult =
   | { status: 'unscanned'; reason: string } // file quá lớn — cho qua nhưng caller phải log
   | { status: 'error'; message: string };   // clamd lỗi/timeout — caller quyết theo fail policy
 
-const MAX_SCAN_BYTES = 50 * 1024 * 1024; // >50MB: bỏ qua scan, đánh cờ unscanned
+// Khớp StreamMaxLength/MaxFileSize của container ClamAV production.
+const MAX_SCAN_BYTES = 100 * 1024 * 1024;
 const SCAN_TIMEOUT_MS = 15000;
 const CHUNK = 64 * 1024;
 
 function avEnabled(): boolean { return process.env.MEDIA_AV_ENABLED === '1'; }
-/** fail-closed (chặn khi AV lỗi) chỉ khi đặt rõ '1'. Mặc định fail-OPEN. */
+/** fail-closed (chặn khi AV lỗi) khi compose/.env đặt rõ '1'. */
 export function avFailClosed(): boolean { return process.env.MEDIA_AV_FAIL_CLOSED === '1'; }
 
 /**
@@ -94,7 +94,7 @@ export async function scanBuffer(buffer: Buffer): Promise<ScanResult> {
  */
 export async function scanOrPass(
   buffer: Buffer,
-  ctx: { filename?: string; userId?: string },
+  ctx: { filename?: string; userId?: string; blockUnscanned?: boolean },
 ): Promise<{ blocked: boolean; reason?: string; result: ScanResult }> {
   const result = await scanBuffer(buffer);
   const who = `user=${ctx.userId ?? '?'} file=${ctx.filename ?? '?'}`;
@@ -106,6 +106,10 @@ export async function scanOrPass(
       logger.warn(`[media][av] CHẶN file nhiễm virus ${result.virus} — ${who}`);
       return { blocked: true, reason: `Tệp nhiễm virus (${result.virus}) — không được tải lên.`, result };
     case 'unscanned':
+      if (ctx.blockUnscanned) {
+        logger.warn(`[media][av] CHẶN file không thể quét (${result.reason}). ${who}`);
+        return { blocked: true, reason: 'Tệp vượt giới hạn quét virus (tối đa 100MB).', result };
+      }
       logger.warn(`[media][av] file KHÔNG quét (${result.reason}) — cho qua nhưng đánh cờ. ${who}`);
       return { blocked: false, result };
     case 'error':

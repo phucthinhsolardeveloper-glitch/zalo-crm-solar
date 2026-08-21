@@ -1,11 +1,110 @@
 # Changelog
 
+## 2026-08-21 — OmiCall two-way audio & live call history
+
+- Fixed one-way browser calls: OmiCall Web SDK 3.0.41 exposes the customer audio
+  at `callData.streams.remote`, not the legacy `remoteStream` field. The CRM now
+  connects that stream on both early media and accepted calls.
+- Kept the remote `<audio>` receiver mounted outside the softphone dialog and
+  added a visible sound-unlock action when browser autoplay policy blocks it.
+- Added org-scoped `telephony:call-changed` events for local call lifecycle,
+  provider callbacks and history sync; Call History now refreshes automatically
+  after hangup and when CDR/recording data arrives, without F5.
+- Call History now opens the same full `CustomerProfileDialog` used by Contacts,
+  not the abbreviated side panel.
+- “Messages / customer log” now reports whether it opened a real accessible Zalo
+  conversation or an internal-only journal; it never creates a duplicate virtual
+  conversation when an accessible real Zalo conversation already exists.
+
 Các thay đổi đáng chú ý của ZCRM. Theo [Semantic Versioning](https://semver.org/lang/vi/).
 
 > Các tag `v1.x`–`v3.3.x` là **lịch sử upstream** (locphamnguyen/ZaloCRM) — xem đầy đủ ở cuối file.
 > `v3.4.x` là dòng release hiện tại.
 
 ## [Unreleased] - Tuỳ biến nội bộ Phúc Thịnh Solar
+
+### Changed — Call workflow & responsive 2026-08-21
+
+- **Nối liền Cuộc gọi → Khách hàng → Tin nhắn** — tạo/gắn KH từ Call History nay
+  liên kết tất cả cuộc gọi chưa gắn của cùng đầu số trong phạm vi quyền, không còn chỉ
+  đổi một row đang bấm. Contacts desktop/mobile tự refetch qua socket khi KH được tạo
+  hoặc cập nhật nên tab đang mở thấy dữ liệu ngay, không cần F5. Dòng cuộc gọi đã gắn
+  có nút mở thẳng Hồ sơ KH và Tin nhắn/nhật ký; socket chỉ phát ID rồi client refetch
+  qua API có RBAC/privacy, không phát PII khách hàng trong payload.
+- **Ghi chú cuộc gọi đi theo số điện thoại** — các lần gọi cùng một số dùng chung một
+  timeline ghi chú; mỗi ghi chú vẫn giữ cuộc gọi nguồn và thời điểm để phục vụ audit.
+  Số Việt Nam ở dạng `0x`, `84x`, `+84x` được chuẩn hóa về cùng khóa; cuộc gọi nội bộ
+  không có số ngoài vẫn giữ phạm vi theo từng cuộc gọi.
+- **Thống kê cuộc gọi nâng cao thu gọn theo yêu cầu** — biểu đồ xu hướng, phân bố theo
+  giờ và xếp hạng nhân viên mặc định ẩn, chỉ tải không gian hiển thị khi người dùng bấm
+  “Thống kê nâng cao”; có nút đóng ngay trong panel.
+- **Danh sách khách hàng tự chọn cột** — menu Công cụ cho phép bật/tắt và ghi nhớ các
+  cột Đối tượng, Ngành hàng, Tên cửa hàng, Mức độ quan trọng, Email, Ngày sinh cùng các
+  cột định danh kỹ thuật hiện có. Trạng thái KH luôn hiện; Đối tượng mặc định hiện.
+- **Responsive ổn định ở breakpoint mobile/tablet** — dùng chung breakpoint 959px với
+  layout Vuetify, tránh remount liên tục khi resize; Contacts có header mobile gọn và
+  Call History chuyển từng cuộc gọi thành card, không tràn ngang ở viewport 390px.
+
+### Fixed — Final pre-production audit 2026-08-21
+
+- Làm sạch backend Community test baseline: tách rõ test lịch sử thuộc bundle
+  Automation/Lead Ads/EE không có source, chỉ chạy suite tích hợp DB khi có
+  `RUN_DB_TESTS=true`, và cập nhật mock theo contract hiện tại. Kết quả 468/468
+  Community unit/integration pass; 23/23 security test pass trên PostgreSQL thật.
+- Sửa đồng bộ lịch sử nhóm Zalo lặp HTTP 404: thay endpoint HTTP đã drift của
+  `zca-js` bằng `requestOldMessages(ThreadType.Group)` qua WebSocket cho cả periodic
+  backup và initial backfill. Log runtime sau các chu kỳ 5 phút không còn Group 404.
+- Sửa softphone OmiCall báo chung chung “từ chối đăng nhập”: không init SDK lặp lại
+  khi reconnect, unregister trước khi register lại, và hiển thị đúng `message/error`
+  provider. Đã smoke test trình duyệt và kết nối thành công với extension thật.
+- Sửa gửi ảnh từ Kho Media sang Zalo: backend không còn tự fetch URL public
+  `localhost:3080` từ bên trong container mà đọc object trực tiếp qua storage driver;
+  popup chọn hội thoại dùng đúng tham số `search` và map đúng tên/avatar từ API.
+- Giảm nghẽn realtime khi nick Zalo có hàng nghìn bạn bè: full-sync tái sử dụng Contact
+  đã preload, bỏ transition không đổi và giữ URL avatar mirror làm giá trị canonical.
+  Trước đây avatar bị đảo qua lại giữa CDN Zalo và kho nội bộ mỗi chu kỳ, gây hàng nghìn
+  download/update/socket event và làm avatar có thể hết hạn trở lại.
+- Sửa menu chuột phải “Xóa” tin nhắn: thao tác Xóa dùng `deleteMessage(..., onlyMe=true)`,
+  còn “Thu hồi” tiếp tục dùng API `undo`; CRM lưu/hiển thị đúng hai trạng thái khác nhau
+  thay vì gọi nhầm chế độ và bị Zalo báo phải dùng undo API.
+- Sửa regression hiển thị ghi âm sau khi chuyển sang kho mã hóa: Call History và
+  TelephonySoftphone trước đó chỉ hiện nút khi `recordingId` là URL HTTP, khiến reference
+  nội bộ `crm-recording:v1:...` bị coi như không có dù file vẫn còn. Hai màn giờ kiểm tra
+  sự tồn tại của reference và tiếp tục phát qua endpoint có auth.
+- Khóa triệt để URL ghi âm thô: file mới được AES-256-GCM trước khi lưu vào namespace
+  `recordings/`, DB chỉ giữ reference nội bộ, `/files/recordings/*` trả 404 và route phát
+  có auth giải mã phía server. Hỗ trợ cả local và R2/public bucket (URL trực tiếp chỉ trả
+  ciphertext). Mã hóa deterministic theo keyed nonce cho đúng cùng plaintext nên lịch sử
+  OmiCall sync lặp vẫn dedup, không sinh object mồ côi. Migration idempotent đã chuyển 8/8
+  ghi âm cũ và xóa 8/8 file public sau khi xác nhận không có tham chiếu dùng chung.
+- Bật ClamAV production + fail-closed và phủ các cửa upload chính (Media Library,
+  save-from-chat, attachment gửi Zalo, avatar, ảnh chào mừng, remote mirror). File sạch
+  qua, EICAR bị chặn; mất kết nối daemon cũng chặn. File/archive vượt giới hạn scan 100MB
+  bị từ chối; video lớn giữ hành vi vận hành hiện tại nhưng ghi cảnh báo unscanned.
+- Khóa ba maintenance backfill bằng `settings.edit` và scope bắt buộc theo `orgId`; vô hiệu hóa runtime Status migration 8 bước lỗi thời từng có thể sửa cross-tenant.
+- Khóa RBAC cho Status CRUD; bộ lọc Contacts dùng pipeline 10 trạng thái đang chạy thật khi bảng Status động chưa migrate.
+- Sửa filter “Đa nick chăm” chạy sau phân trang làm sai total/hụt dòng; filtered export dùng cùng các filter chính của danh sách.
+- Nối menu “Xuất danh sách” vào export thật và thêm CSV import template UTF-8/quoted-field tải được.
+- Tự kết thúc mềm CallLog OmiCall `initiated/ringing` thiếu provider result quá 15 phút, giữ audit trail/notes.
+- Hạ raw Zalo typing/reaction/delivery payload từ INFO xuống DEBUG để tránh PII metadata và log noise.
+- Docker production-safe: `FRIEND_INVITE_TEST_MODE=false` mặc định, healthcheck `/health`, bỏ compose `version` obsolete.
+- Tài liệu kết quả: `docs/FINAL-PRE-PRODUCTION-AUDIT-2026-08-21.md`.
+
+### Fixed — Hồ sơ khách hàng 2026-08-21
+- **Hồ sơ Desktop/Mobile lưu đủ dữ liệu** — backend nhận và lưu `birthDate`, `ward`,
+  `phone2`, `phone3`, tên cửa hàng, đối tượng, địa chỉ tách cấp, hồ sơ nâng cao và consent;
+  ngày sinh gửi dạng date-only để không lệch một ngày ở múi giờ Việt Nam.
+- **Panel Chi tiết bên hiển thị đúng thông tin bán hàng** — bổ sung trạng thái thực,
+  ngành hàng, tên cửa hàng và đối tượng với nhãn tiếng Việt.
+- **Activity Log không còn diff ngày giả** — so sánh `Date` theo timestamp, ghi đủ các
+  field hồ sơ mới và hiển thị nhãn dễ đọc. Có test hồi quy cho ngày bằng/khác nhau.
+- **Route Hồ sơ KH tổng hợp dùng dữ liệu thật** — `/contacts/:id/profile` từ Chat mở
+  `CustomerProfileDialog` dùng chung thay cho trang skeleton/mock; dọn composable mock
+  không còn consumer.
+- **Quick Add mở rộng nhưng vẫn nhanh** — giữ Tên + SĐT bắt buộc, các field hồ sơ khác
+  nằm trong phần chi tiết không bắt buộc.
+- **Không còn log cảnh báo giả cho tin text `webchat`** — đây là msgType text chuẩn của
+  Zalo/CRM, parser vốn đã trả đúng `text` nhưng registry thiếu nên ghi "Unknown string type".
 
 ### Added (8) — Phase 2 Continued: Calling, Export, Recording & Final Verification 2026-08-20
 - **Xuất khách hàng .xlsx/.csv** — `GET /api/v1/contacts/export?format=xlsx|csv`, ĐÚNG field/
@@ -80,12 +179,6 @@ Các thay đổi đáng chú ý của ZCRM. Theo [Semantic Versioning](https://s
   baseline đã biết, không phát sinh regression mới.
 
 ### Chưa làm / known limitation
-- URL ghi âm thô (`/files/media/<hash>.mp3`) vẫn phục vụ KHÔNG auth — route static dùng
-  chung cho ảnh/video/file media library khác, khoá lại toàn bộ rủi ro phá vỡ diện rộng
-  (avatar, ảnh chat, v.v.). Cổng auth mới (`/telephony/calls/:id/recording`) là đường
-  CHÍNH THỨC app dùng; URL kho vẫn kỹ thuật truy cập được nếu bị lộ (hash khó đoán, nhưng
-  không phải bảo mật thật). Cần thiết kế storage-key riêng cho ghi âm (khác namespace với
-  media library) nếu muốn khoá triệt để — chưa làm đợt này.
 - Nguyên nhân gốc "sale không nghe được" (mono từ phía OmiCall) — cần xác nhận/khắc phục
   từ phía OmiCall (support hoặc cấu hình dashboard), không sửa được từ code CRM.
 - Dòng dữ liệu mồ côi trong Lịch sử cuộc gọi (1 dòng "Từ chối" 0335622260 13:54 20/08, tạo

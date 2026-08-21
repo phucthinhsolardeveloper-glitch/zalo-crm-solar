@@ -5,7 +5,7 @@ declare global {
   interface Window {
     OMICallSDK?: {
       init: (config: Record<string, unknown>) => Promise<boolean>;
-      register: (config: { sipRealm: string; sipUser: string; sipPassword: string; wssUri?: string }) => Promise<{ status: string | boolean; message?: string }>;
+      register: (config: { sipRealm: string; sipUser: string; sipPassword: string; wssUri?: string }) => Promise<{ status: string | boolean; message?: string; error?: string }>;
       unregister: () => void;
       makeCall: (remoteNumber: string, options?: {
         isVideo?: boolean;
@@ -43,6 +43,12 @@ interface OmicallCallData {
   isOutbound?: boolean;
   remoteNumber?: string;
   remoteStream?: MediaStream;
+  // OmiCall Web SDK 3.x exposes WebRTC media here. `remoteStream` existed in
+  // older/example integrations but is not populated by 3.0.41.
+  streams?: {
+    local?: MediaStream;
+    remote?: MediaStream;
+  };
   reason?: string;
   sipReason?: string;
   rejectCode?: string;
@@ -85,6 +91,7 @@ const outboundNumberMode = ref<'auto' | 'fixed'>('auto');
 const zccEnabled = ref(false);
 const zccSipNumber = ref<string | null>(null);
 const dialogRequest = ref(0);
+const remoteAudioBlocked = ref(false);
 let activeCall: OmicallCallData | null = null;
 // Exposed as activeCallLogId so UI can attach a post-call note to the exact call
 // (e.g. right after it ends) without re-deriving which TelephonyCall row it was.
@@ -115,6 +122,38 @@ function loadSdk(): Promise<void> {
 
 function providerCallId(call?: OmicallCallData): string | undefined {
   return call?.transaction_id || call?.transactionId || call?.call_uuid || call?.uuid || call?.callId || call?.id;
+}
+
+function remoteMediaStream(call?: OmicallCallData | null): MediaStream | null {
+  return call?.streams?.remote || call?.remoteStream || null;
+}
+
+async function attachRemoteAudio(call?: OmicallCallData | null) {
+  const audio = document.getElementById('omicall-remote-audio') as HTMLAudioElement | null;
+  const stream = remoteMediaStream(call);
+  if (!audio || !stream) return false;
+
+  audio.autoplay = true;
+  audio.muted = false;
+  audio.volume = 1;
+  if (audio.srcObject !== stream) audio.srcObject = stream;
+
+  const play = async () => {
+    try {
+      await audio.play();
+      remoteAudioBlocked.value = false;
+      return true;
+    } catch {
+      remoteAudioBlocked.value = true;
+      return false;
+    }
+  };
+  stream.addEventListener('addtrack', () => void play(), { once: true });
+  return play();
+}
+
+function resumeRemoteAudio() {
+  return attachRemoteAudio(activeCall);
 }
 
 // LOOSE — khớp normalizePhone() backend (shared/utils/phone.ts): chấp nhận số bàn/số cũ/
@@ -213,6 +252,12 @@ async function finish(status: 'completed' | 'rejected' | 'missed' | 'failed', re
   activeCall = null;
   incoming.value = false;
   muted.value = false;
+  remoteAudioBlocked.value = false;
+  const audio = document.getElementById('omicall-remote-audio') as HTMLAudioElement | null;
+  if (audio) {
+    audio.pause();
+    audio.srcObject = null;
+  }
   void refreshHistory();
   scheduleCdrRefresh();
 }
@@ -269,7 +314,7 @@ const registerHandler = (data: any) => {
     phase.value = 'connecting';
   } else {
     phase.value = 'error';
-    errorMessage.value = data?.message || 'Omicall từ chối đăng nhập';
+    errorMessage.value = data?.message || data?.error || data?.reason || 'Omicall đã ngắt kết nối tổng đài';
   }
 };
 
@@ -283,13 +328,9 @@ const ringingHandler = (callData: OmicallCallData) => {
   phase.value = 'ringing';
   const id = providerCallId(callData);
   void patchLog('ringing', id ? { providerCallId: id } : {});
-  if (callData.remoteStream) {
-    const audio = document.getElementById('omicall-remote-audio') as HTMLAudioElement | null;
-    if (audio) {
-      audio.srcObject = callData.remoteStream;
-      void audio.play().catch(() => undefined);
-    }
-  }
+  // 183 early-media (ringback/provider announcement) can already carry the
+  // remote receiver stream before the call is accepted.
+  void attachRemoteAudio(callData);
 };
 
 const connectingHandler = (callData: OmicallCallData) => {
@@ -307,6 +348,9 @@ const acceptedHandler = (callData: OmicallCallData) => {
   startTimer();
   const id = providerCallId(callData);
   void patchLog('answered', id ? { providerCallId: id } : {});
+  // In SDK 3.0.41 `streams.remote` is created immediately before `accepted`
+  // is emitted, so this is the reliable point to connect the customer's voice.
+  void attachRemoteAudio(callData);
 };
 
 const endedHandler = (callData: OmicallCallData) => {
@@ -348,11 +392,17 @@ async function connect() {
     zccEnabled.value = Boolean(data.zcc?.enabled);
     zccSipNumber.value = data.zcc?.sipNumber || null;
     if (!window.OMICallSDK) throw new Error('Omicall SDK chưa sẵn sàng');
-    if (sdkInitialized) {
-      try { window.OMICallSDK.unregister(); } catch { /* reconnect continues with a fresh init */ }
+    // Theo luồng chính thức của OmiCall v3: init đúng một lần; reconnect chỉ
+    // unregister/register. Gọi init() lặp lại có thể để lại transport/event cũ
+    // và khiến lần đăng ký kế tiếp bị SDK từ chối dù credential vẫn đúng.
+    if (!sdkInitialized) {
+      const initializedOk = await window.OMICallSDK.init({});
+      if (!initializedOk) throw new Error('Không khởi tạo được OmiCall Web SDK');
+      sdkInitialized = true;
+    } else {
+      try { window.OMICallSDK.unregister(); } catch { /* register below still retries */ }
+      await new Promise((resolve) => setTimeout(resolve, 120));
     }
-    await window.OMICallSDK.init({});
-    sdkInitialized = true;
     bindSdkEvents();
     const result = await window.OMICallSDK.register({
       sipRealm: data.sipRealm,
@@ -363,7 +413,9 @@ async function connect() {
     phase.value = result?.status === 'connected'
       ? 'ready'
       : (result?.status === 'connecting' || result?.status === true) ? 'connecting' : 'error';
-    if (phase.value === 'error') errorMessage.value = 'Omicall từ chối đăng nhập';
+    if (phase.value === 'error') {
+      errorMessage.value = result?.message || result?.error || 'Omicall từ chối đăng nhập';
+    }
     void syncHistory();
   } catch (error: any) {
     if (error?.response?.status === 503) enabled.value = false;
@@ -486,8 +538,9 @@ export function useOmicallSoftphone() {
   return {
     phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
     activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, activeCallLogId,
+    remoteAudioBlocked,
     isBusy: computed(() => ['calling', 'ringing', 'answered'].includes(phase.value)),
     fromNumber, initialize, callPeer, callPhone, callConversation,
-    answer, reject, hangup, toggleMute, resetEnded, loadMoreHistory,
+    answer, reject, hangup, toggleMute, resetEnded, resumeRemoteAudio, loadMoreHistory,
   };
 }

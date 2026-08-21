@@ -50,6 +50,7 @@ interface ConversationMessage {
   id?: string;
   zaloMsgId?: string | null;
   editedAt?: string | null;
+  metadata?: { deletionMode?: 'only_me' | 'undo'; [key: string]: unknown } | null;
 }
 
 export interface ReplyMessageRef {
@@ -927,10 +928,13 @@ export function useChat() {
       }
     });
 
-    socket.on('chat:deleted', (data: { messageId?: string; zaloMsgId?: string; conversationId?: string }) => {
+    socket.on('chat:deleted', (data: { messageId?: string; zaloMsgId?: string; conversationId?: string; deletionMode?: 'only_me' | 'undo' }) => {
       // Cột 3: update message bubble trong thread đang mở
       const msg = messages.value.find(m => m.id === data.messageId || m.zaloMsgId === data.zaloMsgId);
-      if (msg) msg.isDeleted = true;
+      if (msg) {
+        msg.isDeleted = true;
+        if (data.deletionMode) msg.metadata = { ...(msg.metadata ?? {}), deletionMode: data.deletionMode };
+      }
       // Cột 2: update preview tin cuối trong conv list — match theo id/zaloMsgId.
       // 2026-06-12 — thay conv bằng OBJECT MỚI (không mutate in-place preview) cùng lý do
       // như chat:message: sau khi tách ticker 30s, mutate in-place KHÔNG ép row re-render +
@@ -946,7 +950,13 @@ export function useChat() {
         if (preview && (preview.id === data.messageId || preview.zaloMsgId === data.zaloMsgId)) {
           conversations.value.splice(i, 1, {
             ...conv,
-            messages: [{ ...preview, isDeleted: true }, ...(conv.messages || []).slice(1)],
+            messages: [{
+              ...preview,
+              isDeleted: true,
+              metadata: data.deletionMode
+                ? { ...(preview.metadata ?? {}), deletionMode: data.deletionMode }
+                : preview.metadata,
+            }, ...(conv.messages || []).slice(1)],
           } as typeof conv);
           if (data.conversationId) break;
         }

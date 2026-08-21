@@ -16,6 +16,7 @@ import { normalizePhone } from '../../shared/utils/phone.js';
 import { sendSystemNotificationToUser } from '../system-notifications/system-notify-service.js';
 import { encryptOmicallSecret } from '../telephony/omicall-token.js';
 import { provisionOmicallAgent } from '../telephony/omicall-agent-provisioning.js';
+import { scanOrPass } from '../../shared/security/clamav-client.js';
 
 // 2026-06-09 (anh chốt audit) — ghi nhật ký hành động admin vào ActivityLog có sẵn
 // (category='admin'), KHÔNG tạo model mới. Fire-and-forget: lỗi log KHÔNG chặn nghiệp vụ.
@@ -749,6 +750,8 @@ export async function userRoutes(app: FastifyInstance) {
           if (buf.length > MAX) {
             return reply.status(413).send({ error: 'Ảnh tối đa 15MB' });
           }
+          const av = await scanOrPass(buf, { filename: part.filename, userId: currentUser.id });
+          if (av.blocked) return reply.status(422).send({ error: av.reason, code: 'AV_BLOCKED' });
           // Gộp: registerAsset (nén webp + dedup + lưu MinIO) → lấy blob.publicUrl → update user.
           // visibility='private' + folder riêng để KHÔNG hiện tab Kho ảnh chung của org.
           const { registerAsset } = await import('../media/media-service.js');

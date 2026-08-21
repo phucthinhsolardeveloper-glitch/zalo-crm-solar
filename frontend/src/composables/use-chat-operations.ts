@@ -51,7 +51,7 @@ export function useChatOperations() {
 
   async function deleteMessage(convId: string, msgId: string): Promise<void> {
     try {
-      await api.delete(`/conversations/${convId}/messages/${msgId}`);
+      await api.delete(`/conversations/${convId}/messages/${msgId}`, { data: { onlyMe: true } });
     } catch (err) {
       console.error('Failed to delete message:', err);
       throw err;

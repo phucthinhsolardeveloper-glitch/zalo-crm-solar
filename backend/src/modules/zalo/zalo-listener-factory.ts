@@ -424,7 +424,9 @@ export function attachZaloListener(ctx: ListenerContext): void {
     (listener as any).emit = function (eventName: string, ...args: any[]) {
       if (eventName !== 'message' && eventName !== 'old_messages' && eventName !== 'connected') {
         try {
-          logger.info(`[zalo:${accountId}] 🎯 SDK emit '${eventName}' — args[0]=`, JSON.stringify(args[0])?.slice(0, 300));
+          // Payload realtime có UID/thread/message id và có tần suất rất cao. Không ghi
+          // ở INFO trong production: vừa lộ metadata khách hàng vào log, vừa tạo log noise.
+          logger.debug(`[zalo:${accountId}] SDK emit '${eventName}' — args[0]=`, JSON.stringify(args[0])?.slice(0, 300));
         } catch { /* ignore log error */ }
       }
       return _origEmit(eventName, ...args);
@@ -441,7 +443,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
     try {
       // DEBUG 2026-05-22: log raw payload để verify SDK fire event đúng shape.
       // Anh đã test 2026-05-22 không thấy typing dots — cần xác minh event arrival.
-      logger.info(`[zalo:${accountId}] 🔵 TYPING event:`, JSON.stringify({
+      logger.debug(`[zalo:${accountId}] TYPING event:`, JSON.stringify({
         threadId: typing?.threadId, type: typing?.type, data: typing?.data, isSelf: typing?.isSelf,
       }));
       await emitOrg('zalo:typing', {
@@ -525,7 +527,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
   listener.on('delivered_messages', async (messages: any[]) => {
     try {
       // DEBUG 2026-05-22: log raw payload
-      logger.info(`[zalo:${accountId}] 🟡 DELIVERED_MESSAGES event:`, JSON.stringify(
+      logger.debug(`[zalo:${accountId}] DELIVERED_MESSAGES event:`, JSON.stringify(
         (messages || []).slice(0, 3).map(m => ({ threadId: m?.threadId, type: m?.type, data: m?.data })),
       ));
       const deliveredIds: string[] = [];
@@ -593,7 +595,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
             where: { zaloMsgId: { in: deliveryOnlyIds }, senderType: 'self' },
             select: { id: true, conversationId: true, zaloMsgId: true, deliveredAt: true, seenAt: true },
           });
-          logger.info(`[zalo:${accountId}] 🟡 DELIVERED → updated=${updated.count}, emit ${rows.length} row(s), io=${!!io}`);
+          logger.debug(`[zalo:${accountId}] DELIVERED → updated=${updated.count}, emit ${rows.length} row(s), io=${!!io}`);
           for (const r of rows) {
             await emitOrg('zalo:message-status', {
               accountId, conversationId: r.conversationId, messageId: r.id,
@@ -601,7 +603,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
             });
           }
         } else if (seenIds.length === 0) {
-          logger.info(`[zalo:${accountId}] 🟡 DELIVERED → updateMany count=0 (ids=${deliveryOnlyIds.join(',')})`);
+          logger.debug(`[zalo:${accountId}] DELIVERED → updateMany count=0 (ids=${deliveryOnlyIds.join(',')})`);
         }
       }
     } catch (err) {

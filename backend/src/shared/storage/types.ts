@@ -20,12 +20,19 @@ export interface UploadResult {
 }
 
 export interface StorageDriver {
-  /** Upload buffer (content-hash dedup). Key = `media/{sha256}{ext}`. */
-  uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string): Promise<UploadResult>;
+  /** Upload buffer (content-hash dedup). Public assets use `media/` by default. */
+  uploadBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    originalName?: string,
+    namespace?: 'media' | 'recordings',
+  ): Promise<UploadResult>;
   /** Lấy object dưới dạng stream. Trả null nếu key không an toàn / không tồn tại. */
   getObjectStream(key: string): Promise<NodeJS.ReadableStream | null>;
   /** Đọc toàn bộ object thành Buffer. Trả null nếu key sai / không tồn tại. */
   getObjectBuffer(key: string): Promise<Buffer | null>;
+  /** Delete one safe object key. Used by explicit security migrations only. */
+  deleteObject(key: string): Promise<boolean>;
   /** Đảm bảo nơi lưu sẵn sàng (mkdir cho local, kiểm tra bucket cho R2). */
   ensureBucket(): Promise<void>;
   /** Public URL để gửi cho Zalo CDN / trình duyệt tải. */

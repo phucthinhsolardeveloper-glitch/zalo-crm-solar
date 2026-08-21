@@ -13,6 +13,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { config } from '../../config/index.js';
+import { getObjectBuffer, keyFromPublicUrl } from '../../shared/storage/minio-client.js';
 
 /** Extract zaloMsgId từ nhiều shape trả về của zca-js (text/media/forward). */
 export function extractZaloMsgId(result: unknown): string {
@@ -111,6 +112,26 @@ export async function downloadMediaToTemp(
   contentType: string,
 ): Promise<{ path: string; cleanup: () => Promise<void> }> {
   let lastError: unknown;
+
+  // URL của local storage thường là http://localhost:<host-port>/files/... . Từ
+  // bên trong container, host-port đó không phải cổng app nên fetch self sẽ lỗi.
+  // Nếu URL thuộc storage CRM, đọc object trực tiếp qua driver local/R2 trước.
+  const storageKey = keyFromPublicUrl(media.url);
+  if (storageKey) {
+    try {
+      const buffer = await getObjectBuffer(storageKey);
+      if (buffer?.length) {
+        const dir = await mkdtemp(path.join(tmpdir(), 'zalocrm-forward-'));
+        const filePath = path.join(dir, filenameFromUrl(media.url, contentType, media.filename));
+        await writeFile(filePath, buffer);
+        return { path: filePath, cleanup: () => rm(dir, { recursive: true, force: true }) };
+      }
+      lastError = new Error(`storage object missing: ${storageKey}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
   for (const url of candidateDownloadUrls(media.url)) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });

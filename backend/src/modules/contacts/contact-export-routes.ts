@@ -26,8 +26,17 @@ export async function contactExportRoutes(app: FastifyInstance): Promise<void> {
       search?: string;
       source?: string;
       status?: string;
+      statusId?: string;
       customerType?: string;
       assignedUserId?: string;
+      threadType?: string;
+      hasZalo?: string;
+      relationshipKindAny?: string;
+      multiNick?: string;
+      scoreMin?: string;
+      scoreMax?: string;
+      dateFrom?: string;
+      dateTo?: string;
     };
     const format = q.format === 'xlsx' ? 'xlsx' : 'csv';
 
@@ -40,8 +49,69 @@ export async function contactExportRoutes(app: FastifyInstance): Promise<void> {
       }
       if (q.source) where.source = q.source;
       if (q.status) where.status = q.status;
+      if (q.statusId) where.statusId = q.statusId;
       if (q.customerType) where.customerType = q.customerType;
       if (q.assignedUserId) where.assignedUserId = q.assignedUserId;
+      if (q.relationshipKindAny) {
+        const kinds = q.relationshipKindAny.split(',').map((value) => value.trim()).filter(Boolean);
+        if (kinds.length) where.friends = { some: { relationshipKind: { in: kinds } } };
+      }
+      if (q.scoreMin || q.scoreMax) {
+        where.leadScore = {};
+        if (q.scoreMin) where.leadScore.gte = Number(q.scoreMin) || 0;
+        if (q.scoreMax) where.leadScore.lte = Number(q.scoreMax) || 100;
+      }
+      if (q.dateFrom || q.dateTo) {
+        where.lastActivity = {};
+        if (q.dateFrom) where.lastActivity.gte = new Date(q.dateFrom);
+        if (q.dateTo) where.lastActivity.lte = new Date(`${q.dateTo}T23:59:59.999Z`);
+      }
+      if (q.threadType === 'group') {
+        where.AND = where.AND ?? [];
+        where.AND.push({ conversations: { some: { threadType: 'group', orgId: user.orgId } } });
+        where.AND.push({ conversations: { none: { threadType: 'user', orgId: user.orgId } } });
+        where.AND.push({ OR: [{ phone: null }, { phone: '' }] });
+      } else if (q.threadType === 'user') {
+        where.AND = where.AND ?? [];
+        where.AND.push({
+          NOT: { AND: [
+            { conversations: { some: { threadType: 'group', orgId: user.orgId } } },
+            { conversations: { none: { threadType: 'user', orgId: user.orgId } } },
+            { OR: [{ phone: null }, { phone: '' }] },
+          ] },
+        });
+      }
+      if (['true', 'false', 'unknown'].includes(q.hasZalo || '')) {
+        const hasIdentityShape = [
+          { friends: { some: { zaloAccount: { archivedAt: null }, relationshipKind: { not: 'ghost' } } } },
+          { zaloUid: { not: null } },
+          { zaloGlobalId: { not: null } },
+          { zaloUsername: { not: null } },
+        ];
+        where.AND = where.AND ?? [];
+        if (q.hasZalo === 'true') where.AND.push({ OR: [{ hasZalo: true }, ...hasIdentityShape] });
+        else {
+          where.AND.push({ NOT: { OR: hasIdentityShape } });
+          where.AND.push({ hasZalo: q.hasZalo === 'false' ? false : null });
+        }
+      }
+      if (q.multiNick === 'true') {
+        const grouped = await prisma.friend.groupBy({
+          by: ['contactId'],
+          where: {
+            orgId: user.orgId,
+            relationshipKind: { not: 'ghost' },
+            zaloAccount: { archivedAt: null },
+          },
+          _count: { contactId: true },
+          having: { contactId: { _count: { gte: 2 } } },
+        });
+        const ids = grouped.map((row) => row.contactId);
+        if (where.id?.in) {
+          const allowed = new Set(where.id.in as string[]);
+          where.id = { in: ids.filter((id) => allowed.has(id)) };
+        } else where.id = { in: ids };
+      }
       if (q.search) {
         const canonicalPhone = normalizePhone(q.search);
         where.OR = [
@@ -58,7 +128,7 @@ export async function contactExportRoutes(app: FastifyInstance): Promise<void> {
         take: MAX_EXPORT_ROWS,
         select: {
           fullName: true, phone: true, email: true, industry: true, storeName: true,
-          customerType: true, province: true, district: true, ward: true, addressLine: true,
+          customerType: true, importanceLevel: true, province: true, district: true, ward: true, addressLine: true,
           birthDate: true, source: true, status: true,
         },
       });

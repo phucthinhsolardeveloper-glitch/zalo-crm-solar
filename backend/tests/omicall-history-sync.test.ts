@@ -10,7 +10,9 @@ vi.mock('../src/config/index.js', () => ({
 vi.mock('../src/shared/database/prisma-client.js', () => ({
   prisma: {
     contact: { findFirst: vi.fn() },
-    telephonyCall: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
+    telephonyCall: {
+      findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), create: vi.fn(), updateMany: vi.fn(),
+    },
   },
 }));
 vi.mock('../src/modules/telephony/omicall-recording.js', () => ({
@@ -83,6 +85,14 @@ describe('syncOmicallHistoryForUser', () => {
         }),
       }),
     );
+    expect(prisma.telephonyCall.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        ownerUserId: 'user-1',
+        providerCallId: null,
+        status: { in: ['initiated', 'ringing'] },
+      }),
+      data: expect.objectContaining({ status: 'failed' }),
+    }));
   });
 
   it('continues syncing until Omicall returns a partial page', async () => {

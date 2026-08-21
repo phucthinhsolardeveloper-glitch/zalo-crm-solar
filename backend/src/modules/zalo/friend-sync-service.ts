@@ -69,6 +69,12 @@ export interface SyncFriendsResult {
 const COOLDOWN_MS = 5_000;
 const lastManualSyncAt = new Map<string, number>();
 
+// On-connect và cron có thể nổ đúng cùng thời điểm (đặc biệt lúc container vừa lên gần
+// mốc */15). Không khóa, một nick 3–4k bạn bị fetch/mirror/update hai lượt song song,
+// tự tạo DB contention đúng lúc listener realtime vừa kết nối. Các caller sau cùng nick
+// join promise đang chạy; khác nick vẫn chạy độc lập.
+const inFlightFriendSyncs = new Map<string, Promise<SyncFriendsResult>>();
+
 // ── Diff helper ─────────────────────────────────────────────────────────────
 // Fields có thể đổi từ Zalo Real → cần diff trước khi update + emit.
 // Friendship state (friendshipStatus, relationshipKind) đi qua applyFriendTransition
@@ -142,9 +148,21 @@ export async function syncFriendsForAccount(
   orgId: string,
   opts: SyncFriendsOptions,
 ): Promise<SyncFriendsResult> {
+  const inFlight = inFlightFriendSyncs.get(accountId);
+  if (inFlight) {
+    logger.info(`[friend-sync:${accountId}] trigger=${opts.trigger} joined in-flight sync`);
+    return inFlight;
+  }
+
   // Bọc toàn bộ org-scoped work trong tenant context (cron/connect chạy ngoài
   // request HTTP; manual route đã có context — re-establish cùng org vô hại).
-  return withTenant(orgId, () => syncFriendsForAccountImpl(accountId, orgId, opts));
+  const run = withTenant(orgId, () => syncFriendsForAccountImpl(accountId, orgId, opts));
+  inFlightFriendSyncs.set(accountId, run);
+  try {
+    return await run;
+  } finally {
+    if (inFlightFriendSyncs.get(accountId) === run) inFlightFriendSyncs.delete(accountId);
+  }
 }
 
 async function syncFriendsForAccountImpl(
@@ -243,6 +261,13 @@ async function syncFriendsForAccountImpl(
       zaloAvatarUrl: true,
       zaloGlobalId: true,
       zaloUsername: true,
+      friendshipStatus: true,
+      contact: {
+        select: {
+          id: true, fullName: true, gender: true, genderLocked: true, birthDate: true,
+          phone: true, phone2: true, phone3: true, phonesExtra: true, metadata: true, avatarUrl: true,
+        },
+      },
     },
   });
   const existingByUid = new Map(existingFriends.map((f) => [f.zaloUidInNick, f]));
@@ -259,7 +284,14 @@ async function syncFriendsForAccountImpl(
   ): Promise<void> {
     const raw = info.snapshot.zaloAvatarUrl;
     if (!isMirrorableUrl(raw)) return;
-    if (existing?.zaloAvatarUrl && !isMirrorableUrl(existing.zaloAvatarUrl)) return; // đã mirror rồi
+    if (existing?.zaloAvatarUrl && !isMirrorableUrl(existing.zaloAvatarUrl)) {
+      // DB đã giữ bản mirror nội bộ bền vững. Dùng chính URL canonical này cho bước
+      // diff phía dưới; nếu chỉ `return`, snapshot vẫn mang URL CDN Zalo và mỗi chu kỳ
+      // sẽ ghi đè bản mirror bằng URL thô. Chu kỳ sau lại mirror lại → hàng nghìn lần
+      // download/update/socket emit, làm nghẽn realtime và khiến avatar lại hết hạn.
+      info.snapshot.zaloAvatarUrl = existing.zaloAvatarUrl;
+      return;
+    }
     const mirrored = await mirrorRemoteMediaUrl(raw, 'image').catch(() => null);
     if (mirrored) info.snapshot.zaloAvatarUrl = mirrored;
   }
@@ -357,6 +389,20 @@ interface ProcessFriendArgs {
         zaloAvatarUrl: string | null;
         zaloGlobalId: string | null;
         zaloUsername: string | null;
+        friendshipStatus: string;
+        contact: {
+          id: string;
+          fullName: string | null;
+          gender: string | null;
+          genderLocked: boolean;
+          birthDate: Date | null;
+          phone: string | null;
+          phone2: string | null;
+          phone3: string | null;
+          phonesExtra: unknown;
+          metadata: unknown;
+          avatarUrl: string | null;
+        };
       }
     | undefined;
   io: Server | null;
@@ -367,23 +413,27 @@ async function processFriend(args: ProcessFriendArgs): Promise<void> {
   // 1. Resolve or create Contact via central helper.
   //    Helper handles globalId/username/phone dedup + Friend reverse-lookup + ON CONFLICT race-safe stub.
   //    enrichViaGetUserInfo=false vì friend-sync ALREADY có full profile từ getAllFriends.
-  const resolved = await resolveOrCreateContact({
-    orgId: args.orgId,
-    zaloAccountId: args.accountId,
-    zaloUidInNick: args.uid,
-    zaloGlobalId: args.snapshot.zaloGlobalId,
-    zaloUsername: args.snapshot.zaloUsername,
-    fallbackFullName: args.snapshot.zaloDisplayName || args.fallbackName,
-    fallbackAvatarUrl: args.snapshot.zaloAvatarUrl || args.fallbackAvatar,
-    enrichViaGetUserInfo: false,
-  });
+  // Fast path: full-sync lặp lại thường gặp hàng nghìn Friend đã liên kết sẵn.
+  // Không resolve Contact lại từng dòng; preload relation ở query đầu chu kỳ.
+  const resolved = args.existing
+    ? { id: args.existing.contactId, created: false }
+    : await resolveOrCreateContact({
+        orgId: args.orgId,
+        zaloAccountId: args.accountId,
+        zaloUidInNick: args.uid,
+        zaloGlobalId: args.snapshot.zaloGlobalId,
+        zaloUsername: args.snapshot.zaloUsername,
+        fallbackFullName: args.snapshot.zaloDisplayName || args.fallbackName,
+        fallbackAvatarUrl: args.snapshot.zaloAvatarUrl || args.fallbackAvatar,
+        enrichViaGetUserInfo: false,
+      });
   if (resolved.created) args.result.createdContacts++;
   // Re-read fullName for downstream B8 backfill logic
-  const contactRow = await prisma.contact.findUnique({
-    where: { id: resolved.id },
-    select: { id: true, fullName: true, gender: true, genderLocked: true, birthDate: true,
-      phone: true, phone2: true, phone3: true, phonesExtra: true, metadata: true, avatarUrl: true },
-  });
+  const contactRow = args.existing?.contact ?? await prisma.contact.findUnique({
+      where: { id: resolved.id },
+      select: { id: true, fullName: true, gender: true, genderLocked: true, birthDate: true,
+        phone: true, phone2: true, phone3: true, phonesExtra: true, metadata: true, avatarUrl: true },
+    });
   const contact = contactRow ?? { id: resolved.id, fullName: null, gender: null, genderLocked: false, birthDate: null,
     phone: null, phone2: null, phone3: null, phonesExtra: [], metadata: {}, avatarUrl: null };
 
@@ -433,14 +483,16 @@ async function processFriend(args: ProcessFriendArgs): Promise<void> {
   // 2. Drive friendship state machine (handles upsert + counter delta + assignedUser).
   // source='sync' → KHÔNG set becameFriendAt vì Zalo không trả ngày kết bạn thực
   // (sync time = today gây "Đã KB hôm nay" sai cho KH cũ).
-  await applyFriendTransition({
-    orgId: args.orgId,
-    zaloAccountId: args.accountId,
-    contactId: contact.id,
-    zaloUidInNick: args.uid,
-    newFriendshipStatus: args.targetStatus,
-    source: 'sync',
-  });
+  if (!args.existing || args.existing.friendshipStatus !== args.targetStatus) {
+    await applyFriendTransition({
+      orgId: args.orgId,
+      zaloAccountId: args.accountId,
+      contactId: contact.id,
+      zaloUidInNick: args.uid,
+      newFriendshipStatus: args.targetStatus,
+      source: 'sync',
+    });
+  }
   args.result.upsertedFriends++;
 
   // 3. Diff identity fields (name/avatar/globalId/username) → update + emit only if changed

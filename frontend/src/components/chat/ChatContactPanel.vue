@@ -194,8 +194,7 @@
               <button class="pex-add" type="button" @click="addExtraPhone">+ Thêm SĐT</button>
             </template>
             <!-- 3 field Email · Địa chỉ · Nghề: ẨN khỏi cột 4 (quick view chat panel).
-                 Schema giữ nguyên — data vẫn lưu/edit qua tab "Hồ sơ KH tổng hợp" (phase sau).
-                 Xem ContactProfileView.vue stub + use-contact-profile.ts composable. -->
+                 Schema giữ nguyên — xem/sửa qua hồ sơ KH tổng hợp dùng chung. -->
             <button
               v-if="contact?.id"
               class="info-fullprofile-link"
@@ -930,10 +929,8 @@ function onEnrolled(): void {
   }
 }
 
-// ════════ Hồ sơ KH tổng hợp (phase sau) ════════
-// Tạm thời chỉ navigate sang route /contacts/:id/profile (skeleton view).
-// Sau khi backend GET /api/v1/contacts/:id/profile sẵn sàng + ContactProfileView
-// implement đầy đủ → tab này hiển thị 3 field Email/Address/Industry đã ẩn ở cột 4.
+// ════════ Hồ sơ KH tổng hợp ════════
+// Route adapter mở CustomerProfileDialog dùng chung và fetch dữ liệu thật.
 function openFullProfile() {
   if (!props.contact?.id) return;
   router.push(`/contacts/${props.contact.id}/profile`);

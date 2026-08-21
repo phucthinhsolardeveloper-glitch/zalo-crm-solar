@@ -17,13 +17,24 @@
     <!-- Message thread (shown when conversation selected) -->
     <div v-else style="height: 100%; display: flex; flex-direction: column;">
       <!-- Back button bar -->
-      <div class="d-flex align-center pa-2" style="flex-shrink: 0;">
+      <!-- FIX 2026-08-21 (anh báo: gọi điện biến mất trên mobile) — MessageThread mobile
+           tắt hẳn contact-panel (show-contact-panel=false) nên không còn chỗ nào gọi được
+           từ trong khung chat. Gắn CallButton thẳng vào thanh header này. -->
+      <div class="d-flex align-center pa-2" style="flex-shrink: 0; gap: 4px;">
         <v-btn icon variant="text" size="small" @click="goBack">
           <v-icon>mdi-arrow-left</v-icon>
         </v-btn>
-        <span v-if="selectedConv" class="text-body-2 font-weight-medium ml-1">
+        <span v-if="selectedConv" class="text-body-2 font-weight-medium ml-1" style="flex: 1; min-width: 0;">
           {{ selectedConv.contact?.fullName || 'Chat' }}
         </span>
+        <CallButton
+          v-if="selectedConv?.contact?.phone"
+          :phone="selectedConv.contact.phone"
+          :contact-id="selectedConv.contact.id"
+          :full-name="selectedConv.contact.fullName"
+          :avatar-url="selectedConv.contact.avatarUrl"
+          size="small"
+        />
       </div>
 
       <MessageThread
@@ -47,6 +58,7 @@
 import { onMounted, onUnmounted, watch, computed } from 'vue';
 import ConversationList from '@/components/chat/ConversationList.vue';
 import MessageThread from '@/components/chat/MessageThread.vue';
+import CallButton from '@/components/telephony/CallButton.vue';
 import { useChat } from '@/composables/use-chat';
 import { useOfflineQueue } from '@/composables/use-offline-queue';
 

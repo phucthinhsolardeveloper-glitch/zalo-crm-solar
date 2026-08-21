@@ -89,6 +89,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
   };
 
   return {
+    tenantTransaction: vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx)),
     prisma: {
       friend: {
         findUnique: vi.fn(async ({ where }: any) => (where.id === state.friend.id ? { id: state.friend.id, orgId: state.friend.orgId, contactId: state.friend.contactId, zaloAccountId: state.friend.zaloAccountId } : null)),
@@ -104,6 +105,10 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
 
 vi.mock('../../src/modules/tags/contact-autotags-dirty.js', () => ({
   markContactAutoTagsDirty: vi.fn(),
+}));
+
+vi.mock('../../src/modules/activity/activity-logger.js', () => ({
+  logActivity: vi.fn(),
 }));
 
 import { addFriendTag, addCrmTag } from '../../src/modules/tags/tag-service';

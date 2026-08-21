@@ -226,7 +226,7 @@ async function saveOneMessageToMedia(args: {
     tmp = await downloadMediaToTemp({ url, filename: realName }, ct);
     const buf = await readFile(tmp.path);
     // GĐ13b: quét virus file lưu-từ-chat (fail-open mặc định; AV tắt → skip). Nhiễm → chặn lưu.
-    const av = await scanOrPass(buf, { filename: realName, userId });
+    const av = await scanOrPass(buf, { filename: realName, userId, blockUnscanned: kind === 'file' });
     if (av.blocked) return { messageId, status: 'blocked', reason: av.reason };
     const mimeType = parsed.mime
       || (kind === 'image' ? 'image/jpeg' : kind === 'video' ? 'video/mp4' : 'application/octet-stream');
@@ -476,7 +476,7 @@ export async function mediaRoutes(app: FastifyInstance) {
             });
           }
           // GĐ13b: quét virus (fail-open mặc định; AV tắt → skip ngay). Chặn nếu nhiễm.
-          const av = await scanOrPass(buf, { filename: part.filename, userId });
+          const av = await scanOrPass(buf, { filename: part.filename, userId, blockUnscanned: kind === 'file' });
           if (av.blocked) return reply.status(422).send({ error: av.reason, code: 'AV_BLOCKED' });
           pending.push({ buffer: buf, mimeType: part.mimetype, kind, filename: part.filename });
         }

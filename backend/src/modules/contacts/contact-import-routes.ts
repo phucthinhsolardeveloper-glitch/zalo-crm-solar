@@ -29,6 +29,7 @@ function normalizeRows(body: unknown): ContactImportRow[] | null {
       industry: str(row.industry),
       storeName: str(row.storeName),
       customerType: str(row.customerType),
+      importanceLevel: str(row.importanceLevel),
       province: str(row.province),
       district: str(row.district),
       ward: str(row.ward),

@@ -78,6 +78,12 @@ export function computeDiff<T extends Record<string, unknown>>(
       }
       continue;
     }
+    // Prisma trả Date dưới dạng object mới sau mỗi query/update. So sánh bằng
+    // tham chiếu (`!==`) sẽ báo thay đổi giả dù cùng một thời điểm.
+    if (o instanceof Date && n instanceof Date) {
+      if (o.getTime() !== n.getTime()) diff[String(f)] = { old: o, new: n };
+      continue;
+    }
     if (o !== n) diff[String(f)] = { old: o, new: n };
   }
   return diff;

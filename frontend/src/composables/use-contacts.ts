@@ -75,6 +75,7 @@ export interface Contact {
   industry?: string | null;
   storeName?: string | null;
   customerType?: string | null;
+  importanceLevel?: string | null;
   incomeRange?: string | null;
   socialFacebook?: string | null;
   socialTiktok?: string | null;
@@ -323,6 +324,14 @@ export const CUSTOMER_TYPE_OPTIONS = [
   { text: 'Đại lý', value: 'agent' },
   { text: 'Dự án', value: 'project' },
   { text: 'Cá nhân', value: 'individual' },
+];
+
+// Phân loại thủ công, không suy ra từ Lead Score/A-B-C-D/trạng thái mua hàng.
+export const IMPORTANCE_LEVEL_OPTIONS = [
+  { text: 'Thấp', value: 'low' },
+  { text: 'Bình thường', value: 'normal' },
+  { text: 'Quan trọng', value: 'high' },
+  { text: 'Rất quan trọng', value: 'critical' },
 ];
 
 export function useContacts() {

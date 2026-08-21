@@ -202,18 +202,7 @@
                   clearable
                 />
               </v-col>
-              <v-col cols="12" sm="3">
-                <v-text-field
-                  v-model.number="form.birthYear"
-                  label="Năm sinh"
-                  type="number"
-                  :min="1900"
-                  :max="currentYear"
-                  hint="Nhập riêng năm nếu không có ngày đầy đủ"
-                  persistent-hint
-                />
-              </v-col>
-              <v-col cols="12" sm="3">
+              <v-col cols="12" sm="6">
                 <v-text-field
                   v-model="form.birthDate"
                   label="Ngày sinh"
@@ -224,7 +213,7 @@
               <v-col cols="12" sm="6">
                 <v-text-field
                   v-model="form.industry"
-                  label="Ngành nghề"
+                  label="Ngành hàng"
                 />
               </v-col>
               <v-col cols="12" sm="6">
@@ -240,6 +229,16 @@
                   item-title="text"
                   item-value="value"
                   label="Đối tượng"
+                  clearable
+                />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-select
+                  v-model="form.importanceLevel"
+                  :items="IMPORTANCE_LEVEL_OPTIONS"
+                  item-title="text"
+                  item-value="value"
+                  label="Mức độ quan trọng"
                   clearable
                 />
               </v-col>
@@ -758,6 +757,7 @@ import {
   STATUS_OPTIONS,
   GENDER_OPTIONS,
   CUSTOMER_TYPE_OPTIONS,
+  IMPORTANCE_LEVEL_OPTIONS,
   INCOME_RANGE_OPTIONS,
   CONSENT_OPTIONS,
   useContacts,
@@ -817,6 +817,7 @@ interface FormState {
   industry: string;
   storeName: string;
   customerType: string;
+  importanceLevel: string;
   incomeRange: string;
   socialFacebook: string;
   socialTiktok: string;
@@ -851,6 +852,7 @@ function emptyForm(): FormState {
     industry: '',
     storeName: '',
     customerType: '',
+    importanceLevel: '',
     incomeRange: '',
     socialFacebook: '',
     socialTiktok: '',
@@ -1022,7 +1024,7 @@ const FIELD_WEIGHTS: Array<{ key: keyof FormState; label: string; weight: number
   { key: 'birthDate', label: 'Ngày sinh', weight: 10 },
   { key: 'source', label: 'Nguồn', weight: 10 },
   { key: 'email', label: 'Email', weight: 8 },
-  { key: 'industry', label: 'Ngành nghề', weight: 7 },
+  { key: 'industry', label: 'Ngành hàng', weight: 7 },
   { key: 'addressLine', label: 'Địa chỉ', weight: 8 },
   { key: 'status', label: 'Trạng thái', weight: 7 },
 ];
@@ -1087,6 +1089,7 @@ watch(() => props.contact, (c) => {
       industry: c.industry ?? '',
       storeName: c.storeName ?? '',
       customerType: c.customerType ?? '',
+      importanceLevel: c.importanceLevel ?? '',
       incomeRange: c.incomeRange ?? '',
       socialFacebook: c.socialFacebook ?? '',
       socialTiktok: c.socialTiktok ?? '',
@@ -1184,12 +1187,15 @@ async function onSave() {
 
     gender: form.value.gender || null,
     birthYear: form.value.birthYear ?? null,
-    birthDate: form.value.birthDate
-      ? new Date(form.value.birthDate + 'T00:00:00').toISOString()
-      : null,
+    // FIX 2026-08-20: gửi thẳng chuỗi "YYYY-MM-DD" (date-only ISO parse LUÔN theo UTC-midnight
+    // theo spec ECMAScript). Trước đây `new Date(v+'T00:00:00').toISOString()` parse THEO GIỜ ĐỊA
+    // PHƯƠNG trình duyệt rồi convert UTC → lệch 1 ngày ở timezone dương (VN +7h): chọn 01/01 lưu
+    // thành 31/12. birth_date cột @db.Date không có time — không cần time component ở đây.
+    birthDate: form.value.birthDate || null,
     industry: form.value.industry || null,
     storeName: form.value.storeName || null,
     customerType: form.value.customerType || null,
+    importanceLevel: form.value.importanceLevel || null,
     incomeRange: form.value.incomeRange || null,
     socialFacebook: form.value.socialFacebook || null,
     socialTiktok: form.value.socialTiktok || null,

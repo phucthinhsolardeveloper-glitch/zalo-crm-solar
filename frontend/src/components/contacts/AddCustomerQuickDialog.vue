@@ -4,7 +4,7 @@
   <v-dialog
     :model-value="modelValue"
     @update:model-value="$emit('update:modelValue', $event)"
-    max-width="480"
+    max-width="560"
     persistent
     transition="dialog-bottom-transition"
   >
@@ -46,7 +46,7 @@
           </label>
           <input
             id="acqd-phone"
-            v-model.trim="form.phone"
+            :value="phoneModel"
             ref="phoneInputRef"
             type="tel"
             class="acqd-input acqd-input--phone"
@@ -91,6 +91,90 @@
             class="acqd-hint"
           >
             📝 Note gần nhất: <strong>{{ formatNoteDate(duplicateContact.lastNoteAt) }}</strong>
+          </div>
+        </div>
+
+        <!-- FIX 2026-08-20 (anh báo: quick-add chỉ có tên, thiếu vài trường chủ chốt) — thêm các
+             trường KHÔNG BẮT BUỘC giống form "Thêm khách hàng mới" (CustomerProfileDialog mode=
+             create), gấp gọn mặc định để dialog vẫn nhanh, bung ra khi cần điền thêm. -->
+        <button
+          v-if="!duplicateContact"
+          type="button"
+          class="acqd-more-toggle"
+          @click="showMore = !showMore"
+        >
+          {{ showMore ? '▾' : '▸' }} Thêm thông tin chi tiết (không bắt buộc)
+        </button>
+
+        <div v-if="showMore && !duplicateContact" class="acqd-more">
+          <div class="acqd-row2">
+            <div class="acqd-field">
+              <label class="acqd-label">Giới tính</label>
+              <select v-model="form.gender" class="acqd-input">
+                <option :value="null">— Không rõ —</option>
+                <option value="male">Nam</option>
+                <option value="female">Nữ</option>
+                <option value="other">Khác</option>
+              </select>
+            </div>
+            <div class="acqd-field">
+              <label class="acqd-label">Ngày sinh</label>
+              <input v-model="form.birthDate" type="date" class="acqd-input" />
+            </div>
+          </div>
+          <div class="acqd-field">
+            <label class="acqd-label">Mức độ quan trọng</label>
+            <select v-model="form.importanceLevel" class="acqd-input">
+              <option :value="null">— Chưa đánh dấu —</option>
+              <option v-for="item in IMPORTANCE_LEVEL_OPTIONS" :key="item.value" :value="item.value">{{ item.text }}</option>
+            </select>
+          </div>
+          <div class="acqd-field">
+            <label class="acqd-label">Email</label>
+            <input v-model.trim="form.email" type="email" class="acqd-input" />
+          </div>
+          <div class="acqd-row2">
+            <div class="acqd-field">
+              <label class="acqd-label">Ngành hàng</label>
+              <input v-model.trim="form.industry" class="acqd-input" />
+            </div>
+            <div class="acqd-field">
+              <label class="acqd-label">Tên cửa hàng</label>
+              <input v-model.trim="form.storeName" class="acqd-input" />
+            </div>
+          </div>
+          <div class="acqd-row2">
+            <div class="acqd-field">
+              <label class="acqd-label">Đối tượng</label>
+              <select v-model="form.customerType" class="acqd-input">
+                <option :value="null">— Chưa phân loại —</option>
+                <option v-for="t in CUSTOMER_TYPE_OPTIONS" :key="t.value" :value="t.value">{{ t.text }}</option>
+              </select>
+            </div>
+            <div class="acqd-field">
+              <label class="acqd-label">Trạng thái KH</label>
+              <select v-model="form.status" class="acqd-input">
+                <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.text }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="acqd-row3">
+            <div class="acqd-field">
+              <label class="acqd-label">Tỉnh/Thành phố</label>
+              <AddressAutocomplete v-model="form.province" input-class="acqd-input" :suggestions="addressSuggestions.provinces" />
+            </div>
+            <div class="acqd-field">
+              <label class="acqd-label">Quận/Huyện</label>
+              <AddressAutocomplete v-model="form.district" input-class="acqd-input" :suggestions="addressSuggestions.districts" />
+            </div>
+            <div class="acqd-field">
+              <label class="acqd-label">Phường/Xã</label>
+              <AddressAutocomplete v-model="form.ward" input-class="acqd-input" :suggestions="addressSuggestions.wards" />
+            </div>
+          </div>
+          <div class="acqd-field">
+            <label class="acqd-label">Địa chỉ chi tiết</label>
+            <input v-model.trim="form.addressLine" class="acqd-input" placeholder="Số nhà, tên đường…" />
           </div>
         </div>
       </div>
@@ -142,6 +226,9 @@ import { ref, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api/index';
+import { STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS } from '@/composables/use-contacts';
+import AddressAutocomplete from './AddressAutocomplete.vue';
+import { consumeQuickAddPhone } from '@/composables/quick-add-prefill';
 
 interface Props {
   modelValue: boolean;
@@ -168,7 +255,29 @@ const emit = defineEmits<{
 const router = useRouter();
 const toast = useToast();
 
-const form = ref({ fullName: '', phone: '' });
+const form = ref({
+  // Seed from the prop as well as the open watcher. This makes prefill robust
+  // for lazy/teleported dialogs whose input is mounted after the parent click.
+  fullName: '', phone: props.defaultPhone || '',
+  gender: null as string | null, birthDate: '', email: '',
+  industry: '', storeName: '', customerType: null as string | null, importanceLevel: null as string | null, status: 'new',
+  province: '', district: '', ward: '', addressLine: '',
+});
+const showMore = ref(false);
+const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wards: string[] }>({
+  provinces: [], districts: [], wards: [],
+});
+let addressSuggestionsLoaded = false;
+async function loadAddressSuggestions() {
+  if (addressSuggestionsLoaded) return;
+  addressSuggestionsLoaded = true;
+  try {
+    const { data } = await api.get('/contacts/address-suggestions');
+    addressSuggestions.value = data;
+  } catch {
+    // Gợi ý chỉ là tiện ích — field vẫn free text nếu load lỗi.
+  }
+}
 const loading = ref(false);
 const phoneError = ref<string | null>(null);
 const duplicateContact = ref<null | {
@@ -185,25 +294,60 @@ const duplicateContact = ref<null | {
 // M55.2 — Mở chat trực tiếp từ duplicate warning (sale flow liền mạch)
 const openingChat = ref(false);
 
+// defaultPhone là dữ liệu nguồn (Call History/New Message). Dùng làm fallback trực
+// tiếp cho model thay vì chỉ copy một lần trong watcher, tránh mất prefill do thứ tự
+// render của dialog/transition.
+const phoneModel = computed({
+  get: () => form.value.phone || (props.modelValue ? props.defaultPhone : ''),
+  set: (value: string) => { form.value.phone = value; },
+});
+
 const nameInputRef = ref<HTMLInputElement | null>(null);
 const phoneInputRef = ref<HTMLInputElement | null>(null);
 
+function setPhone(phone: string) {
+  form.value.phone = phone;
+  // Vuetify dialogs render through Teleport/transition. Keep the native value
+  // in sync even when the input became available one frame after the state set.
+  void nextTick(() => {
+    if (phoneInputRef.value && phoneInputRef.value.value !== phone) {
+      phoneInputRef.value.value = phone;
+    }
+  });
+}
+defineExpose({ setPhone });
+
 const canSubmit = computed(() => {
-  return form.value.fullName.trim().length > 0 && form.value.phone.trim().length > 0;
+  return form.value.fullName.trim().length > 0 && phoneModel.value.trim().length > 0;
 });
 
 watch(() => props.modelValue, async (open) => {
   if (open) {
-    form.value = { fullName: '', phone: props.defaultPhone || '' };
+    const stagedPhone = consumeQuickAddPhone();
+    form.value = {
+      fullName: '', phone: stagedPhone || props.defaultPhone || form.value.phone || '',
+      gender: null, birthDate: '', email: '',
+      industry: '', storeName: '', customerType: null, importanceLevel: null, status: 'new',
+      province: '', district: '', ward: '', addressLine: '',
+    };
+    showMore.value = false;
     phoneError.value = null;
     duplicateContact.value = null;
+    void loadAddressSuggestions();
     await nextTick();
     // Luôn focus Họ tên — sale gõ tên trước, Enter xuống SĐT (đã pre-fill thì Enter lần 2 = Lưu)
     nameInputRef.value?.focus();
   }
 });
 
-function onPhoneInput() {
+// Một số entry point chọn record nguồn và mở dialog trong hai render liên tiếp.
+// Nếu defaultPhone đến sau modelValue, đồng bộ bổ sung để không bắt sale nhập lại số.
+watch(() => props.defaultPhone, (phone) => {
+  if (props.modelValue && phone) form.value.phone = phone;
+});
+
+function onPhoneInput(event?: Event) {
+  if (event?.target instanceof HTMLInputElement) form.value.phone = event.target.value.trim();
   // Clear validation lúc user gõ — chỉ re-validate khi submit
   phoneError.value = null;
   duplicateContact.value = null;
@@ -273,8 +417,20 @@ async function onSubmit() {
   try {
     const res = await api.post('/contacts/quick-create', {
       fullName: form.value.fullName.trim(),
-      phone: form.value.phone.trim(),
+      phone: phoneModel.value.trim(),
       leadSource: props.leadSource,
+      gender: form.value.gender || undefined,
+      birthDate: form.value.birthDate || undefined,
+      email: form.value.email.trim() || undefined,
+      industry: form.value.industry.trim() || undefined,
+      storeName: form.value.storeName.trim() || undefined,
+      customerType: form.value.customerType || undefined,
+      importanceLevel: form.value.importanceLevel || undefined,
+      status: form.value.status || undefined,
+      province: form.value.province.trim() || undefined,
+      district: form.value.district.trim() || undefined,
+      ward: form.value.ward.trim() || undefined,
+      addressLine: form.value.addressLine.trim() || undefined,
     });
 
     // exists = true → behavior khác nhau theo entry point
@@ -438,6 +594,28 @@ async function onSubmit() {
   cursor: pointer;
   font-weight: 500;
 }
+
+.acqd-more-toggle {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 0;
+  margin-top: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #1b61c9;
+  cursor: pointer;
+}
+.acqd-more { margin-top: 6px; }
+.acqd-row2, .acqd-row3 {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.acqd-row2 { grid-template-columns: 1fr 1fr; }
+.acqd-row3 { grid-template-columns: 1fr 1fr 1fr; }
+.acqd-row2 .acqd-field, .acqd-row3 .acqd-field { margin-bottom: 0; }
 
 .acqd-footer-hint {
   font-size: 11px;

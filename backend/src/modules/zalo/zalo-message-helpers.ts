@@ -9,7 +9,7 @@ import { logger } from '../../shared/utils/logger.js';
 
 // Well-known msgType keyword patterns — used to suppress noise logging
 const KNOWN_MSG_TYPE_PATTERNS = [
-  'photo', 'image', 'sticker', 'video', 'voice',
+  'webchat', 'photo', 'image', 'sticker', 'video', 'voice',
   'gif', 'link', 'location', 'file', 'doc',
   'recommended', 'card', 'bank', 'transfer',
   'call', 'voip', 'qr', 'remind', 'todo',

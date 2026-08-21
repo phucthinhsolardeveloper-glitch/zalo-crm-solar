@@ -104,9 +104,9 @@
         <option value="false">🔴 Không</option>
         <option value="unknown">⚪ Chưa tìm</option>
       </select>
-      <select v-model="filters.statusId" @change="fetchContacts" title="Trạng thái KH">
+      <select v-model="filters.status" @change="fetchContacts" title="Trạng thái KH">
         <option value="">Trạng thái KH</option>
-        <option v-for="s in allMasterStatuses" :key="s.id" :value="s.id">{{ s.name }}</option>
+        <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.text }}</option>
       </select>
       <select v-model="filters.assignedUserId" @change="fetchContacts" title="Sale phụ trách KH">
         <option value="">Tất cả sale</option>
@@ -231,6 +231,12 @@
           <col v-if="visibleCols.zaloGlobalId" style="width:130px">
           <col v-if="visibleCols.zaloUsername" style="width:130px">
           <col v-if="visibleCols.lookupState" style="width:100px">
+          <col v-if="visibleCols.customerType" style="width:100px">
+          <col v-if="visibleCols.industry" style="width:130px">
+          <col v-if="visibleCols.storeName" style="width:140px">
+          <col v-if="visibleCols.importanceLevel" style="width:115px">
+          <col v-if="visibleCols.email" style="width:180px">
+          <col v-if="visibleCols.birthDate" style="width:105px">
           <col style="width:78px">   <!-- 15 Action -->
         </colgroup>
         <thead>
@@ -255,6 +261,12 @@
             <th v-if="visibleCols.zaloGlobalId" class="w-130 c-extra" title="Zalo globalId toàn cục (dedup cross-account)">Global ID</th>
             <th v-if="visibleCols.zaloUsername" class="w-130 c-extra" title="Zalo username (handle t_xxx)">Username</th>
             <th v-if="visibleCols.lookupState" class="w-100 c-extra" title="Trạng thái tra Zalo qua SĐT">Lookup</th>
+            <th v-if="visibleCols.customerType" class="c-extra">Đối tượng</th>
+            <th v-if="visibleCols.industry" class="c-extra">Ngành hàng</th>
+            <th v-if="visibleCols.storeName" class="c-extra">Tên cửa hàng</th>
+            <th v-if="visibleCols.importanceLevel" class="c-extra">Mức độ quan trọng</th>
+            <th v-if="visibleCols.email" class="c-extra">Email</th>
+            <th v-if="visibleCols.birthDate" class="c-extra">Ngày sinh</th>
             <th class="w-80 c-extra">Action</th>
           </tr>
         </thead>
@@ -469,6 +481,12 @@
                 </div>
                 <span v-else class="empty">chưa tra</span>
               </td>
+              <td v-if="visibleCols.customerType" class="c-extra">{{ optionLabel(CUSTOMER_TYPE_OPTIONS, contact.customerType) }}</td>
+              <td v-if="visibleCols.industry" class="c-extra">{{ contact.industry || '—' }}</td>
+              <td v-if="visibleCols.storeName" class="c-extra">{{ contact.storeName || '—' }}</td>
+              <td v-if="visibleCols.importanceLevel" class="c-extra">{{ optionLabel(IMPORTANCE_LEVEL_OPTIONS, contact.importanceLevel) }}</td>
+              <td v-if="visibleCols.email" class="c-extra" :title="contact.email || ''">{{ contact.email || '—' }}</td>
+              <td v-if="visibleCols.birthDate" class="c-extra">{{ compactDate(contact.birthDate) }}</td>
               <td class="c-extra">
                 <div class="cl-action">
                   <button class="cl-btn cl-btn-profile" @click.stop="openProfile(contact)" title="Xem & sửa hồ sơ khách hàng">👤 Hồ sơ</button>
@@ -592,6 +610,12 @@
                     <span v-else class="empty">—</span>
                   </td>
                   <td v-if="visibleCols.lookupState" class="c-extra"></td>
+                  <td v-if="visibleCols.customerType" class="c-extra"></td>
+                  <td v-if="visibleCols.industry" class="c-extra"></td>
+                  <td v-if="visibleCols.storeName" class="c-extra"></td>
+                  <td v-if="visibleCols.importanceLevel" class="c-extra"></td>
+                  <td v-if="visibleCols.email" class="c-extra"></td>
+                  <td v-if="visibleCols.birthDate" class="c-extra"></td>
                   <!-- col16 Action (💬 / ⚡ / ⬆) -->
                   <td class="c-extra">
                     <div class="cl-action">
@@ -685,7 +709,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import ContactDetailPanel from '@/components/contacts/ContactDetailPanel.vue';
 import CustomerProfileDialog from '@/components/contacts/CustomerProfileDialog.vue';
@@ -701,19 +725,32 @@ import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
 import {
   useContacts, useContactIntelligence,
-  SOURCE_OPTIONS, STATUS_OPTIONS, GENDER_OPTIONS,
+  SOURCE_OPTIONS, STATUS_OPTIONS, GENDER_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS,
   formatRecentDateTime, cleanPreview,
 } from '@/composables/use-contacts';
 import type { Contact } from '@/composables/use-contacts';
 import MobileContactView from '@/views/MobileContactView.vue';
 import { useMobile } from '@/composables/use-mobile';
 import { useFriendSocket, type FriendUpdatedPayload } from '@/composables/use-friend-socket';
+import { useCrmLinkSocket } from '@/composables/use-crm-link-socket';
 
 const { isMobile } = useMobile();
 const router = useRouter();
 const route = useRoute();
 
 const { contacts, total, loading, filters, pagination, fetchContacts } = useContacts();
+
+let contactRealtimeTimer: ReturnType<typeof setTimeout> | null = null;
+useCrmLinkSocket({
+  onContactChanged: () => {
+    // MobileContactView có store/list riêng và tự subscribe bên trong.
+    if (isMobile.value) return;
+    if (contactRealtimeTimer) clearTimeout(contactRealtimeTimer);
+    contactRealtimeTimer = setTimeout(() => {
+      void Promise.all([fetchContacts(), loadStats()]);
+    }, 120);
+  },
+});
 
 // Toggle sắp theo điểm: lần 1 = điểm cao lên đầu (sort=score), lần 2 = về mặc định
 // (tương tác mới nhất). Reset trang về 1 để không lệch phân trang.
@@ -732,6 +769,12 @@ const toast = useToast();
 //  - Child (KH Con / Friend row): cột per-identity — mỗi row 1 giá trị riêng.
 // Persist localStorage. Default ẨN.
 const OPTIONAL_COLUMNS = [
+  { key: 'customerType', label: 'Đối tượng', hint: 'Đại lý / Dự án / Cá nhân.' },
+  { key: 'industry', label: 'Ngành hàng', hint: 'Ngành hàng của khách.' },
+  { key: 'storeName', label: 'Tên cửa hàng', hint: 'Tên cửa hàng/doanh nghiệp.' },
+  { key: 'importanceLevel', label: 'Mức độ quan trọng', hint: 'Phân loại thủ công độc lập Lead Score.' },
+  { key: 'email', label: 'Email', hint: 'Email khách hàng.' },
+  { key: 'birthDate', label: 'Ngày sinh', hint: 'Ngày sinh khách hàng.' },
   // 2026-06-17 (anh chốt): KH Cha KHÔNG có UID (UID là per-nick) → chuyển UID xuống cột Con.
   // Cha chỉ định danh bằng Global ID + SĐT.
   { key: 'zaloGlobalId', label: 'Global ID (Cha)', hint: 'KH Cha: globalId chung khi tất cả con trùng, hoặc "đa N".' },
@@ -739,9 +782,12 @@ const OPTIONAL_COLUMNS = [
   { key: 'lookupState',  label: 'Lookup',          hint: 'Trạng thái tra Zalo qua SĐT cho KH này.' },
 ] as const;
 type OptColKey = (typeof OPTIONAL_COLUMNS)[number]['key'];
-const LS_KEY_COLS = 'contactsview.visibleCols.v2';
+const LS_KEY_COLS = 'contactsview.visibleCols.v3';
 function loadVisibleCols(): Record<OptColKey, boolean> {
-  const def = { zaloGlobalId: false, zaloUsername: false, lookupState: false };
+  const def = {
+    customerType: true, industry: false, storeName: false, importanceLevel: false, email: false, birthDate: false,
+    zaloGlobalId: false, zaloUsername: false, lookupState: false,
+  };
   try {
     const raw = localStorage.getItem(LS_KEY_COLS);
     if (raw) return { ...def, ...JSON.parse(raw) };
@@ -752,6 +798,15 @@ const visibleCols = ref<Record<OptColKey, boolean>>(loadVisibleCols());
 function toggleColumn(key: OptColKey) {
   visibleCols.value[key] = !visibleCols.value[key];
   try { localStorage.setItem(LS_KEY_COLS, JSON.stringify(visibleCols.value)); } catch { /* ignore */ }
+}
+function optionLabel(options: ReadonlyArray<{ text: string; value: string }>, value?: string | null) {
+  if (!value) return '—';
+  return options.find((option) => option.value === value)?.text || value;
+}
+function compactDate(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('vi-VN');
 }
 const totalColumnsCount = computed(() =>
   // 2026-06-04: gộp avatar+tên thành 1 cột (caret riêng) → 15 cột cố định.
@@ -813,8 +868,7 @@ function onContactsImported() {
 }
 
 // Xuất Excel/CSV — cùng field/label với Import (contact-export-service.ts backend), mang
-// theo filter đang áp dụng (search + sale phụ trách — 2 filter thực sự có tác dụng trên
-// danh sách hiện tại; statusId lọc theo bảng Status động chưa dùng nên không mang theo).
+// theo toàn bộ filter đang áp dụng trên danh sách hiện tại.
 const exporting = ref(false);
 async function exportContacts(format: 'xlsx' | 'csv') {
   if (exporting.value) return;
@@ -824,7 +878,18 @@ async function exportContacts(format: 'xlsx' | 'csv') {
       params: {
         format,
         search: filters.search || undefined,
+        source: filters.source || undefined,
+        status: filters.status || undefined,
+        statusId: filters.statusId || undefined,
         assignedUserId: filters.assignedUserId || undefined,
+        threadType: filters.threadType || undefined,
+        hasZalo: filters.hasZalo || undefined,
+        relationshipKindAny: filters.relationshipKindAny || undefined,
+        multiNick: filters.multiNick || undefined,
+        scoreMin: filters.scoreMin ?? undefined,
+        scoreMax: filters.scoreMax ?? undefined,
+        dateFrom: filters.dateFrom || undefined,
+        dateTo: filters.dateTo || undefined,
       },
       responseType: 'blob',
       timeout: 60000,
@@ -859,7 +924,10 @@ function setViewMode(m: 'm1' | 'm2') {
 const candidateCount = ref(0);
 // 2026-06-03: badge tổng trên nút ⚙ Công cụ = số cụm trùng + gợi ý KH Cha (việc cần admin xử lý)
 const toolsBadgeTotal = computed(() => (duplicateTotal.value || 0) + (candidateCount.value || 0));
-function onExport() { toast.warning('Xuất danh sách: chưa implement'); }
+// Menu "Công cụ" phải dùng cùng pipeline export thật với hai nút nhanh phía trên.
+// Trước đây đây là stub còn sót lại nên cùng một tính năng có một đường chạy được,
+// một đường luôn báo "chưa implement".
+function onExport() { void exportContacts('xlsx'); }
 async function fetchCandidateCount() {
   try {
     const res = await api.get<{ candidates: unknown[] }>('/contacts/parent-candidates');
@@ -915,7 +983,7 @@ const advancedActiveCount = computed(() => {
   return n;
 });
 const hasAnyFilter = computed(() =>
-  !!(filters.search || filters.source || filters.statusId || filters.assignedUserId
+  !!(filters.search || filters.source || filters.status || filters.statusId || filters.assignedUserId
      || filters.threadType || filters.hasZalo || filters.multiNick
      || filters.relationshipKindAny || filters.scoreMin != null || filters.scoreMax != null
      || filters.dateFrom || filters.dateTo),
@@ -923,6 +991,7 @@ const hasAnyFilter = computed(() =>
 function clearAllFilters() {
   filters.search = '';
   filters.source = '';
+  filters.status = '';
   filters.statusId = '';
   filters.assignedUserId = '';
   filters.threadType = '';
@@ -935,17 +1004,6 @@ function clearAllFilters() {
   filters.dateTo = '';
   pagination.page = 1;
   fetchContacts();
-}
-
-// Dynamic Status list cho dropdown "Trạng thái KH" (cấp Contact = statusId)
-interface MasterStatus { id: string; name: string; color: string | null; order: number }
-const allMasterStatuses = ref<MasterStatus[]>([]);
-async function loadMasterStatuses() {
-  if (allMasterStatuses.value.length > 0) return;
-  try {
-    const res = await api.get<{ statuses: MasterStatus[] }>('/settings/statuses');
-    allMasterStatuses.value = res.data.statuses || [];
-  } catch { /* non-critical */ }
 }
 
 // Sale users (cho dropdown "Sale chăm" = Contact.assignedUserId)
@@ -1576,8 +1634,11 @@ onMounted(() => {
   fetchDuplicateGroups();
   fetchCandidateCount();
   loadStats();
-  loadMasterStatuses();
   loadUsers();
+});
+
+onUnmounted(() => {
+  if (contactRealtimeTimer) clearTimeout(contactRealtimeTimer);
 });
 
 // M55.2 2026-05-30 — Handle /contacts?focus={id} từ AddCustomerQuickDialog

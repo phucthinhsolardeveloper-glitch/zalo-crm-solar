@@ -16,6 +16,9 @@ const STATUS_SLUG_TO_LABEL: Record<string, string> = {
 const CUSTOMER_TYPE_SLUG_TO_LABEL: Record<string, string> = {
   agent: 'Đại lý', project: 'Dự án', individual: 'Cá nhân',
 };
+const IMPORTANCE_SLUG_TO_LABEL: Record<string, string> = {
+  low: 'Thấp', normal: 'Bình thường', high: 'Quan trọng', critical: 'Rất quan trọng',
+};
 
 // Cùng thứ tự + label với TARGET_FIELDS (ContactImportDialog.vue) TRỪ dấu "*" bắt buộc
 // (chỉ có ý nghĩa lúc mapping cột lúc import, không cần khi xuất) — regex HEADER_GUESSES
@@ -24,9 +27,10 @@ export const EXPORT_COLUMNS = [
   { key: 'fullName', label: 'Họ tên' },
   { key: 'phone', label: 'SĐT' },
   { key: 'email', label: 'Email' },
-  { key: 'industry', label: 'Ngành nghề' },
+  { key: 'industry', label: 'Ngành hàng' },
   { key: 'storeName', label: 'Tên cửa hàng' },
   { key: 'customerType', label: 'Đối tượng' },
+  { key: 'importanceLevel', label: 'Mức độ quan trọng' },
   { key: 'province', label: 'Tỉnh/Thành phố' },
   { key: 'district', label: 'Quận/Huyện' },
   { key: 'ward', label: 'Phường/Xã' },
@@ -44,6 +48,7 @@ export interface ExportableContact {
   industry: string | null;
   storeName: string | null;
   customerType: string | null;
+  importanceLevel: string | null;
   province: string | null;
   district: string | null;
   ward: string | null;
@@ -64,6 +69,7 @@ function toRow(c: ExportableContact): Record<ExportKey, string> {
     industry: c.industry ?? '',
     storeName: c.storeName ?? '',
     customerType: c.customerType ? (CUSTOMER_TYPE_SLUG_TO_LABEL[c.customerType] ?? c.customerType) : '',
+    importanceLevel: c.importanceLevel ? (IMPORTANCE_SLUG_TO_LABEL[c.importanceLevel] ?? c.importanceLevel) : '',
     province: c.province ?? '',
     district: c.district ?? '',
     ward: c.ward ?? '',

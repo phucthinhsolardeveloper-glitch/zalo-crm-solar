@@ -897,7 +897,7 @@ function lastMessagePreviewResult(conv: Conversation): PreviewResult {
   // 2026-06-12 — chữ ký dùng CHÍNH content + editedAt (không phải content.length): tin
   // SỬA cùng độ dài (vd "ok" → "oke" thì khác, nhưng "abc" → "xyz" cùng 3 ký tự) trước
   // đây không invalidate. Fix object-mới ở socket đã che, đây là lớp 2 cho memoize tự đúng.
-  const sig = msg ? `${msg.id}|${msg.isDeleted ? 1 : 0}|${msg.content ?? ''}|${msg.editedAt ?? ''}` : 'none';
+  const sig = msg ? `${msg.id}|${msg.isDeleted ? 1 : 0}|${msg.metadata?.deletionMode ?? ''}|${msg.content ?? ''}|${msg.editedAt ?? ''}` : 'none';
   const hit = _previewCache.get(conv);
   if (hit && hit.sig === sig) return hit.result;
   const result = computeLastMessagePreview(conv);
@@ -909,7 +909,11 @@ function computeLastMessagePreview(conv: Conversation): PreviewResult {
   if (!msg) return { text: '' };
 
   // E04 Tin thu hồi — anh chốt icon 🔂 (proposal 2026-05-21), tone muted
-  if (msg.isDeleted) return { text: '🔂 Tin nhắn đã thu hồi', tone: 'muted' };
+  if (msg.isDeleted) {
+    return msg.metadata?.deletionMode === 'only_me'
+      ? { text: '🗑 Tin nhắn đã xóa', tone: 'muted' }
+      : { text: '🔂 Tin nhắn đã thu hồi', tone: 'muted' };
+  }
 
   const prefix = msg.senderType === 'self' ? 'Bạn: ' : '';
   const isInbound = msg.senderType !== 'self';

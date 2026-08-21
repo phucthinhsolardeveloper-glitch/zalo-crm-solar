@@ -20,6 +20,7 @@ const prismaMock = {
   organization: { findMany: vi.fn() },
   user: { findFirst: vi.fn() },
   contact: { findMany: vi.fn() },
+  friend: { findMany: vi.fn() },
   duplicateGroup: { findFirst: vi.fn(), create: vi.fn() },
   parentCandidate: { findFirst: vi.fn(), create: vi.fn() },
 };
@@ -61,6 +62,7 @@ function arrangeContacts(rows: Record<string, unknown>[]): void {
   prismaMock.organization.findMany.mockResolvedValue([{ id: 'org-1' }]);
   prismaMock.user.findFirst.mockResolvedValue({ id: 'sys-user' }); // có system user → cho phép auto-merge
   prismaMock.contact.findMany.mockResolvedValue(rows);
+  prismaMock.friend.findMany.mockResolvedValue([]);
   prismaMock.duplicateGroup.findFirst.mockResolvedValue(null);
   prismaMock.duplicateGroup.create.mockResolvedValue({});
   prismaMock.parentCandidate.findFirst.mockResolvedValue(null);

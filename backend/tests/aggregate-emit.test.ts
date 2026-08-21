@@ -21,7 +21,10 @@ const prismaMock = {
   $transaction: vi.fn(),
 };
 
-vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  prisma: prismaMock,
+  tenantTransaction: (fn: (tx: unknown) => Promise<unknown>) => prismaMock.$transaction(fn),
+}));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -34,6 +37,9 @@ vi.mock('../src/modules/activity/activity-logger.js', () => ({
 }));
 vi.mock('../src/modules/zalo/zalo-pool.js', () => ({
   zaloPool: { getIO: vi.fn(() => ioMock) },
+}));
+vi.mock('../src/modules/contacts/contact-scope.js', () => ({
+  ensureContactCollaborator: vi.fn(),
 }));
 
 const { applyFriendAggregate } = await import('../src/modules/contacts/contact-aggregate.ts');
@@ -75,6 +81,7 @@ describe('applyFriendAggregate — emit friend:updated', () => {
           update: vi.fn(),
         },
         contact: {
+          findUnique: vi.fn().mockResolvedValue(null),
           update: vi.fn(),
         },
       };
@@ -119,7 +126,7 @@ describe('applyFriendAggregate — emit friend:updated', () => {
           }),
           update: vi.fn().mockResolvedValue({}),
         },
-        contact: { update: vi.fn() },
+        contact: { findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() },
       };
       await cb(tx);
     });
@@ -155,7 +162,7 @@ describe('applyFriendAggregate — emit friend:updated', () => {
           }),
           update: vi.fn().mockResolvedValue({}),
         },
-        contact: { update: vi.fn() },
+        contact: { findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() },
       };
       await cb(tx);
     });

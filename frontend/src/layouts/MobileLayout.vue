@@ -15,6 +15,11 @@
 
       <v-spacer />
 
+      <!-- FIX 2026-08-21 (anh báo: gọi điện biến mất trên mobile) — TelephonySoftphone
+           trước đây CHỈ mount ở DefaultLayout (desktop). Trên mobile không có widget này
+           → initialize() (đăng ký SDK Omicall) không bao giờ chạy → CallButton bấm gọi
+           báo "Tổng đài chưa sẵn sàng" dù đã có nút, và không nhận được cuộc gọi đến. -->
+      <TelephonySoftphone />
       <NotificationBell />
       <v-btn icon size="small" variant="text" @click="toggleTheme">
         <v-icon size="20">{{ isDark ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
@@ -43,6 +48,7 @@ import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import BottomNav from '@/components/BottomNav.vue';
 import OfflineIndicator from '@/components/OfflineIndicator.vue';
+import TelephonySoftphone from '@/components/telephony/TelephonySoftphone.vue';
 
 const theme = useTheme();
 const authStore = useAuthStore();

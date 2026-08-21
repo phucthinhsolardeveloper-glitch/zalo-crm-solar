@@ -13,6 +13,7 @@ export interface ContactImportRow {
   industry: string | null;
   storeName: string | null;
   customerType: string | null;
+  importanceLevel: string | null;
   province: string | null;
   district: string | null;
   ward: string | null;

@@ -176,3 +176,44 @@
 .at-tname__av { width: 26px; height: 26px; border-radius: 7px; font-size: 10px; font-weight: 600; color: #fff; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .at-miniact { font-size: 11.5px; color: var(--at-action); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 2px; }
 .at-table td.num, .at-table th.num { text-align: right; }
+
+/* ─── Mobile (≤600px) — responsive fixes 2026-08-21 ──────────────────────
+   Atlas v2 gốc là HD-first (1366×768, xem header file), chưa có breakpoint
+   mobile nào ngoài 2 chỗ ở .at-kpi-grid/.at-dash-grid — .at-roletabs (cao cố
+   định 44px, không wrap) và .at-greet__r (flex-shrink:0, không wrap) bị bóp
+   nguyên layout desktop vào màn hẹp → chữ vỡ dòng trong box cứng, nút
+   "Nhận khách"/"Vào Tin nhắn" bị đẩy tràn ra ngoài viewport. APPEND-ONLY
+   đúng quy ước file này — không sửa rule gốc, chỉ override trong block này. */
+@media (max-width: 600px) {
+  .at-roletabs {
+    height: auto;
+    min-height: 44px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .at-roletabs::-webkit-scrollbar { display: none; }
+  .at-roletab {
+    white-space: nowrap;
+    padding: 0 12px;
+    font-size: 12.5px;
+    flex-shrink: 0;
+  }
+  .at-roletab__cnt { flex-shrink: 0; }
+  .at-roletabs__spacer { flex: 0 0 8px; }
+  .at-roletabs__scope { white-space: nowrap; flex-shrink: 0; }
+
+  .dh-attr {
+    padding: 5px 12px;
+    line-height: 1.45;
+  }
+
+  .at-greet { flex-wrap: wrap; row-gap: 10px; }
+  .at-greet__r { flex-shrink: 1; flex-wrap: wrap; width: 100%; }
+
+  /* .dh-pdd dropdown vốn width:260px cố định + right:0 theo .dh-scope (position:relative
+     inline) — trên màn hẹp .dh-scope có thể nằm giữa dòng đã wrap, khiến dropdown tràn
+     lề. Giới hạn theo viewport thay vì theo anchor. */
+  .dh-pdd { width: min(260px, calc(100vw - 24px)); right: auto; left: 0; }
+}

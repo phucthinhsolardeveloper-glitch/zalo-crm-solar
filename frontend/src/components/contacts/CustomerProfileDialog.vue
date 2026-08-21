@@ -49,7 +49,10 @@
                 <span v-if="ageOf" class="age">{{ ageOf }} tuổi</span>
               </div>
               <div class="cpd-sub">
-                <span v-if="primaryPhone">📱 {{ formatVnPhone(primaryPhone) }}</span>
+                <span v-if="primaryPhone" class="cpd-phone-line">
+                  📱 {{ formatVnPhone(primaryPhone) }}
+                  <CallButton :phone="primaryPhone" :contact-id="c.id" :full-name="displayName" :avatar-url="c.avatarUrl" size="small" />
+                </span>
                 <span v-if="c.email">✉ {{ c.email }}</span>
                 <span v-if="locationLine">📍 {{ locationLine }}</span>
                 <span v-if="c.createdAt">📅 KH từ {{ formatDate(c.createdAt) }}</span>
@@ -104,8 +107,8 @@
                     </span>
                   </div>
                   <div class="kv">
-                    <span class="k">Năm sinh</span>
-                    <span class="v"><input v-model="form.birthYear" class="cpd-in" placeholder="vd 1992" /></span>
+                    <span class="k">Ngày sinh</span>
+                    <span class="v"><input v-model="form.birthDate" type="date" class="cpd-in" /></span>
                   </div>
                   <div class="kv">
                     <span class="k">Số điện thoại</span>
@@ -113,10 +116,12 @@
                       <div class="phones-edit">
                         <div class="phone-row">
                           <input v-model="form.phone" class="cpd-in" placeholder="Số chính" />
+                          <CallButton v-if="form.phone" :phone="form.phone" :full-name="form.fullName" size="small" />
                         </div>
                         <div v-for="(p, i) in form.extraPhones" :key="i" class="phone-row">
                           <input v-model="p.label" class="cpd-in cpd-in-mini" placeholder="Nhãn" />
                           <input v-model="p.phone" class="cpd-in" placeholder="Số phụ" />
+                          <CallButton v-if="p.phone" :phone="p.phone" :full-name="form.fullName" size="small" />
                           <span class="phone-rm" @click="form.extraPhones.splice(i, 1)" title="Xoá số">✕</span>
                         </div>
                         <span class="add-phone" @click="form.extraPhones.push({ phone: '', label: '' })">+ Thêm số</span>
@@ -128,12 +133,34 @@
                     <span class="v"><input v-model="form.email" class="cpd-in" /></span>
                   </div>
                   <div class="kv">
-                    <span class="k">Ngành nghề</span>
+                    <span class="k">Ngành hàng</span>
                     <span class="v"><input v-model="form.industry" class="cpd-in" /></span>
                   </div>
                   <div class="kv">
-                    <span class="k">Địa chỉ</span>
-                    <span class="v"><input v-model="form.addressLine" class="cpd-in" placeholder="Tỉnh / Quận / chi tiết" /></span>
+                    <span class="k">Tên cửa hàng</span>
+                    <span class="v"><input v-model="form.storeName" class="cpd-in" /></span>
+                  </div>
+                  <div class="kv">
+                    <span class="k">Tỉnh/Thành phố</span>
+                    <span class="v">
+                      <AddressAutocomplete v-model="form.province" input-class="cpd-in" :suggestions="addressSuggestions.provinces" />
+                    </span>
+                  </div>
+                  <div class="kv">
+                    <span class="k">Quận/Huyện</span>
+                    <span class="v">
+                      <AddressAutocomplete v-model="form.district" input-class="cpd-in" :suggestions="addressSuggestions.districts" />
+                    </span>
+                  </div>
+                  <div class="kv">
+                    <span class="k">Phường/Xã</span>
+                    <span class="v">
+                      <AddressAutocomplete v-model="form.ward" input-class="cpd-in" :suggestions="addressSuggestions.wards" />
+                    </span>
+                  </div>
+                  <div class="kv">
+                    <span class="k">Địa chỉ chi tiết</span>
+                    <span class="v"><input v-model="form.addressLine" class="cpd-in" placeholder="Số nhà, tên đường…" /></span>
                   </div>
                 </div>
 
@@ -160,11 +187,30 @@
                       </div>
                     </span>
                   </div>
-                  <div v-if="!isCreate" class="kv">
-                    <span class="k">Trạng thái KH <span class="agg">tổng hợp</span></span>
+                  <div class="kv">
+                    <span class="k">Trạng thái KH</span>
                     <span class="v">
-                      <span v-if="c?.displayStatus" class="chip" :style="statusPillStyle">{{ c.displayStatus.name }}</span>
-                      <span v-else class="empty">—</span>
+                      <select v-model="form.status" class="cpd-in">
+                        <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.text }}</option>
+                      </select>
+                    </span>
+                  </div>
+                  <div class="kv">
+                    <span class="k">Đối tượng</span>
+                    <span class="v">
+                      <select v-model="form.customerType" class="cpd-in">
+                        <option :value="null">— Chưa phân loại —</option>
+                        <option v-for="t in CUSTOMER_TYPE_OPTIONS" :key="t.value" :value="t.value">{{ t.text }}</option>
+                      </select>
+                    </span>
+                  </div>
+                  <div class="kv">
+                    <span class="k">Mức độ quan trọng</span>
+                    <span class="v">
+                      <select v-model="form.importanceLevel" class="cpd-in">
+                        <option :value="null">— Chưa đánh dấu —</option>
+                        <option v-for="item in IMPORTANCE_LEVEL_OPTIONS" :key="item.value" :value="item.value">{{ item.text }}</option>
+                      </select>
                     </span>
                   </div>
                   <div class="kv">
@@ -428,11 +474,13 @@ import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
-import { formatRecentDateTime, cleanPreview } from '@/composables/use-contacts';
+import { formatRecentDateTime, cleanPreview, STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS } from '@/composables/use-contacts';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import TagCrmBar from '@/components/chat/TagCrmBar.vue';
+import CallButton from '@/components/telephony/CallButton.vue';
 import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import type { Contact } from '@/composables/use-contacts';
+import AddressAutocomplete from './AddressAutocomplete.vue';
 
 const props = withDefaults(defineProps<{
   modelValue: boolean;
@@ -491,11 +539,18 @@ const allUsers = ref<Array<{ id: string; fullName: string }>>([]);
 const form = ref({
   fullName: '' as string | null,
   gender: null as string | null,
-  birthYear: '' as string | number | null,
+  birthDate: '' as string,
   phone: '' as string | null,
   extraPhones: [] as Array<{ phone: string; label: string }>,
   email: '' as string | null,
   industry: '' as string | null,
+  storeName: '' as string | null,
+  customerType: null as string | null,
+  importanceLevel: null as string | null,
+  status: 'new' as string | null,
+  province: '' as string | null,
+  district: '' as string | null,
+  ward: '' as string | null,
   addressLine: '' as string | null,
   source: '' as string | null,
   assignedUserId: null as string | null,
@@ -507,11 +562,18 @@ function hydrateForm(ct: Contact) {
   form.value = {
     fullName: ct.fullName || ct.crmName || '',
     gender: ct.gender ?? null,
-    birthYear: ct.birthYear ?? (ct.birthDate ? new Date(ct.birthDate).getFullYear() : ''),
+    birthDate: ct.birthDate ? new Date(ct.birthDate).toISOString().split('T')[0] : '',
     phone: ct.phone || '',
     extraPhones: (ct.phonesExtra || []).map((p) => ({ phone: p.phone, label: p.label || '' })),
     email: ct.email || '',
     industry: ct.industry || '',
+    storeName: (ct as any).storeName || '',
+    customerType: (ct as any).customerType ?? null,
+    importanceLevel: ct.importanceLevel ?? null,
+    status: ct.status || 'new',
+    province: ct.province || '',
+    district: ct.district || '',
+    ward: ct.ward || '',
     addressLine: ct.addressLine || '',
     source: ct.source || '',
     assignedUserId: ct.assignedUserId ?? ct.assignedUser?.id ?? null,
@@ -521,9 +583,26 @@ function hydrateForm(ct: Contact) {
 
 function emptyForm() {
   form.value = {
-    fullName: '', gender: null, birthYear: '', phone: '', extraPhones: [],
-    email: '', industry: '', addressLine: '', source: '', assignedUserId: null, tags: [],
+    fullName: '', gender: null, birthDate: '', phone: '', extraPhones: [],
+    email: '', industry: '', storeName: '', customerType: null, importanceLevel: null, status: 'new',
+    province: '', district: '', ward: '', addressLine: '', source: '', assignedUserId: null, tags: [],
   };
+}
+
+// Tỉnh/thành có seed hiện hành; huyện/xã bổ sung từ dữ liệu thực tế của org.
+const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wards: string[] }>({
+  provinces: [], districts: [], wards: [],
+});
+let addressSuggestionsLoaded = false;
+async function loadAddressSuggestions() {
+  if (addressSuggestionsLoaded) return;
+  addressSuggestionsLoaded = true;
+  try {
+    const { data } = await api.get('/contacts/address-suggestions');
+    addressSuggestions.value = data;
+  } catch {
+    // Gợi ý chỉ là tiện ích — field vẫn free text nếu load lỗi.
+  }
 }
 
 // ── Fetch chi tiết khi mở ──
@@ -663,7 +742,7 @@ async function loadNotes() {
 }
 
 watch(() => props.modelValue, (open) => {
-  if (open) loadDetail();
+  if (open) { loadDetail(); void loadAddressSuggestions(); }
 });
 watch(activeTab, (t) => {
   if (t === 'timeline') loadTimeline();
@@ -678,15 +757,23 @@ function addTag() {
 }
 async function save() {
   if (saving.value) return;
-  const by = typeof form.value.birthYear === 'string' ? parseInt(form.value.birthYear) : form.value.birthYear;
   const payload: Record<string, any> = {
     fullName: form.value.fullName,
     gender: form.value.gender,
-    birthYear: Number.isFinite(by) ? by : null,
+    // Gửi thẳng "YYYY-MM-DD" — date-only ISO parse UTC-midnight theo spec, tránh lệch ngày do
+    // timezone địa phương (xem comment cùng vấn đề ở ContactDetailDialog.vue).
+    birthDate: form.value.birthDate || null,
     phone: form.value.phone,
     phonesExtra: form.value.extraPhones.filter((p) => p.phone?.trim()),
     email: form.value.email,
     industry: form.value.industry,
+    storeName: form.value.storeName,
+    customerType: form.value.customerType,
+    importanceLevel: form.value.importanceLevel,
+    status: form.value.status,
+    province: form.value.province || null,
+    district: form.value.district || null,
+    ward: form.value.ward || null,
     addressLine: form.value.addressLine,
     source: form.value.source,
     assignedUserId: form.value.assignedUserId,
@@ -957,6 +1044,7 @@ async function copyAttr(code: string) {
 .gtag.female { background: rgba(233, 30, 99, 0.12); color: #c2185b; }
 .age { font-size: 13px; color: var(--smax-grey-700); font-weight: 500; }
 .cpd-sub { font-size: 12.5px; color: var(--smax-grey-700); margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+.cpd-phone-line { display: inline-flex; align-items: center; gap: 6px; }
 .cpd-pills { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; align-items: center; }
 .cpd-scorebig { flex-shrink: 0; text-align: center; padding: 0 6px; }
 .cpd-scorebig .n { font-size: 26px; font-weight: 800; line-height: 1; }

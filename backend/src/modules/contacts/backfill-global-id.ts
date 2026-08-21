@@ -210,11 +210,11 @@ export interface FriendBackfillResult {
   deletedDup: number;
 }
 
-export async function backfillOrphanFriends(): Promise<FriendBackfillResult> {
+export async function backfillOrphanFriends(orgId: string): Promise<FriendBackfillResult> {
   const result: FriendBackfillResult = { orphanFound: 0, reassigned: 0, deletedDup: 0 };
 
   const orphans = await prisma.friend.findMany({
-    where: { contact: { mergedInto: { not: null } } },
+    where: { orgId, contact: { mergedInto: { not: null } } },
     select: { id: true, contactId: true, zaloAccountId: true, contact: { select: { mergedInto: true } } },
   });
   result.orphanFound = orphans.length;
@@ -228,7 +228,7 @@ export async function backfillOrphanFriends(): Promise<FriendBackfillResult> {
     const primaryId = f.contact.mergedInto!;
     // Conflict check: primary đã có Friend cho cùng zaloAccount?
     const existing = await prisma.friend.findFirst({
-      where: { contactId: primaryId, zaloAccountId: f.zaloAccountId },
+      where: { orgId, contactId: primaryId, zaloAccountId: f.zaloAccountId },
       select: { id: true },
     });
     try {

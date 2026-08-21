@@ -97,10 +97,10 @@
              Nội dung gốc giữ lại (gạch ngang) để sale biết KH/sale đã thu hồi cái gì. -->
         <div v-if="message.isDeleted" class="recall-card">
           <div class="recall-header">
-            <span class="recall-icon">🔂</span>
-            <span class="recall-label">Tin nhắn đã thu hồi</span>
+            <span class="recall-icon">{{ message.metadata?.deletionMode === 'only_me' ? '🗑' : '🔂' }}</span>
+            <span class="recall-label">{{ message.metadata?.deletionMode === 'only_me' ? 'Tin nhắn đã xóa khỏi cuộc trò chuyện này' : 'Tin nhắn đã thu hồi' }}</span>
           </div>
-          <div v-if="message.content" class="recall-body">{{ message.content }}</div>
+          <div v-if="message.content && message.metadata?.deletionMode !== 'only_me'" class="recall-body">{{ message.content }}</div>
         </div>
 
         <template v-else>

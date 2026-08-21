@@ -103,6 +103,26 @@
             <span class="cdp-info-value">{{ contact.source || '—' }}</span>
           </div>
           <div class="cdp-info-row">
+            <span class="cdp-info-label">Trạng thái KH</span>
+            <span class="cdp-info-value">{{ customerStatusLabel }}</span>
+          </div>
+          <div class="cdp-info-row">
+            <span class="cdp-info-label">Ngành hàng</span>
+            <span class="cdp-info-value">{{ contact.industry || '—' }}</span>
+          </div>
+          <div class="cdp-info-row">
+            <span class="cdp-info-label">Tên cửa hàng</span>
+            <span class="cdp-info-value">{{ contact.storeName || '—' }}</span>
+          </div>
+          <div class="cdp-info-row">
+            <span class="cdp-info-label">Đối tượng</span>
+            <span class="cdp-info-value">{{ customerTypeLabel }}</span>
+          </div>
+          <div class="cdp-info-row">
+            <span class="cdp-info-label">Mức độ quan trọng</span>
+            <span class="cdp-info-value">{{ importanceLevelLabel }}</span>
+          </div>
+          <div class="cdp-info-row">
             <span class="cdp-info-label">Lead score</span>
             <span class="cdp-info-value">
               <span class="cdp-score" :class="scoreClass">{{ Math.round((contact as any).displayLeadScore ?? contact.leadScore ?? 0) }}</span>
@@ -239,7 +259,12 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
-import type { Contact } from '@/composables/use-contacts';
+import {
+  CUSTOMER_TYPE_OPTIONS,
+  IMPORTANCE_LEVEL_OPTIONS,
+  STATUS_OPTIONS,
+  type Contact,
+} from '@/composables/use-contacts';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import CallButton from '@/components/telephony/CallButton.vue';
 
@@ -334,6 +359,23 @@ const isOwner = computed(() => (props.contact as any).role === 'owner');
 const locationLine = computed(() => {
   const c: any = props.contact;
   return [c.district, c.province].filter(Boolean).join(', ');
+});
+const customerStatusLabel = computed(() => {
+  const dynamicStatus = props.contact.displayStatus || props.contact.statusRef;
+  if (dynamicStatus?.name) return dynamicStatus.name;
+  return STATUS_OPTIONS.find((option) => option.value === props.contact.status)?.text
+    || props.contact.status
+    || '—';
+});
+const customerTypeLabel = computed(() => {
+  return CUSTOMER_TYPE_OPTIONS.find((option) => option.value === props.contact.customerType)?.text
+    || props.contact.customerType
+    || '—';
+});
+const importanceLevelLabel = computed(() => {
+  return IMPORTANCE_LEVEL_OPTIONS.find((option) => option.value === props.contact.importanceLevel)?.text
+    || props.contact.importanceLevel
+    || '—';
 });
 
 const initials = computed(() => {

@@ -200,6 +200,10 @@ async function bootstrap() {
   // decorateReply:false để KHÔNG đụng decorator của static frontend (đăng ký bên dưới).
   if (config.storageDriver === 'local') {
     mkdirSync(config.uploadDir, { recursive: true }); // @fastify/static lỗi nếu root chưa tồn tại
+    // Return a real 404 instead of letting the frontend SPA fallback answer 200
+    // for this deliberately private namespace.
+    app.get('/files/recordings/*', async (_request, reply) =>
+      reply.status(404).send({ error: 'Not found' }));
     await app.register(fastifyStatic, {
       root: config.uploadDir,
       prefix: '/files/',
@@ -208,6 +212,9 @@ async function bootstrap() {
       cacheControl: true,
       maxAge: '365d',
       immutable: true,
+      // Recordings are encrypted and may only be read through the authenticated
+      // telephony route. Never expose this namespace through /files.
+      allowedPath: (pathName) => !pathName.replace(/^\/+/, '').startsWith('recordings/'),
     });
   }
 

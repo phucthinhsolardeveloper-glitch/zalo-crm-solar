@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { assertSafeOutboundUrl } from '../../shared/utils/ssrf-guard.js';
 import { logger } from '../../shared/utils/logger.js';
+import { storePrivateRecording } from './recording-storage.js';
 
 type OmicallRecordingPayload = Record<string, unknown>;
 
@@ -27,16 +27,6 @@ function recordingCandidates(payload: OmicallRecordingPayload): string[] {
 
 export function omicallRecordingUrl(payload: OmicallRecordingPayload): string | null {
   return recordingCandidates(payload)[0] || null;
-}
-
-function recordingFilename(url: URL, mimeType: string): string {
-  const pathnameName = url.pathname.split('/').filter(Boolean).pop() || '';
-  if (/\.(mp3|wav|m4a|ogg|webm)$/i.test(pathnameName)) return decodeURIComponent(pathnameName);
-  if (mimeType === 'audio/wav' || mimeType === 'audio/x-wav') return 'omicall-recording.wav';
-  if (mimeType === 'audio/mp4' || mimeType === 'audio/x-m4a') return 'omicall-recording.m4a';
-  if (mimeType === 'audio/ogg') return 'omicall-recording.ogg';
-  if (mimeType === 'audio/webm') return 'omicall-recording.webm';
-  return 'omicall-recording.mp3';
 }
 
 function normalizedAudioMimeType(url: URL, responseMimeType: string): string | null {
@@ -117,8 +107,9 @@ export async function persistOmicallRecording(payload: OmicallRecordingPayload):
       const mimeType = normalizedAudioMimeType(finalUrl, responseMimeType);
       if (!mimeType) throw new Error(`unexpected content-type ${responseMimeType || 'unknown'}`);
       const buffer = await readRecordingBody(response);
-      const uploaded = await uploadBuffer(buffer, mimeType, recordingFilename(finalUrl, mimeType));
-      return uploaded.url;
+      // Store ciphertext under a non-public namespace and persist only an
+      // internal reference. The authenticated playback route decrypts it.
+      return await storePrivateRecording(buffer);
     } catch (error) {
       logger.warn({ sourceUrl, error: (error as Error).message }, '[omicall-recording] mirror failed');
     }

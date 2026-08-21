@@ -15,6 +15,7 @@ import { DEFAULT_WELCOME_TEMPLATE, buildWelcomeMessage, validateTemplate, toZalo
 import { formatMessage } from '../../shared/text-formatter.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { config } from '../../config/index.js';
+import { scanOrPass } from '../../shared/security/clamav-client.js';
 
 function hashPhone(phone: string): string {
   return createHash('sha256').update(phone.trim()).digest('hex');
@@ -539,6 +540,8 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
             if (buf.length > 5 * 1024 * 1024) {
               return reply.status(413).send({ error: 'Ảnh quá 5MB' });
             }
+            const av = await scanOrPass(buf, { filename: part.filename, userId: currentUser.id });
+            if (av.blocked) return reply.status(422).send({ error: av.reason, code: 'AV_BLOCKED' });
             const result = await uploadBuffer(buf, part.mimetype, part.filename);
             await prisma.organization.update({
               where: { id: currentUser.orgId },

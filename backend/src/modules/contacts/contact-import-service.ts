@@ -52,8 +52,12 @@ const STATUS_LABEL_TO_SLUG: Record<string, string> = {
 const CUSTOMER_TYPE_LABEL_TO_SLUG: Record<string, string> = {
   'đại lý': 'agent', 'dự án': 'project', 'cá nhân': 'individual',
 };
+const IMPORTANCE_LABEL_TO_SLUG: Record<string, string> = {
+  'thấp': 'low', 'bình thường': 'normal', 'quan trọng': 'high', 'rất quan trọng': 'critical',
+};
 const VALID_STATUS_SLUGS = new Set(Object.values(STATUS_LABEL_TO_SLUG));
 const VALID_CUSTOMER_TYPE_SLUGS = new Set(Object.values(CUSTOMER_TYPE_LABEL_TO_SLUG));
+const VALID_IMPORTANCE_SLUGS = new Set(Object.values(IMPORTANCE_LABEL_TO_SLUG));
 
 function mapLabelToSlug(raw: string | null, labelMap: Record<string, string>, validSlugs: Set<string>): string | null {
   if (!raw) return null;
@@ -196,6 +200,7 @@ export async function commitContactImport(
             industry: row.industry?.trim() || null,
             storeName: row.storeName?.trim() || null,
             customerType: mapLabelToSlug(row.customerType, CUSTOMER_TYPE_LABEL_TO_SLUG, VALID_CUSTOMER_TYPE_SLUGS),
+            importanceLevel: mapLabelToSlug(row.importanceLevel, IMPORTANCE_LABEL_TO_SLUG, VALID_IMPORTANCE_SLUGS),
             province: row.province?.trim() || null,
             district: row.district?.trim() || null,
             ward: row.ward?.trim() || null,

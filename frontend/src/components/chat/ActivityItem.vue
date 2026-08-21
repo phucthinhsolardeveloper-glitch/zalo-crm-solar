@@ -228,13 +228,27 @@ const FIELD_LABELS: Record<string, string> = {
   fullName: 'Tên đầy đủ',
   crmName: 'Tên gợi nhớ',
   phone: 'SĐT',
+  phone2: 'SĐT 2',
+  phone3: 'SĐT 3',
   email: 'Email',
   gender: 'Giới tính',
   birthDate: 'Ngày sinh',
-  addressLine: 'Địa chỉ',
-  industry: 'Ngành nghề',
+  birthYear: 'Năm sinh',
+  addressLine: 'Địa chỉ chi tiết',
+  province: 'Tỉnh/Thành phố',
+  district: 'Quận/Huyện',
+  ward: 'Phường/Xã',
+  industry: 'Ngành hàng',
   storeName: 'Tên cửa hàng',
   customerType: 'Đối tượng',
+  importanceLevel: 'Mức độ quan trọng',
+  incomeRange: 'Thu nhập',
+  socialFacebook: 'Facebook',
+  socialTiktok: 'TikTok',
+  preferredLang: 'Ngôn ngữ',
+  consentStatus: 'Đồng ý liên hệ',
+  consentSource: 'Nguồn đồng ý',
+  firstContactDate: 'Ngày tiếp nhận',
   assignedUserId: 'Người phụ trách',
 };
 function fieldLabel(field: string): string {
@@ -242,13 +256,28 @@ function fieldLabel(field: string): string {
 }
 function formatVal(field: string, val: unknown): string {
   if (val === null || val === undefined) return '';
-  if (field === 'birthDate' && typeof val === 'string') {
+  if ((field === 'birthDate' || field === 'firstContactDate') && typeof val === 'string') {
     try {
       return formatInOrgTz(val, undefined, { dateOnly: true });
     } catch { return String(val); }
   }
   if (field === 'gender') {
     const map: Record<string, string> = { male: 'Nam', female: 'Nữ', other: 'Khác' };
+    return map[String(val)] || String(val);
+  }
+  if (field === 'customerType') {
+    const map: Record<string, string> = { agent: 'Đại lý', project: 'Dự án', individual: 'Cá nhân' };
+    return map[String(val)] || String(val);
+  }
+  if (field === 'importanceLevel') {
+    return ({ low: 'Thấp', normal: 'Bình thường', high: 'Quan trọng', critical: 'Rất quan trọng' } as Record<string, string>)[String(val)] || String(val);
+  }
+  if (field === 'consentStatus') {
+    const map: Record<string, string> = { implicit: 'Mặc định', granted: 'Đồng ý', revoked: 'Đã rút' };
+    return map[String(val)] || String(val);
+  }
+  if (field === 'preferredLang') {
+    const map: Record<string, string> = { vi: 'Tiếng Việt', en: 'English' };
     return map[String(val)] || String(val);
   }
   return String(val);

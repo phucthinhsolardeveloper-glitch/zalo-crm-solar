@@ -54,6 +54,17 @@ export async function omicallPublicRoutes(app: FastifyInstance) {
       ...(Number.isFinite(billSec) && billSec > 0 ? { durationSec: Math.round(billSec) } : {}),
       ...(recordingUrl ? { recordingId: recordingUrl } : {}),
     };
+    // Some Community/EE test doubles implement only the Prisma methods used by
+    // the original webhook. Keep notification lookup optional; production's
+    // Prisma delegate always provides findMany().
+    const findMatchingCalls = (prisma.telephonyCall as any).findMany as undefined | ((args: any) => Promise<Array<{ id: string; orgId: string }>>);
+    const existingCalls = findMatchingCalls
+      ? await findMatchingCalls.call(prisma.telephonyCall, {
+          where: { providerCallId: transactionId },
+          select: { id: true, orgId: true },
+        })
+      : [];
+    const changedCalls = [...existingCalls];
     const result = await prisma.telephonyCall.updateMany({
       where: { providerCallId: transactionId },
       data: callData,
@@ -113,8 +124,9 @@ export async function omicallPublicRoutes(app: FastifyInstance) {
               data: { providerCallId: transactionId, contactId: contact?.id || null, ...callData },
             });
             matched = 1;
+            changedCalls.push({ id: pending.id, orgId: owner.orgId });
           } else {
-            await prisma.telephonyCall.create({
+            const createdCall = await prisma.telephonyCall.create({
               data: {
                 orgId: owner.orgId,
                 ownerUserId: owner.id,
@@ -136,11 +148,25 @@ export async function omicallPublicRoutes(app: FastifyInstance) {
                 recordingId: recordingUrl || undefined,
               },
             });
+            if (createdCall?.id) changedCalls.push({ id: createdCall.id, orgId: owner.orgId });
             matched = 1;
             created = true;
           }
         }
       }
+    }
+
+    // Provider callbacks can arrive after the browser-side call has already
+    // ended (notably CDR duration/recording). Notify only the owning org and
+    // let clients refetch through their normal RBAC-filtered API.
+    const callsByOrg = new Map<string, string[]>();
+    for (const call of changedCalls) {
+      const ids = callsByOrg.get(call.orgId) || [];
+      if (!ids.includes(call.id)) ids.push(call.id);
+      callsByOrg.set(call.orgId, ids);
+    }
+    for (const [orgId, callIds] of callsByOrg) {
+      (app as any).io?.to(`org:${orgId}`).emit('telephony:call-changed', { callIds, status });
     }
 
     logger.info({ transactionId, state: body.state, status, matched, created }, '[omicall-webhook] processed');

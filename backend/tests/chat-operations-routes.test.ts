@@ -64,6 +64,7 @@ beforeEach(() => {
     content: 'hello',
     contentType: 'text',
     sentAt: new Date('2026-05-25T00:00:00.000Z'),
+    metadata: {},
   });
   prismaMock.message.update.mockResolvedValue({});
   prismaMock.message.findUnique.mockResolvedValue({ content: 'hello', originalContent: null });
@@ -71,6 +72,7 @@ beforeEach(() => {
   prismaMock.conversation.findUnique.mockResolvedValue(CONV);
   prismaMock.conversation.update.mockResolvedValue({});
   prismaMock.zaloAccount.findUnique.mockResolvedValue(ACCOUNT);
+  prismaMock.user.findUnique.mockResolvedValue({ id: 'user-1', fullName: 'Test User', email: 'test@example.com' });
   prismaMock.messageReaction.upsert.mockResolvedValue({});
   prismaMock.messageReaction.count.mockResolvedValue(1);
   prismaMock.pinnedConversation.upsert.mockResolvedValue({});
@@ -135,19 +137,23 @@ describe('POST /api/v1/conversations/:id/typing', () => {
 
 // ── Delete message ────────────────────────────────────────────────────────────
 describe('DELETE /api/v1/conversations/:id/messages/:msgId', () => {
-  it('happy path — deletes and marks db row', async () => {
+  it('defaults to onlyMe=true, calls deleteMessage and marks local deletion mode', async () => {
     const app = buildApp();
     const res = await app.inject({ method: 'DELETE', url: '/api/v1/conversations/conv-1/messages/msg-1', payload: {} });
     expect(res.statusCode).toBe(200);
-    expect(zaloOpsMock.deleteMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'cli-msg-1', 'uid-sender', 'ext-1', 0, false);
-    expect(prismaMock.message.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'msg-1' } }));
+    expect(zaloOpsMock.deleteMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'cli-msg-1', 'uid-sender', 'ext-1', 0, true);
+    expect(prismaMock.message.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-1' },
+      data: expect.objectContaining({ isDeleted: true, metadata: expect.objectContaining({ deletionMode: 'only_me' }) }),
+    }));
   });
 
-  it('onlyMe=true skips db update', async () => {
+  it('rejects onlyMe=false so delete-for-everyone cannot call the wrong Zalo API', async () => {
     const app = buildApp();
-    const res = await app.inject({ method: 'DELETE', url: '/api/v1/conversations/conv-1/messages/msg-1', payload: { onlyMe: true } });
-    expect(res.statusCode).toBe(200);
-    expect(zaloOpsMock.deleteMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'cli-msg-1', 'uid-sender', 'ext-1', 0, true);
+    const res = await app.inject({ method: 'DELETE', url: '/api/v1/conversations/conv-1/messages/msg-1', payload: { onlyMe: false } });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain('Thu hồi');
+    expect(zaloOpsMock.deleteMessage).not.toHaveBeenCalled();
     expect(prismaMock.message.update).not.toHaveBeenCalled();
   });
 });

@@ -7,10 +7,15 @@
         <h1>Lịch sử cuộc gọi</h1>
         <p class="subtitle">Tra cứu cuộc gọi, thời lượng và nghe lại file ghi âm từ tổng đài.</p>
       </div>
-      <button class="sync-btn" :disabled="syncing" @click="syncOmicall">
-        <v-icon :icon="syncing ? 'mdi-loading' : 'mdi-cloud-sync-outline'" :class="{ spin: syncing }" size="18" />
-        {{ syncing ? 'Đang đồng bộ…' : canViewOrganization ? 'Đồng bộ tài khoản tôi' : 'Đồng bộ tổng đài' }}
-      </button>
+      <div class="head-actions">
+        <button class="analytics-toggle" :class="{ active: analyticsOpen }" @click="analyticsOpen = !analyticsOpen">
+          <v-icon icon="mdi-chart-box-outline" size="18" /> Thống kê nâng cao
+        </button>
+        <button class="sync-btn" :disabled="syncing" @click="syncOmicall">
+          <v-icon :icon="syncing ? 'mdi-loading' : 'mdi-cloud-sync-outline'" :class="{ spin: syncing }" size="18" />
+          {{ syncing ? 'Đang đồng bộ…' : canViewOrganization ? 'Đồng bộ tài khoản tôi' : 'Đồng bộ tổng đài' }}
+        </button>
+      </div>
     </header>
 
     <section class="summary-grid" aria-label="Tổng quan lịch sử cuộc gọi">
@@ -30,6 +35,68 @@
         <span class="summary-icon amber"><v-icon icon="mdi-record-rec" /></span>
         <div><strong>{{ number(summary.recordings) }}</strong><span>Có ghi âm</span></div>
       </article>
+      <article class="summary-card">
+        <span class="summary-icon green"><v-icon icon="mdi-phone-check-outline" /></span>
+        <div><strong>{{ summary.answerRate.toLocaleString('vi-VN') }}%</strong><span>Tỷ lệ bắt máy</span></div>
+      </article>
+      <article class="summary-card">
+        <span class="summary-icon violet"><v-icon icon="mdi-timer-outline" /></span>
+        <div><strong>{{ duration(summary.avgDurationSec, true) }}</strong><span>Thời lượng TB / cuộc bắt máy</span></div>
+      </article>
+    </section>
+
+    <section v-if="analyticsOpen" class="analytics-panel" aria-label="Thống kê cuộc gọi nâng cao">
+      <div class="analytics-head">
+        <div><strong>Thống kê nâng cao</strong><span>Dữ liệu thay đổi theo toàn bộ bộ lọc bên dưới</span></div>
+        <button type="button" @click="analyticsOpen = false">
+          Đóng
+          <v-icon icon="mdi-close" size="18" />
+        </button>
+      </div>
+      <div class="analytics-content">
+        <article class="chart-card">
+          <header><strong>Xu hướng cuộc gọi</strong><span>Theo ngày</span></header>
+          <div v-if="analytics.dailyTrend.length" class="trend-chart">
+            <div v-for="point in analytics.dailyTrend" :key="point.date" class="trend-column" :title="`${shortDate(point.date)}: ${point.total} cuộc, ${point.answered} bắt máy`">
+              <div class="trend-bars">
+                <i class="bar total" :style="{ height: `${barPercent(point.total, trendMax)}%` }" />
+                <i class="bar answered" :style="{ height: `${barPercent(point.answered, trendMax)}%` }" />
+              </div>
+              <small>{{ shortDate(point.date) }}</small>
+            </div>
+          </div>
+          <div v-else class="analytics-empty">Chưa có dữ liệu trong khoảng đã chọn.</div>
+          <footer class="chart-legend"><span><i class="legend-total" />Tổng cuộc</span><span><i class="legend-answered" />Bắt máy</span></footer>
+        </article>
+
+        <article class="chart-card">
+          <header><strong>Phân bố theo khung giờ</strong><span>Giờ Việt Nam</span></header>
+          <div class="hour-chart">
+            <div v-for="point in analytics.hourlyDistribution" :key="point.hour" class="hour-column" :title="`${String(point.hour).padStart(2, '0')}:00 — ${point.total} cuộc`">
+              <i :style="{ height: `${barPercent(point.total, hourlyMax)}%` }" />
+              <small v-if="point.hour % 3 === 0">{{ String(point.hour).padStart(2, '0') }}h</small>
+            </div>
+          </div>
+        </article>
+
+        <article class="ranking-card">
+          <header><strong>Xếp hạng nhân viên</strong><span>Theo số cuộc bắt máy, sau đó tổng thời lượng</span></header>
+          <div class="ranking-scroll">
+            <table>
+              <thead><tr><th>#</th><th>Nhân viên</th><th>Tổng</th><th>Bắt máy</th><th>Tỷ lệ</th><th>TB</th></tr></thead>
+              <tbody>
+                <tr v-for="(row, index) in analytics.employeeRanking" :key="row.userId">
+                  <td><span class="rank" :class="`rank-${index + 1}`">{{ index + 1 }}</span></td>
+                  <td><strong>{{ row.fullName }}</strong></td>
+                  <td>{{ number(row.total) }}</td><td>{{ number(row.answered) }}</td>
+                  <td>{{ row.answerRate.toLocaleString('vi-VN') }}%</td><td>{{ duration(row.avgDurationSec, true) }}</td>
+                </tr>
+                <tr v-if="!analytics.employeeRanking.length"><td colspan="6" class="analytics-empty">Chưa có dữ liệu.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section class="history-panel">
@@ -117,7 +184,7 @@
             </tr>
             <template v-for="call in calls" :key="call.id">
               <tr>
-                <td>
+                <td data-label="Khách hàng / SĐT">
                   <div class="customer-cell">
                     <span class="avatar">{{ initials(callName(call)) }}</span>
                     <div>
@@ -126,20 +193,20 @@
                     </div>
                   </div>
                 </td>
-                <td v-if="canViewOrganization && filters.scope === 'organization'">
+                <td v-if="canViewOrganization && filters.scope === 'organization'" data-label="Nhân viên">
                   <span class="agent-name">{{ call.ownerUser?.fullName || '—' }}</span>
                 </td>
-                <td>
+                <td data-label="Hướng gọi">
                   <span class="direction">
                     <v-icon :icon="call.direction === 'inbound' ? 'mdi-phone-incoming-outline' : 'mdi-phone-outgoing-outline'" size="17" />
                     {{ call.direction === 'inbound' ? 'Gọi đến' : 'Gọi đi' }}
                   </span>
                 </td>
-                <td><span class="channel" :class="call.channel">{{ channelLabel(call.channel) }}</span></td>
-                <td><time>{{ dateTime(call.startedAt) }}</time></td>
-                <td>{{ duration(call.durationSec || 0, true) }}</td>
-                <td><span class="status" :class="call.status">{{ statusLabel(call.status) }}</span></td>
-                <td>
+                <td data-label="Kênh"><span class="channel" :class="call.channel">{{ channelLabel(call.channel) }}</span></td>
+                <td data-label="Thời gian"><time>{{ dateTime(call.startedAt) }}</time></td>
+                <td data-label="Thời lượng">{{ duration(call.durationSec || 0, true) }}</td>
+                <td data-label="Trạng thái"><span class="status" :class="call.status">{{ statusLabel(call.status) }}</span></td>
+                <td data-label="Ghi âm">
                   <button
                     v-if="recordingUrl(call)"
                     class="play-btn"
@@ -151,13 +218,13 @@
                   </button>
                   <span v-else class="no-recording">Chưa có</span>
                 </td>
-                <td>
+                <td data-label="Ghi chú theo SĐT">
                   <v-menu :close-on-content-click="false" location="bottom end">
                     <template #activator="{ props: menuProps }">
                       <button
                         class="note-btn"
                         v-bind="menuProps"
-                        :title="call.latestNote?.body || 'Xem/thêm ghi chú cuộc gọi'"
+                        :title="call.latestNote?.body || 'Xem/thêm lịch sử ghi chú theo số điện thoại'"
                       >
                         <v-icon icon="mdi-note-text-outline" size="16" />
                         {{ call.latestNote ? 'Đã có' : 'Thêm' }}
@@ -168,7 +235,7 @@
                     </v-card>
                   </v-menu>
                 </td>
-                <td>
+                <td data-label="Hành động">
                   <div class="row-actions">
                     <CallButton
                       v-if="call.channel === 'internal'"
@@ -182,11 +249,20 @@
                       :full-name="callName(call)"
                       size="small"
                     />
+                    <template v-if="call.contact">
+                      <button class="link-btn" title="Mở hồ sơ khách hàng" @click="openContactProfile(call.contact.id)">
+                        <v-icon icon="mdi-account-box-outline" size="16" />
+                      </button>
+                      <button class="link-btn" title="Có hội thoại Zalo thì mở Zalo; chưa có thì mở nhật ký nội bộ" @click="openContactChat(call.contact.id)">
+                        <v-icon icon="mdi-message-text-outline" size="16" />
+                      </button>
+                    </template>
                     <button
                       v-if="!call.contact && call.channel !== 'internal'"
                       class="link-btn"
                       title="Tạo khách hàng từ số này"
-                      @click="openCreateCustomer(call)"
+                      :data-phone="displayPhone(call.externalNumber)"
+                      @click="openCreateCustomer(call, displayPhone(call.externalNumber))"
                     >
                       <v-icon icon="mdi-account-plus-outline" size="16" />
                     </button>
@@ -256,9 +332,10 @@
     </section>
 
     <AddCustomerQuickDialog
+      ref="createCustomerDialogRef"
       v-model="showCreateCustomer"
       lead-source="call_history"
-      :default-phone="creatingForCall ? displayPhone(creatingForCall.externalNumber) : ''"
+      :default-phone="creatingForCall ? displayPhone(creatingForCall.externalNumber) : creatingPhone"
       :auto-open-virtual-chat="false"
       @created="onCustomerCreated"
     />
@@ -266,7 +343,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
@@ -274,6 +352,8 @@ import { useOmicallSoftphone } from '@/composables/use-omicall-softphone';
 import CallButton from '@/components/telephony/CallButton.vue';
 import CallNotesPanel from '@/components/telephony/CallNotesPanel.vue';
 import AddCustomerQuickDialog from '@/components/contacts/AddCustomerQuickDialog.vue';
+import { useCrmLinkSocket } from '@/composables/use-crm-link-socket';
+import { stageQuickAddPhone } from '@/composables/quick-add-prefill';
 
 interface CallItem {
   id: string;
@@ -295,10 +375,20 @@ interface Summary {
   missed: number;
   recordings: number;
   totalDurationSec: number;
+  answered: number;
+  answerRate: number;
+  avgDurationSec: number;
+}
+
+interface CallAnalytics {
+  dailyTrend: Array<{ date: string; total: number; answered: number; missed: number; durationSec: number }>;
+  hourlyDistribution: Array<{ hour: number; total: number; answered: number }>;
+  employeeRanking: Array<{ userId: string; fullName: string; total: number; answered: number; missed: number; totalDurationSec: number; answerRate: number; avgDurationSec: number }>;
 }
 
 const auth = useAuthStore();
 const toast = useToast();
+const router = useRouter();
 const { peers } = useOmicallSoftphone();
 const canViewOrganization = computed(() => auth.isAdmin);
 const calls = ref<CallItem[]>([]);
@@ -307,8 +397,27 @@ const loading = ref(false);
 const syncing = ref(false);
 const errorMessage = ref('');
 const playingId = ref<string | null>(null);
-const summary = reactive<Summary>({ total: 0, missed: 0, recordings: 0, totalDurationSec: 0 });
+const summary = reactive<Summary>({ total: 0, missed: 0, recordings: 0, totalDurationSec: 0, answered: 0, answerRate: 0, avgDurationSec: 0 });
+const analytics = reactive<CallAnalytics>({ dailyTrend: [], hourlyDistribution: [], employeeRanking: [] });
+const analyticsOpen = ref(false);
+const trendMax = computed(() => Math.max(1, ...analytics.dailyTrend.map((point) => point.total)));
+const hourlyMax = computed(() => Math.max(1, ...analytics.hourlyDistribution.map((point) => point.total)));
 const pagination = reactive({ page: 1, pageSize: 20, total: 0, totalPages: 0, hasMore: false });
+
+let linkedRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+useCrmLinkSocket({
+  onCallContactLinked: () => {
+    scheduleCallRefresh();
+  },
+  onTelephonyCallChanged: () => {
+    scheduleCallRefresh();
+  },
+});
+
+function scheduleCallRefresh() {
+    if (linkedRefreshTimer) clearTimeout(linkedRefreshTimer);
+    linkedRefreshTimer = setTimeout(() => void loadCalls(pagination.page), 120);
+}
 
 function ymd(date: Date) {
   const year = date.getFullYear();
@@ -371,6 +480,7 @@ async function loadCalls(page = pagination.page) {
     });
     calls.value = data.calls || [];
     Object.assign(summary, data.summary || {});
+    Object.assign(analytics, data.analytics || { dailyTrend: [], hourlyDistribution: [], employeeRanking: [] });
     Object.assign(pagination, data.pagination || {});
   } catch (error: any) {
     errorMessage.value = error?.response?.data?.error || 'Không tải được lịch sử cuộc gọi';
@@ -454,10 +564,24 @@ function callTargetPeer(call: CallItem) {
 // tự đi tìm/gán tay.
 const showCreateCustomer = ref(false);
 const creatingForCall = ref<CallItem | null>(null);
+const creatingPhone = ref('');
+const createCustomerDialogRef = ref<{ setPhone: (phone: string) => void } | null>(null);
 
-function openCreateCustomer(call: CallItem) {
-  creatingForCall.value = call;
+async function openCreateCustomer(call: CallItem, renderedPhone: string) {
+  // Pass the already-rendered phone explicitly. Depending on the icon/button
+  // click target, Vue's synthetic event currentTarget was not reliable here.
+  const selectedPhone = renderedPhone || displayPhone(call.externalNumber);
+  stageQuickAddPhone(selectedPhone);
+  // Store the selected phone atomically with the row. The dialog prop derives
+  // directly from this object, avoiding a one-render gap between two refs.
+  creatingForCall.value = { ...call, externalNumber: selectedPhone };
+  creatingPhone.value = selectedPhone;
+  // Đảm bảo defaultPhone render sang dialog trước khi modelValue đổi false→true.
+  // Nếu đổi cùng một tick, watcher của dialog đôi lúc đọc props cũ và để SĐT trống.
+  await nextTick();
   showCreateCustomer.value = true;
+  await nextTick();
+  createCustomerDialogRef.value?.setPhone(selectedPhone);
 }
 
 async function onCustomerCreated(contact: { id: string; fullName: string | null; phone: string | null }) {
@@ -466,10 +590,10 @@ async function onCustomerCreated(contact: { id: string; fullName: string | null;
   creatingForCall.value = null;
   if (!call) return;
   try {
-    await api.patch(`/telephony/calls/${call.id}`, { contactId: contact.id });
-    const row = calls.value.find((c) => c.id === call.id);
-    if (row) row.contact = { id: contact.id, fullName: contact.fullName || undefined, phone: contact.phone || undefined };
-    toast.success(`Đã tạo và gắn "${contact.fullName || contact.phone}" vào cuộc gọi này`);
+    const { data } = await api.patch(`/telephony/calls/${call.id}`, { contactId: contact.id });
+    applyContactLink(data, contact);
+    const count = Number(data?.linkedCallCount || 1);
+    toast.success(`Đã tạo KH và gắn ${count} cuộc gọi cùng số vào "${contact.fullName || contact.phone}"`);
   } catch (error: any) {
     toast.error(error?.response?.data?.error || 'Đã tạo khách hàng nhưng không gắn được vào cuộc gọi');
   }
@@ -507,15 +631,54 @@ function onLinkSearchInput() {
 
 async function linkExistingCustomer(call: CallItem, result: LinkSearchResult) {
   try {
-    await api.patch(`/telephony/calls/${call.id}`, { contactId: result.contactId });
-    const row = calls.value.find((c) => c.id === call.id);
-    if (row) row.contact = { id: result.contactId, fullName: result.fullName || undefined, phone: result.phone };
-    toast.success(`Đã gắn "${result.fullName || result.phone}" vào cuộc gọi này`);
+    const { data } = await api.patch(`/telephony/calls/${call.id}`, { contactId: result.contactId });
+    applyContactLink(data, { id: result.contactId, fullName: result.fullName, phone: result.phone });
+    const count = Number(data?.linkedCallCount || 1);
+    toast.success(`Đã gắn ${count} cuộc gọi cùng số vào "${result.fullName || result.phone}"`);
   } catch (error: any) {
     toast.error(error?.response?.data?.error || 'Không gắn được khách hàng vào cuộc gọi');
   } finally {
     linkSearch.value = '';
     linkSearchResults.value = [];
+  }
+}
+
+function applyContactLink(
+  response: any,
+  fallback: { id: string; fullName: string | null; phone: string | null },
+) {
+  const ids = new Set<string>(Array.isArray(response?.linkedCallIds) ? response.linkedCallIds : []);
+  if (response?.id) ids.add(response.id);
+  const linkedContact = response?.contact || {
+    id: fallback.id,
+    fullName: fallback.fullName || undefined,
+    phone: fallback.phone || undefined,
+  };
+  for (const row of calls.value) {
+    if (ids.has(row.id)) row.contact = linkedContact;
+  }
+}
+
+function openContactProfile(contactId: string) {
+  // Dùng đúng route adapter của CustomerProfileDialog giống nút “Hồ sơ” trong
+  // trang Khách hàng; không đi qua panel focus rút gọn.
+  void router.push(`/contacts/${contactId}/profile`);
+}
+
+async function openContactChat(contactId: string) {
+  try {
+    const { data } = await api.post<{
+      conversationId: string;
+      created: boolean;
+      conversationKind?: 'zalo' | 'internal';
+    }>(`/contacts/${contactId}/virtual-conversation`, {});
+    if (!data?.conversationId) throw new Error('missing_conversation');
+    if (data.conversationKind === 'internal') {
+      toast.push('Khách chưa có hội thoại Zalo trong phạm vi của anh — đã mở nhật ký nội bộ (không gửi ra Zalo).');
+    }
+    await router.push(`/chat/${data.conversationId}`);
+  } catch (error: any) {
+    toast.error(error?.response?.data?.message || error?.response?.data?.error || 'Không mở được tin nhắn của khách hàng');
   }
 }
 
@@ -530,8 +693,9 @@ function initials(value: string) {
 }
 
 function recordingUrl(call: CallItem) {
-  const url = call.recordingId?.trim();
-  return url && /^https?:\/\//i.test(url) ? url : null;
+  // recordingId mới là reference nội bộ `crm-recording:v1:...`, không còn là
+  // public URL. Chỉ cần kiểm tra có giá trị; byte luôn tải qua API có auth bên dưới.
+  return call.recordingId?.trim() || null;
 }
 
 // Phát/tải ghi âm QUA cổng CRM có auth (/telephony/calls/:id/recording), KHÔNG dùng thẳng
@@ -581,10 +745,22 @@ function downloadRecording(id: string) {
   a.remove();
 }
 
-onUnmounted(revokeRecordingBlob);
+onUnmounted(() => {
+  revokeRecordingBlob();
+  if (linkedRefreshTimer) clearTimeout(linkedRefreshTimer);
+});
 
 function number(value: number) {
   return Number(value || 0).toLocaleString('vi-VN');
+}
+
+function barPercent(value: number, max: number) {
+  return value ? Math.max(4, (value / Math.max(max, 1)) * 100) : 0;
+}
+
+function shortDate(value: string) {
+  const [, month, day] = value.split('-');
+  return `${day}/${month}`;
 }
 
 function duration(seconds: number, compact = false) {
@@ -643,7 +819,8 @@ onMounted(() => {
   color: #17212b;
 }
 .call-page > .page-head,
-.call-page > .summary-grid {
+.call-page > .summary-grid,
+.call-page > .analytics-panel {
   flex-shrink: 0;
 }
 .call-page > .history-panel {
@@ -658,6 +835,9 @@ onMounted(() => {
   flex-shrink: 0;
 }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 0 0 16px; }
+.head-actions { display: flex; align-items: center; gap: 8px; }
+.analytics-toggle { min-height: 40px; padding: 0 13px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d5dfdf; border-radius: 9px; background: #fff; color: #536168; font-weight: 700; cursor: pointer; }
+.analytics-toggle:hover, .analytics-toggle.active { border-color: #8dc8bd; background: #edf7f4; color: #147d70; }
 .eyebrow { margin: 0 0 6px; color: #148271; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
 h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; }
 .subtitle { margin: 7px 0 0; color: #6b787e; }
@@ -665,7 +845,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; }
 .sync-btn:disabled { opacity: .6; cursor: wait; }
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0 0 16px; }
+.summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 0 0 12px; }
 .summary-card { min-height: 104px; padding: 19px; display: flex; align-items: center; gap: 14px; border: 1px solid #e2e8e8; border-radius: 14px; background: #fff; }
 .summary-card div { display: grid; gap: 3px; }
 .summary-card strong { font-size: 24px; letter-spacing: -.03em; }
@@ -675,6 +855,31 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; }
 .summary-icon.blue { background: #e7f1f8; color: #176d9a; }
 .summary-icon.red { background: #fceceb; color: #b94b4b; }
 .summary-icon.amber { background: #fff3d9; color: #a36d12; }
+.summary-icon.green { background: #e5f5e9; color: #24763a; }
+.summary-icon.violet { background: #f0eafb; color: #7152a8; }
+.analytics-panel { margin-bottom: 12px; border: 1px solid #e1e8e8; border-radius: 14px; background: #fff; overflow: hidden; }
+.analytics-head { min-height: 48px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.analytics-head > div { display: flex; align-items: baseline; gap: 9px; }
+.analytics-head span, .chart-card header span, .ranking-card header span { color: #758187; font-size: 12px; }
+.analytics-head button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: #147d70; cursor: pointer; }
+.analytics-content { padding: 0 12px 12px; display: grid; grid-template-columns: 1.25fr 1fr 1.2fr; gap: 12px; }
+.chart-card, .ranking-card { min-width: 0; padding: 12px; border: 1px solid #e7ecec; border-radius: 11px; }
+.chart-card header, .ranking-card header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.trend-chart, .hour-chart { height: 128px; display: flex; align-items: stretch; gap: 3px; border-bottom: 1px solid #dfe6e6; }
+.trend-column, .hour-column { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.trend-bars { width: 100%; min-height: 0; height: 105px; display: flex; align-items: flex-end; justify-content: center; gap: 1px; }
+.bar { width: min(8px, 42%); border-radius: 3px 3px 0 0; }
+.bar.total { background: #8bc8c0; }.bar.answered { background: #147d70; }
+.trend-column small, .hour-column small { min-height: 18px; padding-top: 3px; color: #748086; font-size: 9px; white-space: nowrap; }
+.hour-column { height: 128px; justify-content: flex-end; }
+.hour-column > i { width: min(12px, 75%); max-height: 105px; min-height: 0; border-radius: 3px 3px 0 0; background: #4f91bd; }
+.chart-legend { display: flex; gap: 12px; margin-top: 6px; color: #657277; font-size: 11px; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 4px; }.chart-legend i { width: 9px; height: 9px; border-radius: 2px; }
+.legend-total { background: #8bc8c0; }.legend-answered { background: #147d70; }
+.ranking-scroll { max-height: 155px; overflow: auto; }.ranking-card table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ranking-card th, .ranking-card td { padding: 6px; border-bottom: 1px solid #edf1f1; text-align: right; white-space: nowrap; }.ranking-card th:nth-child(2), .ranking-card td:nth-child(2) { text-align: left; }
+.rank { display: inline-grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: #edf1f1; }.rank-1 { background: #ffdf79; }.rank-2 { background: #dfe5e7; }.rank-3 { background: #f1c49e; }
+.analytics-empty { padding: 24px 8px; color: #7a878c; text-align: center; font-size: 12px; }
 .history-panel { overflow: hidden; border: 1px solid #e1e7e7; border-radius: 15px; background: #fff; }
 .filters { padding: 16px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; border-bottom: 1px solid #e8eded; background: #fbfcfc; }
 .filters select, .filters input { border: 1px solid #d9e1e1; border-radius: 9px; background: #fff; color: #26343a; outline: none; }
@@ -739,15 +944,52 @@ tbody tr:not(.recording-row):hover { background: #fbfdfc; }
 @media (max-width: 900px) {
   .call-page { padding: 20px 12px 34px; }
   .page-head { align-items: flex-start; flex-direction: column; }
+  .head-actions { width: 100%; }
+  .head-actions > button { flex: 1; justify-content: center; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .summary-card { min-height: 86px; padding: 14px; }
   .filters { align-items: stretch; }
   .filters select, .date-field, .recording-filter, .apply-btn { flex: 1 1 150px; }
   .pagination { align-items: flex-start; flex-direction: column; }
+  .analytics-content { grid-template-columns: 1fr; }
 }
-@media (max-width: 520px) {
-  .summary-grid { grid-template-columns: 1fr; }
-  .sync-btn { width: 100%; }
+@media (max-width: 720px) {
+  .call-page { padding: 12px 8px 88px; overflow-x: hidden; }
+  .page-head { gap: 12px; }
+  .page-head h1 { font-size: 24px; }
+  .subtitle { font-size: 12px; }
+  .head-actions { flex-direction: column; }
+  .head-actions > button { width: 100%; }
+  .summary-grid { gap: 7px; }
+  .summary-card { min-height: 70px; padding: 10px; gap: 8px; }
+  .summary-icon { width: 34px; height: 34px; }
+  .summary-card strong { font-size: 16px; }
+  .summary-card span { font-size: 10px; }
   .search-field { min-width: 100%; }
+  .filters { padding: 10px; gap: 7px; }
+  .filters select, .date-field, .recording-filter, .apply-btn { flex-basis: 100%; width: 100%; }
+  .reset-btn { width: 100%; }
+  .analytics-head { align-items: flex-start; }
+  .analytics-head > div { display: grid; gap: 2px; }
+  .analytics-content { padding: 0 8px 8px; }
+  .table-wrap { padding: 8px; overflow: visible; background: #f5f7f7; }
+  .history-panel .table-wrap > table { min-width: 0; display: block; }
+  .history-panel .table-wrap > table > thead { display: none; }
+  .history-panel .table-wrap > table > tbody { display: grid; gap: 9px; }
+  .history-panel .table-wrap > table > tbody > tr:not(.recording-row) { display: grid; grid-template-columns: 1fr 1fr; padding: 9px 11px; border: 1px solid #e0e7e7; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px rgba(29,53,61,.04); }
+  .history-panel .table-wrap > table > tbody > tr:not(.recording-row) > td { min-width: 0; padding: 7px 4px; border: 0; display: grid; gap: 3px; align-content: start; }
+  .history-panel .table-wrap > table > tbody > tr:not(.recording-row) > td::before { content: attr(data-label); color: #8a969b; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+  .history-panel .table-wrap > table > tbody > tr:not(.recording-row) > td:first-child { grid-column: 1 / -1; padding-bottom: 10px; border-bottom: 1px solid #eef2f2; }
+  .history-panel .table-wrap > table > tbody > tr:not(.recording-row) > td:last-child { grid-column: 1 / -1; }
+  .history-panel .table-wrap > table > tbody > tr:not(.recording-row) > .state-cell,
+  .history-panel .table-wrap > table > tbody > tr:not(.recording-row) > .empty-cell { grid-column: 1 / -1; display: block; height: auto; padding: 36px 8px; }
+  .customer-cell { min-width: 0; }
+  .row-actions { justify-content: flex-start; }
+  .recording-row { display: block; }
+  .recording-row td { display: block; padding: 0; border: 0; }
+  .recording-player { margin-top: -5px; padding: 10px; flex-direction: column; align-items: stretch; }
+  .recording-player audio { width: 100%; min-width: 0; }
+  .note-menu-card { max-width: calc(100vw - 24px); }
+  .pagination { padding: 10px; }
 }
 </style>

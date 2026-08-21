@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { config } from '../../config/index.js';
 import { isSafeObjectKey, mimeToExt, type StorageDriver, type UploadResult } from './types.js';
@@ -33,11 +33,16 @@ export const localDriver: StorageDriver = {
     return `${config.localPublicUrl}/${key}`;
   },
 
-  async uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string): Promise<UploadResult> {
+  async uploadBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    originalName?: string,
+    namespace: 'media' | 'recordings' = 'media',
+  ): Promise<UploadResult> {
     if (!buffer || buffer.length === 0) throw new Error('uploadBuffer: empty buffer (refusing 0-byte object)');
     const ext = originalName ? extname(originalName) : mimeToExt(mimeType);
     const contentHash = createHash('sha256').update(buffer).digest('hex');
-    const key = `media/${contentHash}${ext}`;
+    const key = `${namespace}/${contentHash}${ext}`;
     const url = this.publicUrl(key);
     const abs = pathForKey(key)!; // key tự sinh, luôn an toàn
 
@@ -71,6 +76,17 @@ export const localDriver: StorageDriver = {
       return await readFile(abs);
     } catch {
       return null;
+    }
+  },
+
+  async deleteObject(key: string): Promise<boolean> {
+    const abs = pathForKey(key);
+    if (!abs) return false;
+    try {
+      await unlink(abs);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ENOENT';
     }
   },
 

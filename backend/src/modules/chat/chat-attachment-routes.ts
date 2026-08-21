@@ -22,6 +22,7 @@ import { generateThumbnail, sendNativeVideo } from '../../shared/video-processor
 import { uploadBuffer, type UploadResult } from '../../shared/storage/minio-client.js';
 import { compressImage } from '../media/media-service.js';
 import { logger } from '../../shared/utils/logger.js';
+import { scanOrPass } from '../../shared/security/clamav-client.js';
 // Fix 2026-06-03 — M11 optimistic badge cache (Anh báo "Sale CRM · Staff")
 // 2026-06-11 — createMediaMessage gộp 4 block message.create lặp (DRY, eng review E4).
 import { getUserFullName, createMediaMessage } from './chat-helpers.js';
@@ -122,6 +123,12 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
             if (buf.length > max) {
               return reply.status(413).send({ error: `${kind} exceeds ${max / 1024 / 1024}MB` });
             }
+            const av = await scanOrPass(buf, {
+              filename: part.filename,
+              userId: user.id,
+              blockUnscanned: kind === 'file',
+            });
+            if (av.blocked) return reply.status(422).send({ error: av.reason, code: 'AV_BLOCKED' });
             files.push({ buffer: buf, filename: part.filename, mimeType: part.mimetype, kind, size: buf.length });
           }
         }

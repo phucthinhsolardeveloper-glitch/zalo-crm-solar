@@ -26,9 +26,18 @@ const driver: StorageDriver = config.storageDriver === 'r2' ? r2Driver : localDr
 export const uploadBuffer: StorageDriver['uploadBuffer'] = (buffer, mimeType, originalName) =>
   driver.uploadBuffer(buffer, mimeType, originalName);
 
+/**
+ * Store encrypted call-recording bytes away from the public media namespace.
+ * Callers must persist only the internal object key, never the returned URL.
+ */
+export const uploadRecordingBuffer = (buffer: Buffer): Promise<import('./types.js').UploadResult> =>
+  driver.uploadBuffer(buffer, 'application/octet-stream', 'recording.enc', 'recordings');
+
 export const getObjectStream: StorageDriver['getObjectStream'] = (key) => driver.getObjectStream(key);
 
 export const getObjectBuffer: StorageDriver['getObjectBuffer'] = (key) => driver.getObjectBuffer(key);
+
+export const deleteObject: StorageDriver['deleteObject'] = (key) => driver.deleteObject(key);
 
 export const ensureBucket: StorageDriver['ensureBucket'] = () => driver.ensureBucket();
 

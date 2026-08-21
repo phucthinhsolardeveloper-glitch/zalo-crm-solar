@@ -148,10 +148,19 @@ async function reload() {
     // CHỈ hội thoại 1-1 (threadType='user'). Backend tự scope theo nick sale sở hữu
     // (getZaloScope) → không lẫn nick sale khác. accountId = lọc 1 nick cụ thể.
     const params: Record<string, string | number> = { threadType: 'user', limit: 60 };
-    if (q.value) params.q = q.value;
+    if (q.value) params.search = q.value;
     if (nickFilter.value) params.accountId = nickFilter.value;
     const res = await api.get('/conversations', { params });
-    const list = (res.data.conversations ?? []).filter((c: ConvRow) => c.threadType !== 'group') as ConvRow[];
+    const list = (res.data.conversations ?? [])
+      .filter((c: any) => c.threadType !== 'group')
+      .map((c: any): ConvRow => ({
+        ...c,
+        title: c.title || c.groupName,
+        contact: c.contact ? {
+          displayName: c.contact.crmName || c.contact.fullName || c.contact.displayName,
+          avatar: c.contact.avatarUrl || c.contact.avatar,
+        } : undefined,
+      }));
     // Default ưu tiên nick chính: hội thoại của nick main lên đầu (khi xem "Tất cả nick").
     convs.value = nickFilter.value ? list : sortConvByMainNick(list);
   } catch (e: any) {

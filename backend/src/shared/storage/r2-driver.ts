@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto';
 import {
   GetObjectCommand,
+  DeleteObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -52,11 +53,16 @@ export const r2Driver: StorageDriver = {
     return `${config.s3PublicUrl}/${key}`;
   },
 
-  async uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string): Promise<UploadResult> {
+  async uploadBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    originalName?: string,
+    namespace: 'media' | 'recordings' = 'media',
+  ): Promise<UploadResult> {
     if (!buffer || buffer.length === 0) throw new Error('uploadBuffer: empty buffer (refusing 0-byte object)');
     const ext = originalName ? extname(originalName) : mimeToExt(mimeType);
     const contentHash = createHash('sha256').update(buffer).digest('hex');
-    const key = `media/${contentHash}${ext}`;
+    const key = `${namespace}/${contentHash}${ext}`;
     const url = this.publicUrl(key);
 
     if (await objectExists(key)) {
@@ -70,7 +76,7 @@ export const r2Driver: StorageDriver = {
         Body: buffer,
         ContentType: mimeType,
         ContentLength: buffer.length,
-        CacheControl: 'public, max-age=31536000',
+        CacheControl: namespace === 'media' ? 'public, max-age=31536000' : 'private, no-store',
       }),
     );
     return { key, url, size: buffer.length, mimeType, contentHash, deduped: false };
@@ -98,6 +104,16 @@ export const r2Driver: StorageDriver = {
       return Buffer.from(bytes);
     } catch {
       return null;
+    }
+  },
+
+  async deleteObject(key: string): Promise<boolean> {
+    if (!isSafeObjectKey(key)) return false;
+    try {
+      await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+      return true;
+    } catch {
+      return false;
     }
   },
 

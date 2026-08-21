@@ -1,5 +1,8 @@
 <template>
   <div v-if="enabled" class="phone-shell">
+    <!-- Keep the receiver mounted for the entire app session. Putting it inside
+         v-dialog caused Vue/Vuetify to remove it while the SDK stream lived on. -->
+    <audio id="omicall-remote-audio" autoplay playsinline />
     <button
       class="phone-trigger"
       :class="{ live: isBusy, offline: phase === 'error' || phase === 'connecting' }"
@@ -21,7 +24,6 @@
           <button class="close-btn" :disabled="isBusy" @click="closeDialog"><v-icon icon="mdi-close" /></button>
         </header>
 
-        <audio id="omicall-remote-audio" autoplay />
         <RouterLink class="full-history-link" to="/call-history" @click="dialog = false">
           <v-icon icon="mdi-history" size="17" />
           Mở toàn bộ lịch sử và file ghi âm
@@ -48,6 +50,15 @@
           <p class="call-status" data-testid="call-status">{{ statusLabel }}</p>
           <p v-if="phase === 'ended' && errorMessage" class="call-error" data-testid="call-error">{{ errorMessage }}</p>
           <div v-if="phase === 'answered' || (phase === 'ended' && elapsedSec)" class="timer">{{ timerLabel }}</div>
+          <button
+            v-if="phase === 'answered' && remoteAudioBlocked"
+            type="button"
+            class="retry-btn"
+            @click="resumeRemoteAudio"
+          >
+            <v-icon icon="mdi-volume-high" size="18" />
+            Bật âm thanh khách hàng
+          </button>
 
           <!-- Ghi chú ngay sau khi cúp máy — không cần sale nhớ số rồi tự đi tìm KH -->
           <CallNotesPanel v-if="phase === 'ended' && activeCallLogId" :call-id="activeCallLogId" class="post-call-notes" />
@@ -87,12 +98,11 @@
                 <v-icon icon="mdi-phone" size="19" />
               </button>
             </form>
-            <!-- Gợi ý theo tên/SĐT đã có trong CRM — khớp đúng ask gốc "autocomplete từ call
-                 history + contacts", chỉ query nếu gõ ≥2 ký tự. -->
+            <!-- Focus rỗng hiện số gọi gần đây; khi gõ sẽ lọc cả contacts và lịch sử. -->
             <div v-if="dialSuggestions.length" class="dial-suggestions">
               <button
                 v-for="s in dialSuggestions"
-                :key="s.contactId"
+                :key="s.contactId || s.phone"
                 type="button"
                 class="dial-suggestion-row"
                 @mousedown.prevent="pickDialSuggestion(s)"
@@ -138,6 +148,14 @@
                   @click="toggleRecording(item.id)"
                 >
                   <v-icon :icon="playingRecordingId === item.id ? 'mdi-stop-circle-outline' : 'mdi-play-circle-outline'" size="19" />
+                </button>
+                <button
+                  class="history-call-btn"
+                  :disabled="!canCallHistoryItem(item)"
+                  title="Gọi lại"
+                  @click="callHistoryItem(item)"
+                >
+                  <v-icon icon="mdi-phone-outline" size="17" />
                 </button>
                 <time>{{ formatTime(item.startedAt) }}</time>
               </div>
@@ -186,7 +204,9 @@ const playingRecordingId = ref<string | null>(null);
 const {
   phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
   activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, isBusy, activeCallLogId,
+  remoteAudioBlocked,
   fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
+  resumeRemoteAudio,
   loadMoreHistory,
 } = useOmicallSoftphone();
 
@@ -210,7 +230,7 @@ function startPhoneCall() {
 
 // Dial autocomplete — gõ tên/SĐT gợi ý khớp trong CRM, kèm trạng thái cuộc gọi gần nhất.
 interface DialSuggestion {
-  contactId: string;
+  contactId: string | null;
   fullName: string | null;
   avatarUrl?: string | null;
   phone: string;
@@ -221,13 +241,12 @@ let dialDebounce: ReturnType<typeof setTimeout> | null = null;
 function onDialInput() {
   if (dialDebounce) clearTimeout(dialDebounce);
   const q = phoneInput.value.trim();
-  if (q.length < 2) { dialSuggestions.value = []; return; }
   dialDebounce = setTimeout(async () => {
     try {
       const { data } = await api.get('/telephony/dial-suggestions', { params: { q } });
       dialSuggestions.value = data.suggestions || [];
     } catch { dialSuggestions.value = []; }
-  }, 250);
+  }, q ? 200 : 0);
 }
 function onDialBlur() {
   // Delay để mousedown trên gợi ý (pickDialSuggestion) kịp chạy trước khi list bị ẩn.
@@ -236,7 +255,29 @@ function onDialBlur() {
 function pickDialSuggestion(s: DialSuggestion) {
   dialSuggestions.value = [];
   phoneInput.value = displayPhone(s.phone);
-  void callPhone(s.phone, { contactId: s.contactId, fullName: s.fullName || undefined, avatarUrl: s.avatarUrl }).catch(() => undefined);
+  void callPhone(s.phone, { contactId: s.contactId || undefined, fullName: s.fullName || undefined, avatarUrl: s.avatarUrl }).catch(() => undefined);
+}
+
+function historyTargetPeer(item: CallHistoryItem) {
+  if (item.channel !== 'internal' || !item.peerUser?.id) return null;
+  return peers.value.find((peer) => peer.id === item.peerUser?.id) || null;
+}
+function canCallHistoryItem(item: CallHistoryItem) {
+  return item.channel === 'internal' ? Boolean(historyTargetPeer(item)) : Boolean(item.externalNumber);
+}
+function callHistoryItem(item: CallHistoryItem) {
+  const peer = historyTargetPeer(item);
+  if (item.channel === 'internal') {
+    if (peer) void callPeer(peer).catch(() => undefined);
+    return;
+  }
+  if (item.externalNumber) {
+    void callPhone(item.externalNumber, {
+      contactId: item.contact?.id,
+      fullName: item.contact?.crmName || item.contact?.fullName || undefined,
+      avatarUrl: item.contact?.avatarUrl,
+    }).catch(() => undefined);
+  }
 }
 function callStatusLabel(status: string) {
   return ({
@@ -250,8 +291,9 @@ function displayPhone(value: string) {
   return value;
 }
 function recordingUrl(item: CallHistoryItem) {
-  const url = item.recordingId?.trim();
-  return url && /^https:\/\//i.test(url) ? url : null;
+  // Hỗ trợ reference kho mã hóa `crm-recording:v1:...`; player không truy cập
+  // reference trực tiếp mà luôn fetch qua endpoint có auth.
+  return item.recordingId?.trim() || null;
 }
 
 // Phát QUA cổng CRM có auth — không dùng thẳng URL kho (recordingId), cùng lý do/pattern
@@ -383,6 +425,9 @@ function historyLabel(item: CallHistoryItem) {
 .history-row time { color: #8a969b; font-size: 11px; white-space: nowrap; }
 .recording-btn { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 50%; background: #e7f5f1; color: #148774; cursor: pointer; }
 .recording-btn:hover { background: #d5eee7; }
+.history-call-btn { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 50%; background: #147d70; color: #fff; cursor: pointer; }
+.history-call-btn:hover { background: #0f6b60; }
+.history-call-btn:disabled { opacity: .35; cursor: not-allowed; }
 .recording-player { display: flex; align-items: center; gap: 8px; padding: 0 24px 10px 52px; }
 .recording-player audio { min-width: 0; width: 100%; height: 34px; }
 .recording-player a, .recording-player button { color: #148774; border: none; background: none; cursor: pointer; padding: 0; display: inline-flex; }
@@ -391,4 +436,19 @@ function historyLabel(item: CallHistoryItem) {
 .history-toggle { width: calc(100% - 48px); margin: 10px 24px 0; padding: 8px; border: 0; border-radius: 8px; background: #f0f6f5; color: #147d70; font-weight: 700; cursor: pointer; }
 .history-toggle:disabled { opacity: .55; cursor: wait; }
 .history-collapse { width: calc(100% - 48px); margin: 6px 24px 0; padding: 7px; border: 0; background: transparent; color: #6d7d82; cursor: pointer; }
+@media (max-width: 600px) {
+  .softphone { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow-y: auto; border-radius: 14px; }
+  .phone-head { padding: 15px 16px 12px; }
+  .phone-head h2 { font-size: 18px; }
+  .full-history-link { margin: 8px 16px 0; font-size: 12px; }
+  .section-title { padding: 14px 16px 7px; }
+  .dial-form { margin-inline: 16px; }
+  .dial-suggestions { margin-inline: 16px; }
+  .dial-error { margin-inline: 16px; }
+  .history-row { padding-inline: 14px; gap: 7px; }
+  .history-row time { max-width: 48px; overflow: hidden; text-overflow: ellipsis; }
+  .recording-player { padding-inline: 42px 14px; }
+  .active-call { min-height: 0; padding: 24px 16px 20px; }
+  .call-notes-panel { min-width: 0; }
+}
 </style>

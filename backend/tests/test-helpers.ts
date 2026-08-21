@@ -100,6 +100,10 @@ export function mockPrisma() {
       create: vi.fn(),
       update: vi.fn(),
     },
+    user: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+    },
   };
 }
 

@@ -371,13 +371,14 @@ model TelephonyCall {
   @@map("telephony_calls")
 }
 
-// Ghi chú GẮN VỚI 1 CUỘC GỌI CỤ THỂ — khác Note (ghi chú chung của khách hàng, không
-// theo call nào). Append-only, KHÔNG BAO GIỜ ghi đè note cũ (giống Note) — mới nhất
-// hiện trước ở API/UI (order by createdAt desc), không sửa/xoá note của người khác.
+// Ghi chú theo ĐẦU SỐ, đồng thời giữ callId để biết note được nhập sau cuộc gọi nào.
+// Cuộc gọi ngoài có phoneKey canonical nên mọi lần gọi cùng số dùng chung timeline;
+// cuộc gọi nội bộ không có phoneKey thì fallback timeline riêng theo callId.
 model CallNote {
   id           String   @id @default(uuid())
   orgId        String   @map("org_id")
   callId       String   @map("call_id")
+  phoneKey     String?  @map("phone_key")
   authorUserId String   @map("author_user_id")
   body         String   @db.Text
   createdAt    DateTime @default(now()) @map("created_at")
@@ -387,6 +388,7 @@ model CallNote {
   author User          @relation("CallNoteAuthor", fields: [authorUserId], references: [id])
 
   @@index([orgId, callId, createdAt])
+  @@index([orgId, phoneKey, createdAt(sort: Desc)])
   @@map("call_notes")
 }
 
@@ -668,6 +670,7 @@ model Contact {
   industry       String? // renamed from `occupation` 2026-08-20 (data preserved via migration RENAME COLUMN)
   storeName      String?   @map("store_name")
   customerType   String?   @map("customer_type") // Đại lý / Dự án / Cá nhân — hardcoded options, see CUSTOMER_TYPE_OPTIONS
+  importanceLevel String?  @map("importance_level") // low/normal/high/critical — manual, independent from Lead Score/status
   incomeRange    String?   @map("income_range")
   socialFacebook String?   @map("social_facebook")
   socialTiktok   String?   @map("social_tiktok")

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/shared/storage/minio-client.js', () => ({
-  uploadBuffer: vi.fn(),
+vi.mock('../src/modules/telephony/recording-storage.js', () => ({
+  storePrivateRecording: vi.fn(),
 }));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { warn: vi.fn() },
 }));
 
-import { uploadBuffer } from '../src/shared/storage/minio-client.js';
+import { storePrivateRecording } from '../src/modules/telephony/recording-storage.js';
 import {
   omicallRecordingUrl,
   persistOmicallRecording,
@@ -33,24 +33,20 @@ describe('Omicall recording handling', () => {
     })).toBe('https://public-v1.omicrm.com/webhook-call.mp3');
   });
 
-  it('downloads audio and stores a durable CRM URL', async () => {
+  it('downloads audio and stores an internal encrypted reference', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
       new Uint8Array([0x49, 0x44, 0x33, 0x04]),
       { status: 200, headers: { 'content-type': 'audio/mpeg' } },
     )));
-    (uploadBuffer as any).mockResolvedValue({
-      url: 'https://crm.example/files/media/hash.mp3',
-    });
+    (storePrivateRecording as any).mockResolvedValue(
+      `crm-recording:v1:recordings/${'a'.repeat(64)}.enc`,
+    );
 
     await expect(persistOmicallRecording({
       recording_file: 'https://public-v1.omicrm.com/call.mp3',
-    })).resolves.toBe('https://crm.example/files/media/hash.mp3');
+    })).resolves.toBe(`crm-recording:v1:recordings/${'a'.repeat(64)}.enc`);
 
-    expect(uploadBuffer).toHaveBeenCalledWith(
-      Buffer.from([0x49, 0x44, 0x33, 0x04]),
-      'audio/mpeg',
-      'call.mp3',
-    );
+    expect(storePrivateRecording).toHaveBeenCalledWith(Buffer.from([0x49, 0x44, 0x33, 0x04]));
   });
 
   it('rejects a non-audio response and keeps the provider URL for retry/playback fallback', async () => {
@@ -61,7 +57,7 @@ describe('Omicall recording handling', () => {
 
     const source = 'https://public-v1.omicrm.com/call';
     await expect(persistOmicallRecording({ recording_file_url: source })).resolves.toBe(source);
-    expect(uploadBuffer).not.toHaveBeenCalled();
+    expect(storePrivateRecording).not.toHaveBeenCalled();
   });
 
   it('does not fetch unsafe recording URLs', async () => {

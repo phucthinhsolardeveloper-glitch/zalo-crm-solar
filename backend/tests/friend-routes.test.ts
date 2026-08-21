@@ -30,6 +30,12 @@ vi.mock('../src/shared/utils/logger.js', () => ({
 vi.mock('../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: async (req: any) => { req.user = mockUser(); },
 }));
+vi.mock('../src/modules/rbac/rbac-middleware.js', () => ({
+  requireGrant: () => async () => undefined,
+}));
+vi.mock('../src/modules/zalo/friend-event-handler.js', () => ({
+  markFriendRequestSent: vi.fn(),
+}));
 vi.mock('../src/modules/zalo/zalo-route-helpers.js', () => ({
   resolveAccount: vi.fn().mockResolvedValue({ id: 'za-1', orgId: 'org-1' }),
   checkAccess: vi.fn().mockResolvedValue(true),
@@ -96,7 +102,7 @@ describe('Friend Queries', () => {
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/aliases` });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({ data: [{ alias: 'Bob' }] });
-    expect(zaloOpsMock.getAliasList).toHaveBeenCalledWith('za-1');
+    expect(zaloOpsMock.getAliasList).toHaveBeenCalledWith('za-1', 100, 1);
   });
 });
 

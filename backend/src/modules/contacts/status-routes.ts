@@ -7,6 +7,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { requireAnyGrant, requireGrant } from '../rbac/rbac-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 
 interface StatusBody {
@@ -21,7 +22,9 @@ export async function statusRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
   // List all statuses for org, ordered ascending
-  app.get('/api/v1/settings/statuses', async (request: FastifyRequest) => {
+  app.get('/api/v1/settings/statuses', {
+    preHandler: requireAnyGrant(['contact', 'access'], ['settings', 'access']),
+  }, async (request: FastifyRequest) => {
     const user = request.user!;
     const statuses = await prisma.status.findMany({
       where: { orgId: user.orgId },
@@ -31,7 +34,9 @@ export async function statusRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Create
-  app.post('/api/v1/settings/statuses', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/settings/statuses', {
+    preHandler: requireGrant('settings', 'edit'),
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const body = (request.body || {}) as StatusBody;
     if (!body.name?.trim()) return reply.status(400).send({ error: 'name required' });
@@ -64,7 +69,9 @@ export async function statusRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Update
-  app.put('/api/v1/settings/statuses/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.put('/api/v1/settings/statuses/:id', {
+    preHandler: requireGrant('settings', 'edit'),
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const body = (request.body || {}) as StatusBody;
@@ -98,7 +105,9 @@ export async function statusRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Reorder (bulk update order)
-  app.post('/api/v1/settings/statuses/reorder', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/settings/statuses/reorder', {
+    preHandler: requireGrant('settings', 'edit'),
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { items } = (request.body || {}) as { items?: Array<{ id: string; order: number }> };
     if (!Array.isArray(items)) return reply.status(400).send({ error: 'items array required' });
@@ -119,7 +128,9 @@ export async function statusRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Delete (block nếu đang được contact dùng)
-  app.delete('/api/v1/settings/statuses/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete('/api/v1/settings/statuses/:id', {
+    preHandler: requireGrant('settings', 'edit'),
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const existing = await prisma.status.findFirst({ where: { id, orgId: user.orgId } });

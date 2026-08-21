@@ -20,7 +20,6 @@ import { runContactIntelligence } from './contact-intelligence.js';
 import { backfillGlobalId, backfillOrphanFriends } from './backfill-global-id.js';
 import { backfillMissingFriends } from './backfill-missing-friends.js';
 import { backfillFriendDisplayName } from './backfill-friend-display-name.js';
-import { migrateStatusTable } from './status-migration.js';
 import { computeAggregateDisplay, computeViewerPreview, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
 import { getContactScope, assertContactVisible, attachContactCollaboratorByUser, assertContactEditable } from './contact-scope.js';
 import { leadScoreToGrade, priorityScoreToTier } from './score-tiers.js';
@@ -31,6 +30,32 @@ import { logActivity, computeDiff } from '../activity/activity-logger.js';
 import { emitWebhook } from '../api/webhook-service.js';
 
 type QueryParams = Record<string, string>;
+const IMPORTANCE_LEVELS = new Set(['low', 'normal', 'high', 'critical']);
+
+function emitContactChanged(
+  app: FastifyInstance,
+  orgId: string,
+  contactId: string,
+  kind: 'created' | 'updated',
+): void {
+  const io = (app as any).io as Server | undefined;
+  // Chỉ phát ID + loại thay đổi. Màn hình nhận sự kiện phải refetch qua API đã
+  // áp scope/RBAC/privacy, không đẩy PII khách hàng ra socket payload.
+  io?.to(`org:${orgId}`).emit('contact:changed', { contactId, kind });
+}
+
+// Danh sách đơn vị cấp tỉnh hiện hành theo Quyết định 19/2025/QĐ-TTg, có hiệu
+// lực từ 01/07/2025. Chỉ dùng làm seed gợi ý; dữ liệu đã nhập của doanh nghiệp
+// vẫn được giữ và field vẫn cho phép nhập tự do để tương thích địa chỉ cũ.
+const VIETNAM_PROVINCES_2025 = [
+  'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cao Bằng', 'Cần Thơ', 'Đà Nẵng',
+  'Đắk Lắk', 'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Nội',
+  'Hà Tĩnh', 'Hải Phòng', 'Hưng Yên', 'Huế', 'Khánh Hòa', 'Lai Châu',
+  'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ',
+  'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh',
+  'Thái Nguyên', 'Thanh Hóa', 'Thành phố Hồ Chí Minh', 'Tuyên Quang',
+  'Vĩnh Long',
+] as const;
 
 export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -143,6 +168,29 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           where.friends = { some: { relationshipKind: { in: kinds } } };
         }
       }
+      // Lọc đa nick PHẢI diễn ra trước count/skip/take. Bản cũ lọc `childrenCount`
+      // sau khi query xong một trang, khiến trang hụt dòng và `total` sai. Resolve id
+      // qua groupBy theo đúng tập Friend mà AGGREGATE_INCLUDE dùng (nick chưa archive,
+      // quan hệ không phải ghost), rồi giao với contact scope hiện có.
+      if (multiNick === 'true') {
+        const grouped = await prisma.friend.groupBy({
+          by: ['contactId'],
+          where: {
+            orgId: user.orgId,
+            relationshipKind: { not: 'ghost' },
+            zaloAccount: { archivedAt: null },
+          },
+          _count: { contactId: true },
+          having: { contactId: { _count: { gte: 2 } } },
+        });
+        const multiNickIds = grouped.map((row) => row.contactId);
+        if (where.id?.in) {
+          const allowed = new Set(where.id.in as string[]);
+          where.id = { in: multiNickIds.filter((id) => allowed.has(id)) };
+        } else {
+          where.id = { in: multiNickIds };
+        }
+      }
       if (search) {
         // Fast path: phone chính match phoneNormalized indexed exact (normalize input
         // canonical về 84xxx). phone2/phone3 vẫn dùng contains variants (ít dùng).
@@ -252,8 +300,6 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         : await getZaloScope(user.id, user.orgId, user.role);
       const visibleZaloIds: Set<string> | null = zScope ? new Set(zScope.accessibleIds) : null;
 
-      // Aggregate + multiNick post-filter (childrenCount requires friends count after load)
-      const multiNickOnly = multiNick === 'true';
       const enriched = contacts
         .map((c) => {
           const nicksByKind: Record<string, number> = {};
@@ -280,8 +326,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
             grade: leadScoreToGrade(c.leadScore),
             priorityTier: priorityScoreToTier(c.priorityScore ?? 0),
           };
-        })
-        .filter((c) => !multiNickOnly || (c.childrenCount ?? 0) > 1);
+        });
 
       // PRIVACY 2026-06-11 (audit H3): blur PII của KH thuộc nick main non-owner.
       // Detail KH đã redact, list cũng phải nhất quán (nếu không đọc list = vượt rào).
@@ -397,10 +442,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── GET /api/v1/contacts/address-suggestions — gợi ý tỉnh/huyện/xã đã có sẵn ──
-  // Không dùng dataset hành chính tĩnh (dễ sai/lỗi thời, số liệu tỉnh/huyện/xã VN
-  // hay sáp nhập) — gợi ý dựa trên dữ liệu THẬT đã nhập trong chính org này, cùng
-  // pattern với /contacts/sources ở trên. Autocomplete hỗ trợ gõ nhanh + nhất quán
-  // chính tả, KHÔNG ép buộc (field vẫn free text).
+  // Tỉnh/thành có seed hiện hành để org chưa có dữ liệu vẫn thấy gợi ý ngay.
+  // Quận/huyện/phường/xã lấy từ dữ liệu thật của org để tương thích địa chỉ cũ;
+  // autocomplete không ép buộc và vẫn cho phép nhập tự do.
   app.get('/api/v1/contacts/address-suggestions', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
@@ -418,8 +462,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           _count: { ward: true }, orderBy: { _count: { ward: 'desc' } }, take: 500,
         }),
       ]);
+      const storedProvinces = provinces.filter((g) => g.province).map((g) => g.province as string);
       return {
-        provinces: provinces.filter((g) => g.province).map((g) => g.province as string),
+        provinces: [...new Set([...VIETNAM_PROVINCES_2025, ...storedProvinces])],
         districts: districts.filter((g) => g.district).map((g) => g.district as string),
         wards: wards.filter((g) => g.ward).map((g) => g.ward as string),
       };
@@ -589,11 +634,14 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           fullName: body.fullName,
           crmName: body.crmName,
           phone: body.phone,
+          phone2: body.phone2 || undefined,
+          phone3: body.phone3 || undefined,
           email: body.email,
           zaloUid: body.zaloUid,
           avatarUrl: body.avatarUrl,
           source: body.source,
           sourceDate: body.sourceDate ? new Date(body.sourceDate) : undefined,
+          firstContactDate: body.firstContactDate ? new Date(body.firstContactDate) : undefined,
           status: body.status ?? 'new',
           nextAppointment: body.nextAppointment ? new Date(body.nextAppointment) : undefined,
           assignedUserId: body.assignedUserId,
@@ -601,11 +649,24 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           tags: body.tags ?? [],
           metadata: body.metadata ?? {},
           gender: body.gender || undefined,
+          genderLocked: !!body.gender,
           industry: body.industry || undefined,
           storeName: body.storeName || undefined,
           customerType: body.customerType || undefined,
+          importanceLevel: IMPORTANCE_LEVELS.has(body.importanceLevel) ? body.importanceLevel : undefined,
+          incomeRange: body.incomeRange || undefined,
+          socialFacebook: body.socialFacebook || undefined,
+          socialTiktok: body.socialTiktok || undefined,
+          preferredLang: body.preferredLang || undefined,
           addressLine: body.addressLine || undefined,
+          province: body.province || undefined,
+          district: body.district || undefined,
+          ward: body.ward || undefined,
           birthYear: createBirthYear,
+          birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
+          consentStatus: body.consentStatus || undefined,
+          consentRevokedAt: body.consentStatus === 'revoked' ? new Date() : undefined,
+          consentSource: body.consentSource || undefined,
           phonesExtra: Array.isArray(body.phonesExtra)
             ? body.phonesExtra.filter((p: any) => p && typeof p.phone === 'string' && p.phone.trim())
             : undefined,
@@ -680,6 +741,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         }
       })();
 
+      emitContactChanged(app, user.orgId, contact.id, 'created');
       return reply.status(201).send(contact);
     } catch (err) {
       logger.error('[contacts] Create error:', err);
@@ -697,7 +759,17 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/v1/contacts/quick-create', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
-      const body = request.body as { fullName?: string; phone?: string; leadSource?: string };
+      // FIX 2026-08-20 (anh báo: quick-create chỉ có tên+SĐT, thiếu các trường chủ chốt
+      // giống form "Thêm khách hàng mới" bên tab Khách hàng) — nhận thêm field OPTIONAL,
+      // không đổi hành vi bắt buộc (vẫn chỉ fullName+phone required), chỉ ghi khi có gửi lên.
+      const body = request.body as {
+        fullName?: string; phone?: string; leadSource?: string;
+        gender?: string | null; birthDate?: string | null; email?: string | null;
+        industry?: string | null; storeName?: string | null; customerType?: string | null;
+        importanceLevel?: string | null;
+        status?: string | null; province?: string | null; district?: string | null;
+        ward?: string | null; addressLine?: string | null;
+      };
 
       const fullName = (body.fullName ?? '').trim();
       const rawPhone = (body.phone ?? '').trim();
@@ -751,6 +823,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           select: { createdAt: true },
         });
 
+        emitContactChanged(app, user.orgId, existing.id, 'updated');
+
         return reply.status(200).send({
           exists: true,
           contact: {
@@ -773,11 +847,22 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           phone: rawPhone,
           phoneNormalized,
           source: leadSource,
-          status: 'new',
+          status: body.status || 'new',
           hasZalo: null, // chưa search Zalo
           assignedUserId: user.id,
           tags: [],
           metadata: {},
+          gender: body.gender || undefined,
+          birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
+          email: body.email || undefined,
+          industry: body.industry || undefined,
+          storeName: body.storeName || undefined,
+          customerType: body.customerType || undefined,
+          importanceLevel: body.importanceLevel && IMPORTANCE_LEVELS.has(body.importanceLevel) ? body.importanceLevel : undefined,
+          province: body.province || undefined,
+          district: body.district || undefined,
+          ward: body.ward || undefined,
+          addressLine: body.addressLine || undefined,
         },
         select: {
           id: true, fullName: true, crmName: true, phone: true,
@@ -823,6 +908,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         }
       })();
 
+      emitContactChanged(app, user.orgId, contact.id, 'created');
       return reply.status(201).send({ exists: false, contact });
     } catch (err) {
       logger.error('[contacts] quick-create error:', err);
@@ -896,7 +982,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           userId: user.id,
           source: 'virtual_chat_open',
         });
-        return reply.status(200).send({ conversationId: realConv.id, created: false });
+        return reply.status(200).send({
+          conversationId: realConv.id,
+          created: false,
+          conversationKind: 'zalo',
+        });
       }
 
       // 3. Idempotent: tìm virtual conv đã có cho cặp (contact, nick) chưa
@@ -921,7 +1011,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         });
         // M55.3 2026-05-30: trigger AI dup-alert message nếu chưa từng gửi (idempotent)
         void sendDuplicateAlertMessage(existing.id, contactId, user.orgId, contact, myNickId, (app as any).io);
-        return reply.status(200).send({ conversationId: existing.id, created: false });
+        return reply.status(200).send({
+          conversationId: existing.id,
+          created: false,
+          conversationKind: 'internal',
+        });
       }
 
       // 4. Create virtual conv mới
@@ -1023,7 +1117,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         },
       });
 
-      return reply.status(201).send({ conversationId: created.id, created: true });
+      return reply.status(201).send({
+        conversationId: created.id,
+        created: true,
+        conversationKind: 'internal',
+      });
     } catch (err) {
       logger.error('[contacts] virtual-conversation error:', err);
       return reply.status(500).send({ error: 'Failed to create virtual conversation' });
@@ -1042,7 +1140,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         select: {
           id: true, status: true, statusId: true, fullName: true, phone: true, source: true,
           assignedUserId: true, crmName: true, email: true, gender: true,
-          birthDate: true, leadScore: true, addressLine: true, industry: true,
+          birthDate: true, birthYear: true, leadScore: true,
+          phone2: true, phone3: true, addressLine: true, province: true, district: true, ward: true,
+          industry: true, storeName: true, customerType: true, incomeRange: true,
+          socialFacebook: true, socialTiktok: true, preferredLang: true,
+          consentStatus: true, consentRevokedAt: true, consentSource: true, firstContactDate: true,
         },
       });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
@@ -1105,6 +1207,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         fullName: body.fullName,
         crmName: body.crmName,
         phone: body.phone,
+        phone2: body.phone2,
+        phone3: body.phone3,
         email: body.email,
         avatarUrl: body.avatarUrl,
         source: body.source,
@@ -1127,12 +1231,32 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       if (body.industry !== undefined) updateData.industry = body.industry || null;
       if (body.storeName !== undefined) updateData.storeName = body.storeName || null;
       if (body.customerType !== undefined) updateData.customerType = body.customerType || null;
+      if (body.importanceLevel !== undefined) {
+        if (body.importanceLevel !== null && body.importanceLevel !== '' && !IMPORTANCE_LEVELS.has(body.importanceLevel)) {
+          return reply.status(400).send({ error: 'importance_level_invalid' });
+        }
+        updateData.importanceLevel = body.importanceLevel || null;
+      }
+      if (body.incomeRange !== undefined) updateData.incomeRange = body.incomeRange || null;
+      if (body.socialFacebook !== undefined) updateData.socialFacebook = body.socialFacebook || null;
+      if (body.socialTiktok !== undefined) updateData.socialTiktok = body.socialTiktok || null;
+      if (body.preferredLang !== undefined) updateData.preferredLang = body.preferredLang || 'vi';
       if (body.addressLine !== undefined) updateData.addressLine = body.addressLine || null;
       if (body.province !== undefined) updateData.province = body.province || null;
       if (body.district !== undefined) updateData.district = body.district || null;
+      // BUG 2026-08-20 (anh báo: sửa Ngày sinh không ăn) — `body.ward` chưa từng được đọc ở đây dù
+      // FE (ContactDetailDialog.vue) đã gửi lên từ lâu — field Phường/Xã bị âm thầm bỏ qua mọi lần lưu.
+      if (body.ward !== undefined) updateData.ward = body.ward || null;
       if (body.birthYear !== undefined) {
         const by = typeof body.birthYear === 'string' ? parseInt(body.birthYear, 10) : body.birthYear;
         updateData.birthYear = Number.isFinite(by) && by > 1900 && by < 2100 ? by : null;
+      }
+      // BUG 2026-08-20 (anh báo): handler CHỈ đọc body.birthYear, chưa từng đọc body.birthDate dù
+      // FE gửi lên từ lâu (`ContactDetailDialog.vue` form.birthDate) — sửa Ngày sinh ở UI, bấm Lưu,
+      // báo thành công, nhưng DB KHÔNG BAO GIỜ được ghi → mở lại vẫn thấy trống/cũ, tưởng chưa sửa
+      // được. Đây là nguyên nhân thật, không phải do UI bắt nhập tay.
+      if (body.birthDate !== undefined) {
+        updateData.birthDate = body.birthDate ? new Date(body.birthDate) : null;
       }
       if (body.phonesExtra !== undefined) {
         updateData.phonesExtra = Array.isArray(body.phonesExtra)
@@ -1144,6 +1268,15 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       }
       if (body.firstContactDate !== undefined) {
         updateData.firstContactDate = body.firstContactDate ? new Date(body.firstContactDate) : null;
+      }
+      if (body.consentStatus !== undefined) {
+        updateData.consentStatus = body.consentStatus || 'implicit';
+        updateData.consentRevokedAt = body.consentStatus === 'revoked'
+          ? (existing.consentRevokedAt || new Date())
+          : null;
+      }
+      if (body.consentSource !== undefined) {
+        updateData.consentSource = body.consentSource || null;
       }
 
       const updated = await prisma.contact.update({
@@ -1281,7 +1414,13 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const infoDiff = computeDiff(
         existing as Record<string, unknown>,
         updated as Record<string, unknown>,
-        ['fullName', 'crmName', 'phone', 'email', 'gender', 'birthDate', 'addressLine', 'industry', 'storeName', 'customerType', 'assignedUserId'],
+        [
+          'fullName', 'crmName', 'phone', 'phone2', 'phone3', 'email', 'gender',
+          'birthDate', 'birthYear', 'addressLine', 'province', 'district', 'ward',
+          'industry', 'storeName', 'customerType', 'importanceLevel', 'incomeRange', 'socialFacebook',
+          'socialTiktok', 'preferredLang', 'consentStatus', 'consentSource',
+          'firstContactDate', 'assignedUserId',
+        ],
       );
       if (Object.keys(infoDiff).length > 0) {
         logActivity({
@@ -1339,6 +1478,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      emitContactChanged(app, user.orgId, updated.id, 'updated');
       return updated;
     } catch (err) {
       logger.error('[contacts] Update error:', err);
@@ -2650,19 +2790,21 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
   // ── POST /api/v1/admin/migrate-status-table — one-off seed + convert enum ────
   app.post('/api/v1/admin/migrate-status-table', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const result = await migrateStatusTable();
-      return reply.send(result);
-    } catch (err) {
-      logger.error('[contacts] migrate-status-table error:', err);
-      return reply.status(500).send({ error: 'Migration failed', detail: String(err) });
-    }
+    // Vô hiệu hóa endpoint one-off cũ: migration seed 8 trạng thái legacy, trong khi
+    // pipeline công ty hiện có 10 trạng thái khác. Chạy nó sẽ âm thầm gán sai toàn bộ
+    // contact và trước đây bất kỳ user đăng nhập nào cũng kích hoạt được.
+    return reply.status(410).send({
+      error: 'Status migration này đã bị vô hiệu hóa vì không còn khớp pipeline hiện tại.',
+      code: 'STATUS_MIGRATION_DEPRECATED',
+    });
   });
 
   // ── POST /api/v1/contacts/backfill-missing-friends — tạo Friend row thiếu cho conversations ──
-  app.post('/api/v1/contacts/backfill-missing-friends', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/contacts/backfill-missing-friends', {
+    preHandler: requireGrant('settings', 'edit'),
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const result = await backfillMissingFriends();
+      const result = await backfillMissingFriends(request.user!.orgId);
       return reply.send(result);
     } catch (err) {
       logger.error('[contacts] Backfill missing friends error:', err);
@@ -2671,9 +2813,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── POST /api/v1/contacts/backfill-orphan-friends — fix Friend rows trỏ vào contact đã merged ──
-  app.post('/api/v1/contacts/backfill-orphan-friends', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/contacts/backfill-orphan-friends', {
+    preHandler: requireGrant('settings', 'edit'),
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const result = await backfillOrphanFriends();
+      const result = await backfillOrphanFriends(request.user!.orgId);
       return reply.send(result);
     } catch (err) {
       logger.error('[contacts] Backfill orphan friends error:', err);
@@ -2682,9 +2826,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── POST /api/v1/contacts/backfill-friend-display-name — resolve per-identity Zalo name+avatar ─
-  app.post('/api/v1/contacts/backfill-friend-display-name', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/contacts/backfill-friend-display-name', {
+    preHandler: requireGrant('settings', 'edit'),
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const result = await backfillFriendDisplayName();
+      const result = await backfillFriendDisplayName(request.user!.orgId);
       return reply.send(result);
     } catch (err) {
       logger.error('[contacts] Backfill friend display name error:', err);
