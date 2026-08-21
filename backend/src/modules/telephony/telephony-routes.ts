@@ -9,6 +9,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { checkZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { syncOmicallHistoryForUser } from './omicall-history-sync.js';
 import { decryptOmicallSecret } from './omicall-token.js';
+import { getOwnerScope } from '../rbac/owner-scope.js';
 
 const DIRECTIONS = new Set(['inbound', 'outbound']);
 const STATUSES = new Set(['initiated', 'ringing', 'answered', 'completed', 'rejected', 'missed', 'failed']);
@@ -178,19 +179,30 @@ export async function telephonyRoutes(app: FastifyInstance) {
     };
     const page = Math.max(Math.floor(Number(query.page) || 1), 1);
     const pageSize = Math.min(Math.max(Math.floor(Number(query.pageSize || query.limit) || 20), 1), 100);
-    const canViewOrganization = current.role === 'owner' || current.role === 'admin';
+    // owner/admin → toàn công ty; leader/deputy phòng ban → phòng ban mình (subtree);
+    // member thường → chỉ cuộc gọi của chính mình. Cùng quy tắc RBAC dept dùng ở
+    // contacts/reports (getOwnerScope), KHÔNG dùng riêng legacy role owner/admin nữa.
+    const scope = await getOwnerScope({ userId: current.id, orgId: current.orgId, legacyRole: current.role });
+    const canViewOrganization = scope.canViewAll || scope.visibleUserIds.length > 1;
     const organizationScope = query.scope === 'organization' && canViewOrganization;
+    let ownerUserIdFilter: Prisma.TelephonyCallWhereInput['ownerUserId'];
+    if (!organizationScope) {
+      ownerUserIdFilter = current.id;
+    } else if (scope.canViewAll) {
+      ownerUserIdFilter = query.ownerUserId || undefined;
+    } else if (query.ownerUserId && scope.visibleUserIds.includes(query.ownerUserId)) {
+      // Leader chọn 1 nhân viên cụ thể — chỉ cho phép nếu người đó thuộc phòng ban mình.
+      ownerUserIdFilter = query.ownerUserId;
+    } else {
+      ownerUserIdFilter = { in: scope.visibleUserIds };
+    }
     const where: Prisma.TelephonyCallWhereInput = {
       orgId: current.orgId,
       // Trang này chỉ hiển thị lịch sử Omicall — loại record cũ từ Stringee
       // (đã bị thay thế), vì recordingId của chúng là call-id nội bộ Stringee
       // (vd "call-vn-1-..."), không phải URL file nên không thể phát lại.
       provider: 'omicall',
-      ...(!organizationScope
-        ? { ownerUserId: current.id }
-        : query.ownerUserId
-          ? { ownerUserId: query.ownerUserId }
-          : {}),
+      ...(ownerUserIdFilter !== undefined ? { ownerUserId: ownerUserIdFilter } : {}),
     };
     if (query.direction && DIRECTIONS.has(query.direction)) where.direction = query.direction;
     if (query.status && STATUSES.has(query.status)) where.status = query.status;
@@ -239,7 +251,13 @@ export async function telephonyRoutes(app: FastifyInstance) {
     const totalPages = Math.ceil(total / pageSize);
     return {
       calls,
-      capabilities: { canViewOrganization },
+      capabilities: {
+        canViewOrganization,
+        scopeLevel: scope.canViewAll ? 'organization' : 'team',
+        // Leader/deputy phòng ban: id nhân viên trong phạm vi, để FE lọc dropdown
+        // "nhân viên" đúng phòng ban thay vì liệt kê cả công ty.
+        ...(scope.canViewAll ? {} : { scopeUserIds: scope.visibleUserIds }),
+      },
       summary: {
         total,
         missed,
