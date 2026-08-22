@@ -44,9 +44,17 @@
                 <template #prepend><span class="tools-emoji">🔄</span></template>
                 <v-list-item-title>{{ runningDetector ? 'Đang quét…' : 'Quét lại ngay' }}</v-list-item-title>
               </v-list-item>
+              <v-list-item @click="showImportDialog = true">
+                <template #prepend><span class="tools-emoji">📥</span></template>
+                <v-list-item-title>Import Excel/CSV</v-list-item-title>
+              </v-list-item>
               <v-list-item @click="onExport">
-                <template #prepend><span class="tools-emoji">⬇</span></template>
-                <v-list-item-title>Xuất danh sách</v-list-item-title>
+                <template #prepend><span class="tools-emoji">📤</span></template>
+                <v-list-item-title>Xuất danh sách (Excel)</v-list-item-title>
+              </v-list-item>
+              <v-list-item @click="exportContacts('csv')">
+                <template #prepend><span class="tools-emoji">📤</span></template>
+                <v-list-item-title>Xuất danh sách (CSV)</v-list-item-title>
               </v-list-item>
               <v-divider class="my-1" />
               <v-list-subheader>Cột hiển thị — KH Cha</v-list-subheader>
@@ -115,25 +123,18 @@
       <!-- FIX 2026-08-22 (anh báo: thêm KH xong không biết nó nằm ở đâu trong danh sách —
            mặc định sort theo lastActivity, KH mới chưa có tương tác bị đẩy XUỐNG CUỐI list,
            không phải lên đầu như comment cũ tưởng) — thêm dropdown Sắp xếp tường minh. -->
-      <select v-model="filters.sort" @change="fetchContacts" title="Sắp xếp danh sách">
+      <select v-model="filters.sort" style="width:168px;max-width:168px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" @change="fetchContacts" title="Sắp xếp danh sách">
         <option :value="null">Sắp xếp: Tương tác mới nhất</option>
         <option value="newest">Sắp xếp: Vừa thêm mới nhất</option>
         <option value="name">Sắp xếp: Tên A-Z</option>
         <option value="score">Sắp xếp: Điểm cao nhất</option>
       </select>
 
-      <!-- Thêm KH Nhanh (2026-06-05 Anh chốt: đưa từ FAB góc phải lên đây) -->
+      <!-- FIX 2026-08-22 (anh báo: hàng filter xuống dòng vì quá nhiều nút) — Import/Xuất
+           Excel/CSV đã dồn vào menu "Công cụ" (header, nhóm "Công cụ dữ liệu") thay vì đứng
+           riêng ở đây. Chỉ giữ lại đúng 1 action hay dùng nhất (Thêm KH Nhanh) + Xoá lọc. -->
       <button class="btn btn-quick-add" @click="showAddCustomerDialog = true" title="Thêm khách hàng nhanh">
         ⚡ Thêm KH Nhanh
-      </button>
-      <button class="btn btn-quick-add" title="Import khách hàng từ Excel/CSV" @click="showImportDialog = true">
-        📥 Import Excel/CSV
-      </button>
-      <button class="btn btn-quick-add" title="Xuất danh sách ra Excel (.xlsx)" :disabled="exporting" @click="exportContacts('xlsx')">
-        📤 Xuất Excel
-      </button>
-      <button class="btn btn-quick-add" title="Xuất danh sách ra CSV" :disabled="exporting" @click="exportContacts('csv')">
-        📤 Xuất CSV
       </button>
       <button v-if="hasAnyFilter" class="btn-clear" @click="clearAllFilters" title="Xoá tất cả bộ lọc">
         × Xoá lọc
@@ -2927,6 +2928,10 @@ watch(
 .toolbar.toolbar-primary select { height: 36px; border: 1px solid var(--line); border-radius: var(--r-pill, 999px);
   background: var(--surface); color: var(--ink-2); font-weight: 600; font-size: 12.5px; padding: 0 14px; cursor: pointer; }
 .toolbar.toolbar-primary select:hover { border-color: var(--brand); color: var(--ink); }
+/* FIX 2026-08-22 (anh báo: hàng filter xuống dòng) — option "Sắp xếp: ..." dài hơn hẳn các
+   select khác (Cá nhân/Zalo/Trạng thái/Sale chỉ ~120-160px) khiến cả hàng vượt quá bề ngang
+   ở màn hình 1280-1440px, đẩy "Xoá lọc" rớt xuống dòng riêng. Ép width cố định + ellipsis khi
+   đóng — mở dropdown vẫn thấy đủ chữ từng option, không mất thông tin. -->
 
 /* KPI stats — colored dot instead of emoji */
 .sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
