@@ -77,7 +77,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         relationshipKindAny = '', // CSV: 'friend,pending_friend,...' — match KH có ≥1 Friend kind đó
         dateFrom = '',
         dateTo = '',
-        sort = '',            // 'score' = lead score cao lên đầu; mặc định = lastActivity desc
+        sort = '',            // 'score' = lead score cao lên đầu; 'newest' = KH mới thêm lên đầu;
+                               // 'name' = tên A-Z; mặc định = lastActivity desc
         sequenceAttachMin = '', // #4: lọc KH đã gắn ≥ N sequence (đếm CareSession, auto+manual)
         friendInviteMin = '',   // #3: lọc KH đã được gửi kết bạn ≥ N lần
       } = request.query as QueryParams;
@@ -254,7 +255,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
             _count: { select: { conversations: true, appointments: true } },
             ...AGGREGATE_INCLUDE,
           },
-          // sort=score → lead score cao lên đầu; mặc định = tương tác mới nhất.
+          // sort=score → lead score cao lên đầu. sort=newest → KH mới tạo lên đầu (FIX
+          // 2026-08-22: KH vừa thêm CHƯA có lastActivity → mặc định bị đẩy xuống CUỐI
+          // danh sách, sale không thấy KH vừa tạo). sort=name → tên A-Z (crmName ưu tiên,
+          // fallback fullName — khớp tên hiển thị trên list `crmName || fullName`).
+          // Mặc định (rỗng) = tương tác mới nhất.
           orderBy: (sort === 'score'
             ? [
                 // leadScore Int @default(0) — KHÔNG nullable → Prisma chỉ nhận
@@ -262,10 +267,17 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
                 { leadScore: 'desc' },
                 { lastActivity: { sort: 'desc', nulls: 'last' } },
               ]
-            : [
-                { lastActivity: { sort: 'desc', nulls: 'last' } },
-                { updatedAt: 'desc' },
-              ]) as any,
+            : sort === 'newest'
+              ? [{ createdAt: 'desc' }]
+              : sort === 'name'
+                ? [
+                    { crmName: { sort: 'asc', nulls: 'last' } },
+                    { fullName: 'asc' },
+                  ]
+                : [
+                    { lastActivity: { sort: 'desc', nulls: 'last' } },
+                    { updatedAt: 'desc' },
+                  ]) as any,
           skip: (pageNum - 1) * limitNum,
           take: limitNum,
         }),

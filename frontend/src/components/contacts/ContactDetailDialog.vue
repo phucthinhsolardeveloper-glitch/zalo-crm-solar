@@ -134,12 +134,11 @@
                 <v-text-field v-model="form.email" label="Email" type="email" />
               </v-col>
               <v-col cols="12" sm="6">
-                <v-select
+                <v-combobox
                   v-model="form.source"
-                  :items="SOURCE_OPTIONS"
-                  item-title="text"
-                  item-value="value"
+                  :items="SOURCE_ITEMS"
                   label="Nguồn"
+                  hint="Chọn nhanh — vẫn gõ tự do được"
                   clearable
                 />
               </v-col>
@@ -211,9 +210,12 @@
               </v-col>
 
               <v-col cols="12" sm="6">
-                <v-text-field
+                <v-combobox
                   v-model="form.industry"
+                  :items="INDUSTRY_OPTIONS"
                   label="Ngành hàng"
+                  hint="Chọn nhanh — vẫn gõ tự do được"
+                  clearable
                 />
               </v-col>
               <v-col cols="12" sm="6">
@@ -760,11 +762,16 @@ import {
   IMPORTANCE_LEVEL_OPTIONS,
   INCOME_RANGE_OPTIONS,
   CONSENT_OPTIONS,
+  INDUSTRY_OPTIONS,
   useContacts,
   formatRecentDateTime,
   messagePreview,
   type AccountActivityItem,
 } from '@/composables/use-contacts';
+
+// Nguồn khách — combobox chọn nhanh nhưng vẫn cho gõ tự do (dữ liệu cũ trước khi có danh
+// sách chuẩn hoá vẫn hiển thị đúng dù không khớp danh sách).
+const SOURCE_ITEMS = SOURCE_OPTIONS.map((o) => o.text);
 
 const LANG_OPTIONS = [
   { text: 'Tiếng Việt', value: 'vi' },

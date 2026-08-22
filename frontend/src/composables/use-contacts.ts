@@ -294,14 +294,33 @@ export interface ContactFilters {
   dateTo?: string;
   sequenceAttachMin?: number | null; // #4: lọc KH gắn ≥ N sequence
   friendInviteMin?: number | null;   // #3: lọc KH đã gửi kết bạn ≥ N lần
-  sort?: 'score' | '' | null;        // 'score' = điểm cao lên đầu; rỗng = tương tác mới nhất
+  sort?: 'score' | 'newest' | 'name' | '' | null; // 'score' = điểm cao lên đầu; 'newest' = KH
+  // vừa thêm lên đầu; 'name' = tên A-Z; rỗng = tương tác mới nhất
 }
 
+// 2026-08-22: thay 4 mã code cũ (FB/TT/GT/CN, không khớp cách sale thật sự ghi nguồn khách)
+// bằng đúng danh sách nguồn khách hàng thật của công ty (anh cung cấp). Value = text luôn
+// (không mã hoá) — nguồn là text tự do trong DB, đổi để filter/hiển thị khớp đúng nội dung.
 export const SOURCE_OPTIONS = [
-  { text: 'Facebook', value: 'FB' },
-  { text: 'TikTok', value: 'TT' },
-  { text: 'Giới thiệu', value: 'GT' },
-  { text: 'Cá nhân', value: 'CN' },
+  { text: 'Tự tìm', value: 'Tự tìm' },
+  { text: 'Khách thị trường', value: 'Khách thị trường' },
+  { text: 'Khách cũ nhận bàn giao', value: 'Khách cũ nhận bàn giao' },
+  { text: 'Quảng cáo FB', value: 'Quảng cáo FB' },
+  { text: 'Mối quan hệ', value: 'Mối quan hệ' },
+];
+
+// 2026-08-22: danh sách ngành nghề/ngành hàng thật của công ty (anh cung cấp) — dùng cho
+// combobox Ngành hàng (chọn nhanh + vẫn cho gõ tự do nếu không có trong danh sách).
+export const INDUSTRY_OPTIONS = [
+  'Công ty điện mặt trời',
+  'Cửa hàng điện nước, điện công nghiệp',
+  'Thi công lắp đặt, dự án',
+  'VLXD, thiết bị vệ sinh',
+  'Viễn thông (CMR, vi tính, smarthome)',
+  'Điện máy, điện lạnh',
+  'Đèn năng lượng mặt trời',
+  'Đèn trang trí, đèn Led',
+  'Khách lẻ',
 ];
 
 // 2026-08-20: thay pipeline placeholder cũ (5 bước generic) bằng đúng quy trình bán hàng

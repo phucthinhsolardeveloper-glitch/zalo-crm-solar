@@ -305,6 +305,95 @@ trong `~/zcrm/.env` trên server (`chmod 600`, chỉ `root` đọc được). Fi
 
 ---
 
+## 6a. Bật Omicall (gọi điện) trên VPS — dùng chung tài khoản với máy dev
+
+**Hiện trạng (phát hiện 2026-08-22):** VPS deploy lần đầu tạo `.env` từ `.env.example` mặc định
+— `OMICALL_ENABLED=false`, các trường domain/hotline/webhook đều trống. Đây là lý do "kết nối
+omni bị lỗi" trên VPS: **tính năng gọi chưa từng được bật ở đây**, không phải bug từ lần deploy
+gần nhất. Máy dev local đã có cấu hình Omicall thật và gọi được bình thường.
+
+Anh đã chọn: **dùng chung tài khoản Omicall thật đang dùng ở máy dev**. Dưới đây là hướng dẫn để
+tự làm (chưa test luồng này bao giờ — nên làm cẩn thận, có bước rollback nếu lỗi).
+
+### Các biến cần copy từ `.env` máy dev sang `.env` server
+
+Trên **máy dev** (`D:\IT\zalo-crm-solar\.env`), các dòng cần lấy giá trị thật (đang có sẵn, đã
+verify là tài khoản Omicall thật của công ty):
+
+```
+OMICALL_ENABLED=true
+OMICALL_DOMAIN=...
+OMICALL_WSS_URI=...
+OMICALL_HOTLINE=...
+OMICALL_OUTBOUND_NUMBER_MODE=...
+OMICALL_WEBHOOK_SECRET=...
+OMICALL_API_KEY=...
+OMICALL_API_BASE_URL=...
+```
+
+> ⚠️ Đây là secret thật (đặc biệt `OMICALL_WEBHOOK_SECRET`/`OMICALL_API_KEY`) — không paste các
+> giá trị này vào chat/tài liệu/nơi công khai. Copy trực tiếp giữa 2 file `.env`.
+
+### Các bước thực hiện
+
+1. **Mở song song 2 file** (máy dev, dùng editor bất kỳ):
+   ```
+   D:\IT\zalo-crm-solar\.env         ← nguồn (đã có giá trị thật)
+   ```
+   Ghi lại (tạm, chỉ trên máy mình) giá trị của 7 dòng `OMICALL_*` liệt kê ở trên.
+
+2. **SSH vào server, sửa `.env`:**
+   ```bash
+   ssh root@14.225.222.26
+   cd ~/zcrm
+   nano .env
+   ```
+   Tìm và sửa đúng 7 dòng `OMICALL_*` ở trên bằng giá trị đã copy từ máy dev (giữ nguyên các dòng
+   khác — đặc biệt các secret của server như `JWT_SECRET`/`DB_PASSWORD` KHÔNG đụng vào).
+   Lưu (`Ctrl+O`, Enter, `Ctrl+X`).
+
+3. **Recreate container để đọc lại `.env`** (restart không đủ):
+   ```bash
+   docker compose up -d app
+   ```
+
+4. **Kiểm tra đã nhận cấu hình:**
+   ```bash
+   curl -s http://localhost:3080/api/v1/telephony/omicall/connect-config \
+     -H "Authorization: Bearer <token-đăng-nhập>"   # cần token thật — dễ nhất là kiểm tra qua UI (bước 5)
+   ```
+
+5. **Kiểm tra qua UI:** mở `http://14.225.222.26:3080`, đăng nhập, mở nút "Tổng đài nội bộ" (góc
+   trên bên phải) — phải thấy trạng thái kết nối chuyển từ "Đang kết nối..." sang sẵn sàng (không
+   còn báo lỗi). Thử gọi thử 1 cuộc nội bộ hoặc ra số thật để xác nhận.
+
+### ⚠️ QUAN TRỌNG — tránh xung đột 2 nơi cùng đăng ký 1 tài khoản
+
+Sau khi VPS kết nối Omicall thành công bằng CHUNG tài khoản với máy dev, **2 nơi cùng lúc đăng ký
+cùng 1 extension SIP có thể tranh chấp nhau** (cuộc gọi đến có thể vào nhầm nơi, hoặc 1 bên bị
+tổng đài từ chối đăng ký). Để tránh:
+
+```bash
+# Trên MÁY DEV (Windows, Git Bash), TẮT app container sau khi đã xác nhận VPS chạy ổn:
+cd /d/IT/zalo-crm-solar
+docker compose stop app
+# (KHÔNG dùng "down" — "stop" giữ nguyên container để bật lại nhanh nếu cần, không mất gì)
+```
+Muốn bật lại app ở máy dev sau này (vd để code/test tính năng khác): `docker compose start app`.
+
+### Rollback nếu có sự cố
+
+```bash
+ssh root@14.225.222.26
+cd ~/zcrm
+nano .env   # đổi lại OMICALL_ENABLED=false
+docker compose up -d app
+```
+Tắt Omicall trên VPS không ảnh hưởng gì khác — các tính năng còn lại (Zalo chat, CRM, lịch hẹn...)
+vẫn hoạt động bình thường.
+
+---
+
 ## 7. Domain + HTTPS (Cloudflare Tunnel) — chưa cấu hình, hướng dẫn setup
 
 Hiện app chỉ chạy `http://14.225.222.26:3080` — không mã hoá, không domain, người dùng phải nhớ
@@ -449,7 +538,7 @@ audit gần nhất kết luận **"NOT READY FOR PRODUCTION"** với các điể
 | Frontend bundle lớn (`exceljs` ~930KB, CSS ~810KB) | Remaining | Ảnh hưởng tốc độ tải lần đầu trên mạng yếu, chưa tối ưu |
 
 ### Tính năng tuỳ chọn CHƯA bật (không lỗi — chỉ chưa cấu hình)
-- OmiCall (`OMICALL_ENABLED=false`) — bật khi có tài khoản OmiCall thật + điền domain/hotline/webhook secret vào `.env`.
+- OmiCall (`OMICALL_ENABLED=false`) — xác nhận là nguyên nhân "kết nối omni bị lỗi" (2026-08-22). Hướng dẫn bật ở §6a.
 - AI Assistant (`ANTHROPIC_AUTH_TOKEN` trống) — điền key nếu muốn dùng trợ lý AI.
 - Telegram Bridge, Facebook Lead Ads, TikTok Lead Gen, Zalo Ads — tất cả optional, điền `.env` hoặc qua UI Settings khi cần.
 

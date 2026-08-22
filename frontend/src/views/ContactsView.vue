@@ -112,6 +112,15 @@
         <option value="">Tất cả sale</option>
         <option v-for="u in allUsers" :key="u.id" :value="u.id">{{ u.fullName }}</option>
       </select>
+      <!-- FIX 2026-08-22 (anh báo: thêm KH xong không biết nó nằm ở đâu trong danh sách —
+           mặc định sort theo lastActivity, KH mới chưa có tương tác bị đẩy XUỐNG CUỐI list,
+           không phải lên đầu như comment cũ tưởng) — thêm dropdown Sắp xếp tường minh. -->
+      <select v-model="filters.sort" @change="fetchContacts" title="Sắp xếp danh sách">
+        <option :value="null">Sắp xếp: Tương tác mới nhất</option>
+        <option value="newest">Sắp xếp: Vừa thêm mới nhất</option>
+        <option value="name">Sắp xếp: Tên A-Z</option>
+        <option value="score">Sắp xếp: Điểm cao nhất</option>
+      </select>
 
       <!-- Thêm KH Nhanh (2026-06-05 Anh chốt: đưa từ FAB góc phải lên đây) -->
       <button class="btn btn-quick-add" @click="showAddCustomerDialog = true" title="Thêm khách hàng nhanh">
@@ -851,13 +860,20 @@ function openProfile(c: Contact) {
 function onProfileSaved() { fetchContacts(); }
 // 2026-06-03: form Thêm KH dùng chính CustomerProfileDialog mode='create' (đồng nhất style Smax)
 const showCreateProfile = ref(false);
+// FIX 2026-08-22 (anh báo: thêm KH xong không biết nó nằm ở đâu) — tự chuyển sort sang
+// "Vừa thêm mới nhất" nên KH mới luôn hiện đầu trang 1, không cần tự đi tìm/đổi filter.
 function onContactCreated(_c: { id: string; fullName: string | null; phone: string | null }) {
+  filters.sort = 'newest';
+  pagination.page = 1;
   fetchContacts();
   loadStats();
 }
 
 function onContactQuickCreated(_c: { id: string; fullName: string | null; phone: string | null }) {
-  // Reload list ngay để KH mới xuất hiện đầu danh sách
+  // FIX 2026-08-22: sort=null (mặc định) KHÔNG đưa KH mới lên đầu — KH mới chưa có
+  // lastActivity nên bị đẩy xuống CUỐI list. Chuyển sang sort=newest để chắc chắn thấy ngay.
+  filters.sort = 'newest';
+  pagination.page = 1;
   fetchContacts();
 }
 

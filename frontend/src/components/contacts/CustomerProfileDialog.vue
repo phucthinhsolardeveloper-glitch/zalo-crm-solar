@@ -132,9 +132,9 @@
                     <span class="k">Email</span>
                     <span class="v"><input v-model="form.email" class="cpd-in" /></span>
                   </div>
-                  <div class="kv">
+                  <div class="kv kv-address">
                     <span class="k">Ngành hàng</span>
-                    <span class="v"><input v-model="form.industry" class="cpd-in" /></span>
+                    <span class="v"><AddressAutocomplete v-model="form.industry" input-class="cpd-in" :suggestions="INDUSTRY_OPTIONS" /></span>
                   </div>
                   <div class="kv">
                     <span class="k">Tên cửa hàng</span>
@@ -207,9 +207,9 @@
                       </select>
                     </span>
                   </div>
-                  <div class="kv">
+                  <div class="kv kv-address">
                     <span class="k">Nguồn khách</span>
-                    <span class="v"><input v-model="form.source" class="cpd-in" placeholder="vd Facebook, Tổng đài…" /></span>
+                    <span class="v"><AddressAutocomplete v-model="form.source" input-class="cpd-in" :suggestions="sourceSuggestions" placeholder="vd Facebook, Tổng đài…" /></span>
                   </div>
                   <div class="kv kv-tag">
                     <span class="k">Tag CRM <span v-if="!isCreate" class="agg">theo nick</span></span>
@@ -468,7 +468,7 @@ import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
-import { formatRecentDateTime, cleanPreview, STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS } from '@/composables/use-contacts';
+import { formatRecentDateTime, cleanPreview, STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS, SOURCE_OPTIONS, INDUSTRY_OPTIONS } from '@/composables/use-contacts';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import TagCrmBar from '@/components/chat/TagCrmBar.vue';
 import CallButton from '@/components/telephony/CallButton.vue';
@@ -606,6 +606,10 @@ const wardSuggestions = computed(() => {
     addressSuggestions.value.wardsByProvince || {},
   );
 });
+
+// Nguồn khách — combobox chọn nhanh (SOURCE_OPTIONS) nhưng vẫn cho gõ tự do (dữ liệu cũ
+// trước khi có danh sách chuẩn hoá vẫn hiển thị đúng dù không khớp danh sách).
+const sourceSuggestions = SOURCE_OPTIONS.map((o) => o.text);
 
 // ── Fetch chi tiết khi mở ──
 async function loadDetail() {

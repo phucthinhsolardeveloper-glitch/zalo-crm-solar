@@ -136,7 +136,7 @@
           <div class="acqd-row2">
             <div class="acqd-field">
               <label class="acqd-label">Ngành hàng</label>
-              <input v-model.trim="form.industry" class="acqd-input" />
+              <AddressAutocomplete v-model="form.industry" input-class="acqd-input" :suggestions="INDUSTRY_OPTIONS" />
             </div>
             <div class="acqd-field">
               <label class="acqd-label">Tên cửa hàng</label>
@@ -222,7 +222,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api/index';
-import { STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS } from '@/composables/use-contacts';
+import { STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS, INDUSTRY_OPTIONS } from '@/composables/use-contacts';
 import AddressAutocomplete from './AddressAutocomplete.vue';
 import { wardsForProvince } from './address-suggestion-utils';
 
