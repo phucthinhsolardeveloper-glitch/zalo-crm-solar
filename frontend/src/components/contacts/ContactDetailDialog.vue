@@ -406,34 +406,33 @@
           <!-- ── TAB: Địa chỉ ───────────────────────────────────────── -->
           <v-tabs-window-item value="address">
             <v-row dense>
-              <v-col cols="12" sm="4">
+              <v-col cols="12" sm="6">
                 <v-combobox
                   v-model="form.province"
                   :items="addressSuggestions.provinces"
                   label="Tỉnh/Thành phố"
-                  hint="Gợi ý từ dữ liệu đã nhập — vẫn gõ tự do được"
+                  hint="Nhập tên có dấu hoặc không dấu để tìm"
+                  clearable
+                  @update:model-value="form.ward = ''"
                 />
               </v-col>
-              <v-col cols="12" sm="4">
-                <v-combobox
-                  v-model="form.district"
-                  :items="addressSuggestions.districts"
-                  label="Quận/Huyện"
-                />
-              </v-col>
-              <v-col cols="12" sm="4">
+              <v-col cols="12" sm="6">
                 <v-combobox
                   v-model="form.ward"
-                  :items="addressSuggestions.wards"
+                  :items="wardSuggestions"
                   label="Phường/Xã"
+                  :disabled="!wardSuggestions.length"
+                  :hint="form.province ? 'Chỉ hiển thị phường/xã thuộc tỉnh đã chọn' : 'Chọn tỉnh/thành phố trước'"
+                  clearable
                 />
               </v-col>
               <v-col cols="12">
                 <v-textarea
                   v-model="form.addressLine"
                   label="Địa chỉ chi tiết"
-                  rows="2"
+                  rows="3"
                   auto-grow
+                  placeholder="Số nhà, tên đường, thôn/xóm…"
                 />
               </v-col>
             </v-row>
@@ -750,6 +749,7 @@ import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import type { Contact } from '@/composables/use-contacts';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
+import { wardsForProvince } from './address-suggestion-utils';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
 import CallButton from '@/components/telephony/CallButton.vue';
 import {
@@ -824,7 +824,6 @@ interface FormState {
   preferredLang: string;
   // address
   province: string;
-  district: string;
   ward: string;
   addressLine: string;
   // consent
@@ -858,7 +857,6 @@ function emptyForm(): FormState {
     socialTiktok: '',
     preferredLang: 'vi',
     province: '',
-    district: '',
     ward: '',
     addressLine: '',
     consentStatus: 'implicit',
@@ -868,10 +866,11 @@ function emptyForm(): FormState {
 
 const form = ref<FormState>(emptyForm());
 
-// Gợi ý tỉnh/huyện/xã từ dữ liệu đã có trong org (KHÔNG dùng dataset hành chính
-// tĩnh — dễ lỗi thời/sai khi tỉnh huyện sáp nhập). Lazy-load 1 lần khi dialog mở.
-const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wards: string[] }>({
-  provinces: [], districts: [], wards: [],
+// FIX 2026-08-22: Tỉnh/thành + Phường/Xã giờ dùng dataset hành chính 2025 thật (34 tỉnh/TP,
+// 3.321 phường/xã sau sáp nhập, backend/src/shared/data/vn-wards-2025.json) làm nguồn chính,
+// cộng dữ liệu org đã nhập làm gợi ý phụ. Giao diện dùng mô hình 2 cấp, không còn Quận/Huyện.
+const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wardsByProvince: Record<string, string[]> }>({
+  provinces: [], districts: [], wardsByProvince: {},
 });
 let addressSuggestionsLoaded = false;
 async function loadAddressSuggestions() {
@@ -885,6 +884,14 @@ async function loadAddressSuggestions() {
   }
 }
 watch(show, (open) => { if (open) void loadAddressSuggestions(); });
+// Phường/Xã chỉ gợi ý sau khi xác định được đúng tỉnh/thành; không gộp xã toàn quốc.
+const wardSuggestions = computed(() => {
+  return wardsForProvince(
+    form.value.province,
+    addressSuggestions.value.provinces,
+    addressSuggestions.value.wardsByProvince || {},
+  );
+});
 
 // Attempts on activity tab
 const attempts = ref<Array<{
@@ -1095,7 +1102,6 @@ watch(() => props.contact, (c) => {
       socialTiktok: c.socialTiktok ?? '',
       preferredLang: c.preferredLang ?? 'vi',
       province: c.province ?? '',
-      district: c.district ?? '',
       ward: c.ward ?? '',
       addressLine: c.addressLine ?? '',
       consentStatus: c.consentStatus ?? 'implicit',
@@ -1202,7 +1208,6 @@ async function onSave() {
     preferredLang: form.value.preferredLang || 'vi',
 
     province: form.value.province || null,
-    district: form.value.district || null,
     ward: form.value.ward || null,
     addressLine: form.value.addressLine || null,
 

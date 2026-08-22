@@ -397,6 +397,48 @@ export async function telephonyRoutes(app: FastifyInstance) {
         orderBy: { startedAt: 'asc' },
       }),
     ]);
+    // FIX 2026-08-22 (anh báo: "Mở hồ sơ khách hàng"/"Mở hội thoại" không tới được hồ sơ đã
+    // có) — call.contact trước đây CHỈ lấy theo contactId đã LƯU SẴN trên CallLog. Dòng nào
+    // chưa từng được PATCH contactId (vd Contact tạo/import SAU cuộc gọi) → contact=null →
+    // 2 nút trên bị ẩn hoàn toàn dù SĐT này ĐÃ CÓ hồ sơ. Với các dòng contactId=null, thử
+    // khớp lại theo SĐT (cùng cách match dùng ở omicall-history-sync.ts/contact-import) —
+    // khớp được thì coi như đã có hồ sơ (hiện đúng nút, ẩn "Tạo KH" để khỏi tạo trùng).
+    // CHỈ đọc để hiển thị — KHÔNG ghi ngược contactId vào CallLog cũ.
+    const unmatchedNumbers = [...new Set(
+      calls.filter((c) => !c.contact && c.externalNumber).map((c) => c.externalNumber as string),
+    )];
+    const contactByPhone = new Map<string, { id: string; fullName: string | null; crmName: string | null; avatarUrl: string | null; phone: string | null }>();
+    if (unmatchedNumbers.length) {
+      const contactScope = await getContactScope(current.id, current.orgId, current.role);
+      const variantSet = new Set<string>();
+      for (const num of unmatchedNumbers) for (const v of phoneVariants(num)) variantSet.add(v);
+      const matched = await prisma.contact.findMany({
+        where: {
+          orgId: current.orgId,
+          mergedInto: null,
+          ...(!contactScope.isOrgAdmin && contactScope.accessibleContactIds !== null
+            ? { id: { in: contactScope.accessibleContactIds } }
+            : {}),
+          OR: [
+            { phoneNormalized: { in: unmatchedNumbers } },
+            { phone: { in: [...variantSet] } },
+            { phone2: { in: [...variantSet] } },
+            { phone3: { in: [...variantSet] } },
+          ],
+        },
+        select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true, phone2: true, phone3: true, phoneNormalized: true },
+      });
+      for (const c of matched) {
+        for (const p of [c.phoneNormalized, c.phone, c.phone2, c.phone3]) {
+          if (!p) continue;
+          const norm = normalizePhone(p);
+          if (norm && unmatchedNumbers.includes(norm) && !contactByPhone.has(norm)) {
+            contactByPhone.set(norm, { id: c.id, fullName: c.fullName, crmName: c.crmName, avatarUrl: c.avatarUrl, phone: c.phone });
+          }
+        }
+      }
+    }
+
     // Latest note theo ĐẦU SỐ. callId vẫn là audit source; PSTN/ZCC cùng phoneKey
     // dùng chung timeline, internal/number lỗi mới fallback theo callId.
     const phoneKeyByCallId = new Map(calls.map((c) => [c.id, callNotePhoneKey(c.externalNumber, c.channel)]));
@@ -424,7 +466,12 @@ export async function telephonyRoutes(app: FastifyInstance) {
     }
     const callsWithLatestNote = calls.map((c) => {
       const phoneKey = phoneKeyByCallId.get(c.id);
-      return { ...c, latestNote: (phoneKey ? latestNoteByPhoneKey.get(phoneKey) : latestNoteByCallId.get(c.id)) ?? null };
+      const matchedContact = !c.contact && c.externalNumber ? contactByPhone.get(c.externalNumber) ?? null : null;
+      return {
+        ...c,
+        contact: c.contact ?? matchedContact,
+        latestNote: (phoneKey ? latestNoteByPhoneKey.get(phoneKey) : latestNoteByCallId.get(c.id)) ?? null,
+      };
     });
 
     // UTC+7 cố định (Việt Nam không DST) để biểu đồ ngày/khung giờ không lệch theo

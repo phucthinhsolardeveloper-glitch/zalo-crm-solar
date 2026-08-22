@@ -28,6 +28,7 @@ import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { logActivity, computeDiff } from '../activity/activity-logger.js';
 import { emitWebhook } from '../api/webhook-service.js';
+import vnWards2025 from '../../shared/data/vn-wards-2025.json' with { type: 'json' };
 
 type QueryParams = Record<string, string>;
 const IMPORTANCE_LEVELS = new Set(['low', 'normal', 'high', 'critical']);
@@ -47,15 +48,11 @@ function emitContactChanged(
 // Danh sách đơn vị cấp tỉnh hiện hành theo Quyết định 19/2025/QĐ-TTg, có hiệu
 // lực từ 01/07/2025. Chỉ dùng làm seed gợi ý; dữ liệu đã nhập của doanh nghiệp
 // vẫn được giữ và field vẫn cho phép nhập tự do để tương thích địa chỉ cũ.
-const VIETNAM_PROVINCES_2025 = [
-  'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cao Bằng', 'Cần Thơ', 'Đà Nẵng',
-  'Đắk Lắk', 'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Nội',
-  'Hà Tĩnh', 'Hải Phòng', 'Hưng Yên', 'Huế', 'Khánh Hòa', 'Lai Châu',
-  'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ',
-  'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh',
-  'Thái Nguyên', 'Thanh Hóa', 'Thành phố Hồ Chí Minh', 'Tuyên Quang',
-  'Vĩnh Long',
-] as const;
+// 34 tỉnh/thành + 3.321 phường/xã sau sáp nhập 2025 — dữ liệu anh tổng hợp/cung cấp
+// (backend/src/shared/data/vn-wards-2025.json), thay cho danh sách tỉnh gõ tay cũ + gợi ý
+// phường/xã chỉ lấy được từ dữ liệu org (rỗng nếu org chưa có KH nào ở tỉnh đó).
+const VIETNAM_PROVINCES_2025: readonly string[] = vnWards2025.provinces;
+const VIETNAM_WARDS_BY_PROVINCE_2025: Record<string, readonly string[]> = vnWards2025.wardsByProvince;
 
 export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -441,14 +438,18 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // ── GET /api/v1/contacts/address-suggestions — gợi ý tỉnh/huyện/xã đã có sẵn ──
-  // Tỉnh/thành có seed hiện hành để org chưa có dữ liệu vẫn thấy gợi ý ngay.
-  // Quận/huyện/phường/xã lấy từ dữ liệu thật của org để tương thích địa chỉ cũ;
-  // autocomplete không ép buộc và vẫn cho phép nhập tự do.
+  // ── GET /api/v1/contacts/address-suggestions — gợi ý tỉnh/phường-xã ────────
+  // FIX 2026-08-22 (anh gửi data thật 34 tỉnh/TP + 3.321 phường/xã sau sáp nhập 2025) —
+  // trước đây phường/xã CHỈ gợi ý được từ dữ liệu Contact đã có sẵn trong org (org mới/
+  // chưa nhập KH ở tỉnh nào thì tỉnh đó rỗng gợi ý). Giờ dùng dữ liệu hành chính THẬT làm
+  // nguồn chính (wardsByProvince, tra theo đúng tỉnh đã chọn — cascading, không lẫn phường/xã
+  // tỉnh khác) + vẫn cộng thêm phường/xã đã có sẵn trong Contact CHƯA khớp danh sách chuẩn
+  // (dữ liệu cũ trước sáp nhập/gõ tay) làm gợi ý phụ, KHÔNG xoá — vẫn cho nhập tự do.
+  // Quận/Huyện: cấu trúc hành chính mới bỏ cấp huyện, chỉ còn gợi ý từ dữ liệu org (free-text).
   app.get('/api/v1/contacts/address-suggestions', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
-      const [provinces, districts, wards] = await Promise.all([
+      const [provinces, districts, provinceWardPairs] = await Promise.all([
         prisma.contact.groupBy({
           by: ['province'], where: { orgId: user.orgId, mergedInto: null, province: { not: null } },
           _count: { province: true }, orderBy: { _count: { province: 'desc' } }, take: 200,
@@ -458,15 +459,34 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           _count: { district: true }, orderBy: { _count: { district: 'desc' } }, take: 500,
         }),
         prisma.contact.groupBy({
-          by: ['ward'], where: { orgId: user.orgId, mergedInto: null, ward: { not: null } },
-          _count: { ward: true }, orderBy: { _count: { ward: 'desc' } }, take: 500,
+          by: ['province', 'ward'],
+          where: { orgId: user.orgId, mergedInto: null, ward: { not: null } },
+          orderBy: [{ province: 'asc' }, { ward: 'asc' }],
+          take: 2000,
         }),
       ]);
       const storedProvinces = provinces.filter((g) => g.province).map((g) => g.province as string);
+
+      // Gộp phường/xã org đã có nhưng CHƯA có trong danh sách chuẩn của đúng tỉnh đó vào
+      // làm gợi ý phụ — key rỗng '' (tỉnh không xác định/không khớp) gom vào wardsExtra
+      // chung, không gán bừa vào 1 tỉnh cụ thể.
+      const wardsByProvince: Record<string, string[]> = {};
+      for (const [prov, list] of Object.entries(VIETNAM_WARDS_BY_PROVINCE_2025)) {
+        wardsByProvince[prov] = [...list];
+      }
+      for (const row of provinceWardPairs) {
+        const prov = row.province;
+        const ward = row.ward;
+        if (!ward) continue;
+        const key = prov && VIETNAM_WARDS_BY_PROVINCE_2025[prov] ? prov : '__unmatched__';
+        wardsByProvince[key] = wardsByProvince[key] || [];
+        if (!wardsByProvince[key].includes(ward)) wardsByProvince[key].push(ward);
+      }
+
       return {
         provinces: [...new Set([...VIETNAM_PROVINCES_2025, ...storedProvinces])],
         districts: districts.filter((g) => g.district).map((g) => g.district as string),
-        wards: wards.filter((g) => g.ward).map((g) => g.ward as string),
+        wardsByProvince,
       };
     } catch (err) {
       logger.error('[contacts] Address suggestions error:', err);

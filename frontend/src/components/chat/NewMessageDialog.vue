@@ -285,7 +285,7 @@
          → set autoOpenVirtualChat=false để dialog KHÔNG tự navigate (tránh race 2 POST). -->
     <AddCustomerQuickDialog
       v-model="showQuickAddDialog"
-      :default-phone="query"
+      v-bind="{ defaultPhone: query }"
       lead-source="chat_compose_lookup_miss"
       :auto-open-virtual-chat="false"
       @created="onQuickAddCreated"

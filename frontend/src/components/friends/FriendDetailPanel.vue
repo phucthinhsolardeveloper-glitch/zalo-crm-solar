@@ -41,7 +41,7 @@
             </div>
             <div v-if="friend.contact?.province" class="kv">
               <span class="k">📍 Khu vực</span>
-              <span class="v">{{ [friend.contact.district, friend.contact.province].filter(Boolean).join(', ') }}</span>
+              <span class="v">{{ [friend.contact.ward, friend.contact.province].filter(Boolean).join(', ') }}</span>
             </div>
           </div>
 

@@ -1913,9 +1913,18 @@ const zaloFriend = useZaloFriendStatus(
   () => props.conversation?.zaloAccount?.id || null,
   () => {
     if (props.conversation?.threadType !== 'user') return null;
+    const threadId = props.conversation?.externalThreadId || '';
+    // FIX 2026-08-22 (anh báo: mở "Mở hội thoại" từ Lịch sử cuộc gọi → spam lỗi 500) —
+    // hội thoại nội bộ (isVirtual, KH chưa có Zalo) dùng externalThreadId synthetic
+    // "virtual:{contactId}:{nickId}" — KHÔNG phải UID Zalo thật. Gọi getFriendRequestStatus
+    // với chuỗi này bị Zalo API từ chối [zalo:114] mỗi 30s vô thời hạn trong khi hội thoại
+    // còn mở. Check thẳng tiền tố "virtual:" (không dựa riêng vào cờ isVirtual — cờ này đọc
+    // từ field khác của cùng object, có thể populate lệch nhịp với externalThreadId lúc
+    // props đang cập nhật dần) — không có quan hệ Zalo thật thì không có gì để kiểm tra.
+    if (isVirtualConv.value || threadId.startsWith('virtual:')) return null;
     // Per-account UID: externalThreadId là UID KH FROM POV nick này.
     // contact.zaloUid có thể là UID từ nick khác → getFriendRequestStatus trả sai/empty.
-    return props.conversation?.externalThreadId || props.conversation?.contact?.zaloUid || null;
+    return threadId || props.conversation?.contact?.zaloUid || null;
   },
 );
 

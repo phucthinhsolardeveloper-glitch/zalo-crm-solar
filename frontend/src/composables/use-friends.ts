@@ -50,6 +50,7 @@ export interface DbFriend {
     status: string | null;
     province: string | null;
     district: string | null;
+    ward: string | null;
     birthYear: number | null;
   };
   zaloAccount?: {

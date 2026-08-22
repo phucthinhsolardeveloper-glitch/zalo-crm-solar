@@ -158,23 +158,19 @@
               </select>
             </div>
           </div>
-          <div class="acqd-row3">
+          <div class="acqd-row2">
             <div class="acqd-field">
               <label class="acqd-label">Tỉnh/Thành phố</label>
-              <AddressAutocomplete v-model="form.province" input-class="acqd-input" :suggestions="addressSuggestions.provinces" />
-            </div>
-            <div class="acqd-field">
-              <label class="acqd-label">Quận/Huyện</label>
-              <AddressAutocomplete v-model="form.district" input-class="acqd-input" :suggestions="addressSuggestions.districts" />
+              <AddressAutocomplete v-model="form.province" input-class="acqd-input" placeholder="Nhập để tìm tỉnh/thành phố" :suggestions="addressSuggestions.provinces" @select="form.ward = ''" />
             </div>
             <div class="acqd-field">
               <label class="acqd-label">Phường/Xã</label>
-              <AddressAutocomplete v-model="form.ward" input-class="acqd-input" :suggestions="addressSuggestions.wards" />
+              <AddressAutocomplete v-model="form.ward" input-class="acqd-input" :placeholder="form.province ? 'Nhập để tìm phường/xã' : 'Chọn tỉnh/thành phố trước'" :disabled="!wardSuggestions.length" :suggestions="wardSuggestions" />
             </div>
           </div>
           <div class="acqd-field">
             <label class="acqd-label">Địa chỉ chi tiết</label>
-            <input v-model.trim="form.addressLine" class="acqd-input" placeholder="Số nhà, tên đường…" />
+            <textarea v-model.trim="form.addressLine" class="acqd-input acqd-address-detail" rows="2" placeholder="Số nhà, tên đường, thôn/xóm…"></textarea>
           </div>
         </div>
       </div>
@@ -228,7 +224,7 @@ import { useToast } from '@/composables/use-toast';
 import { api } from '@/api/index';
 import { STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS } from '@/composables/use-contacts';
 import AddressAutocomplete from './AddressAutocomplete.vue';
-import { consumeQuickAddPhone } from '@/composables/quick-add-prefill';
+import { wardsForProvince } from './address-suggestion-utils';
 
 interface Props {
   modelValue: boolean;
@@ -261,23 +257,33 @@ const form = ref({
   fullName: '', phone: props.defaultPhone || '',
   gender: null as string | null, birthDate: '', email: '',
   industry: '', storeName: '', customerType: null as string | null, importanceLevel: null as string | null, status: 'new',
-  province: '', district: '', ward: '', addressLine: '',
+  province: '', ward: '', addressLine: '',
 });
 const showMore = ref(false);
-const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wards: string[] }>({
-  provinces: [], districts: [], wards: [],
+const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wardsByProvince: Record<string, string[]> }>({
+  provinces: [], districts: [], wardsByProvince: {},
 });
 let addressSuggestionsLoaded = false;
 async function loadAddressSuggestions() {
   if (addressSuggestionsLoaded) return;
-  addressSuggestionsLoaded = true;
   try {
     const { data } = await api.get('/contacts/address-suggestions');
     addressSuggestions.value = data;
+    addressSuggestionsLoaded = true;
   } catch {
-    // Gợi ý chỉ là tiện ích — field vẫn free text nếu load lỗi.
+    // Không khóa retry: popup có thể mở đúng lúc app/container vừa reconnect.
   }
 }
+// FIX 2026-08-22 (data 34 tỉnh/TP + 3.321 phường/xã sau sáp nhập 2025) — Phường/Xã gợi ý
+// theo ĐÚNG tỉnh/thành đã chọn (cascading), tránh lẫn phường/xã tỉnh khác trùng tên.
+// Chưa xác định được tỉnh thì chưa gợi ý xã, tuyệt đối không gộp toàn quốc.
+const wardSuggestions = computed(() => {
+  return wardsForProvince(
+    form.value.province,
+    addressSuggestions.value.provinces,
+    addressSuggestions.value.wardsByProvince || {},
+  );
+});
 const loading = ref(false);
 const phoneError = ref<string | null>(null);
 const duplicateContact = ref<null | {
@@ -305,30 +311,17 @@ const phoneModel = computed({
 const nameInputRef = ref<HTMLInputElement | null>(null);
 const phoneInputRef = ref<HTMLInputElement | null>(null);
 
-function setPhone(phone: string) {
-  form.value.phone = phone;
-  // Vuetify dialogs render through Teleport/transition. Keep the native value
-  // in sync even when the input became available one frame after the state set.
-  void nextTick(() => {
-    if (phoneInputRef.value && phoneInputRef.value.value !== phone) {
-      phoneInputRef.value.value = phone;
-    }
-  });
-}
-defineExpose({ setPhone });
-
 const canSubmit = computed(() => {
   return form.value.fullName.trim().length > 0 && phoneModel.value.trim().length > 0;
 });
 
 watch(() => props.modelValue, async (open) => {
   if (open) {
-    const stagedPhone = consumeQuickAddPhone();
     form.value = {
-      fullName: '', phone: stagedPhone || props.defaultPhone || form.value.phone || '',
+      fullName: '', phone: props.defaultPhone || form.value.phone || '',
       gender: null, birthDate: '', email: '',
       industry: '', storeName: '', customerType: null, importanceLevel: null, status: 'new',
-      province: '', district: '', ward: '', addressLine: '',
+      province: '', ward: '', addressLine: '',
     };
     showMore.value = false;
     phoneError.value = null;
@@ -338,7 +331,7 @@ watch(() => props.modelValue, async (open) => {
     // Luôn focus Họ tên — sale gõ tên trước, Enter xuống SĐT (đã pre-fill thì Enter lần 2 = Lưu)
     nameInputRef.value?.focus();
   }
-});
+}, { immediate: true });
 
 // Một số entry point chọn record nguồn và mở dialog trong hai render liên tiếp.
 // Nếu defaultPhone đến sau modelValue, đồng bộ bổ sung để không bắt sale nhập lại số.
@@ -428,7 +421,6 @@ async function onSubmit() {
       importanceLevel: form.value.importanceLevel || undefined,
       status: form.value.status || undefined,
       province: form.value.province.trim() || undefined,
-      district: form.value.district.trim() || undefined,
       ward: form.value.ward.trim() || undefined,
       addressLine: form.value.addressLine.trim() || undefined,
     });
@@ -499,10 +491,18 @@ async function onSubmit() {
 
 <style scoped>
 /* Token palette giữ với mockup HTML chốt 2026-05-28 */
+/* FIX 2026-08-22 (anh báo: mở rộng "Thêm thông tin chi tiết" mất nút Lưu) — card trước đây
+   không giới hạn chiều cao, thân card cứ cao dần theo số field mở rộng (12 field) tới khi
+   tràn hẳn khỏi viewport mà không có cách cuộn xuống thấy nút Lưu (overflow:hidden chặn
+   luôn cuộn nội bộ). Giờ card giới hạn tối đa 90vh, CHỈ phần thân (.acqd-body) cuộn được,
+   header/footer-hint/actions đứng yên (flex-shrink:0) — luôn thấy nút Lưu dù mở rộng bao nhiêu. */
 .acqd-card {
   border-radius: 12px !important;
   overflow: hidden;
   background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
 }
 
 .acqd-head {
@@ -511,6 +511,7 @@ async function onSubmit() {
   justify-content: space-between;
   padding: 20px 24px 14px;
   border-bottom: 1px solid #dddddd;
+  flex-shrink: 0;
 }
 .acqd-title {
   font-size: 17px;
@@ -522,6 +523,9 @@ async function onSubmit() {
 
 .acqd-body {
   padding: 18px 24px 20px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .acqd-field { margin-bottom: 16px; }
@@ -560,6 +564,7 @@ async function onSubmit() {
   background: #f8fafc;
   cursor: not-allowed;
 }
+.acqd-address-detail { height: auto; min-height: 64px; padding: 9px 12px; line-height: 1.45; resize: vertical; }
 .acqd-input.has-error { border-color: #b91c1c; }
 .acqd-input.has-warning { border-color: #d97706; }
 .acqd-input--phone {
@@ -624,6 +629,7 @@ async function onSubmit() {
   border-top: 1px solid #dddddd;
   padding: 10px 24px;
   line-height: 1.4;
+  flex-shrink: 0;
 }
 
 .acqd-actions {
@@ -632,6 +638,7 @@ async function onSubmit() {
   justify-content: flex-end;
   padding: 14px 24px;
   border-top: 1px solid #dddddd;
+  flex-shrink: 0;
 }
 
 .acqd-btn {

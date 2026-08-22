@@ -332,18 +332,20 @@
     </section>
 
     <AddCustomerQuickDialog
-      ref="createCustomerDialogRef"
-      v-model="showCreateCustomer"
+      v-if="createCustomerRequest"
+      :key="createCustomerRequest.call.id"
+      :model-value="true"
       lead-source="call_history"
-      :default-phone="creatingForCall ? displayPhone(creatingForCall.externalNumber) : creatingPhone"
+      v-bind="{ defaultPhone: createCustomerRequest.phone }"
       :auto-open-virtual-chat="false"
+      @update:model-value="onCreateCustomerDialogVisibility"
       @created="onCustomerCreated"
     />
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import { useAuthStore } from '@/stores/auth';
@@ -353,7 +355,6 @@ import CallButton from '@/components/telephony/CallButton.vue';
 import CallNotesPanel from '@/components/telephony/CallNotesPanel.vue';
 import AddCustomerQuickDialog from '@/components/contacts/AddCustomerQuickDialog.vue';
 import { useCrmLinkSocket } from '@/composables/use-crm-link-socket';
-import { stageQuickAddPhone } from '@/composables/quick-add-prefill';
 
 interface CallItem {
   id: string;
@@ -562,32 +563,24 @@ function callTargetPeer(call: CallItem) {
 // Số lạ (chưa có KH) → tạo nhanh (dùng lại đúng dialog quick-add có sẵn ở Contacts),
 // sau đó gắn ngược contactId vào đúng CallLog đã bấm — không cần sale tự nhớ số rồi
 // tự đi tìm/gán tay.
-const showCreateCustomer = ref(false);
-const creatingForCall = ref<CallItem | null>(null);
-const creatingPhone = ref('');
-const createCustomerDialogRef = ref<{ setPhone: (phone: string) => void } | null>(null);
+const createCustomerRequest = ref<{ call: CallItem; phone: string } | null>(null);
 
-async function openCreateCustomer(call: CallItem, renderedPhone: string) {
+function openCreateCustomer(call: CallItem, renderedPhone: string) {
   // Pass the already-rendered phone explicitly. Depending on the icon/button
   // click target, Vue's synthetic event currentTarget was not reliable here.
   const selectedPhone = renderedPhone || displayPhone(call.externalNumber);
-  stageQuickAddPhone(selectedPhone);
-  // Store the selected phone atomically with the row. The dialog prop derives
-  // directly from this object, avoiding a one-render gap between two refs.
-  creatingForCall.value = { ...call, externalNumber: selectedPhone };
-  creatingPhone.value = selectedPhone;
-  // Đảm bảo defaultPhone render sang dialog trước khi modelValue đổi false→true.
-  // Nếu đổi cùng một tick, watcher của dialog đôi lúc đọc props cũ và để SĐT trống.
-  await nextTick();
-  showCreateCustomer.value = true;
-  await nextTick();
-  createCustomerDialogRef.value?.setPhone(selectedPhone);
+  // The source call and phone form one atomic request. Mounting the dialog from
+  // this single object avoids races between separate call/phone/open refs.
+  createCustomerRequest.value = { call, phone: selectedPhone };
+}
+
+function onCreateCustomerDialogVisibility(open: boolean) {
+  if (!open) createCustomerRequest.value = null;
 }
 
 async function onCustomerCreated(contact: { id: string; fullName: string | null; phone: string | null }) {
-  const call = creatingForCall.value;
-  showCreateCustomer.value = false;
-  creatingForCall.value = null;
+  const call = createCustomerRequest.value?.call;
+  createCustomerRequest.value = null;
   if (!call) return;
   try {
     const { data } = await api.patch(`/telephony/calls/${call.id}`, { contactId: contact.id });

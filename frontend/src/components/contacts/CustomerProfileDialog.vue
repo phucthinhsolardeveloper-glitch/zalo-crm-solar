@@ -89,7 +89,7 @@
             <section v-if="activeTab === 'overview'" class="cpd-pane">
               <div class="cpd-grid2">
                 <!-- Thông tin cá nhân (sửa được) -->
-                <div class="cpd-card">
+                <div class="cpd-card cpd-card-personal">
                   <h4>👤 Thông tin cá nhân</h4>
                   <div class="kv">
                     <span class="k">Tên khách</span>
@@ -140,27 +140,21 @@
                     <span class="k">Tên cửa hàng</span>
                     <span class="v"><input v-model="form.storeName" class="cpd-in" /></span>
                   </div>
-                  <div class="kv">
+                  <div class="kv kv-address">
                     <span class="k">Tỉnh/Thành phố</span>
                     <span class="v">
-                      <AddressAutocomplete v-model="form.province" input-class="cpd-in" :suggestions="addressSuggestions.provinces" />
+                      <AddressAutocomplete v-model="form.province" input-class="cpd-in" placeholder="Nhập để tìm tỉnh/thành phố" :suggestions="addressSuggestions.provinces" @select="form.ward = ''" />
                     </span>
                   </div>
-                  <div class="kv">
-                    <span class="k">Quận/Huyện</span>
-                    <span class="v">
-                      <AddressAutocomplete v-model="form.district" input-class="cpd-in" :suggestions="addressSuggestions.districts" />
-                    </span>
-                  </div>
-                  <div class="kv">
+                  <div class="kv kv-address">
                     <span class="k">Phường/Xã</span>
                     <span class="v">
-                      <AddressAutocomplete v-model="form.ward" input-class="cpd-in" :suggestions="addressSuggestions.wards" />
+                      <AddressAutocomplete v-model="form.ward" input-class="cpd-in" :placeholder="form.province ? 'Nhập để tìm phường/xã' : 'Chọn tỉnh/thành phố trước'" :disabled="!wardSuggestions.length" :suggestions="wardSuggestions" />
                     </span>
                   </div>
-                  <div class="kv">
+                  <div class="kv kv-address kv-address-detail">
                     <span class="k">Địa chỉ chi tiết</span>
-                    <span class="v"><input v-model="form.addressLine" class="cpd-in" placeholder="Số nhà, tên đường…" /></span>
+                    <span class="v"><textarea v-model="form.addressLine" class="cpd-in cpd-address-detail" rows="2" placeholder="Số nhà, tên đường, thôn/xóm…"></textarea></span>
                   </div>
                 </div>
 
@@ -481,6 +475,7 @@ import CallButton from '@/components/telephony/CallButton.vue';
 import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import type { Contact } from '@/composables/use-contacts';
 import AddressAutocomplete from './AddressAutocomplete.vue';
+import { wardsForProvince } from './address-suggestion-utils';
 
 const props = withDefaults(defineProps<{
   modelValue: boolean;
@@ -549,7 +544,6 @@ const form = ref({
   importanceLevel: null as string | null,
   status: 'new' as string | null,
   province: '' as string | null,
-  district: '' as string | null,
   ward: '' as string | null,
   addressLine: '' as string | null,
   source: '' as string | null,
@@ -572,7 +566,6 @@ function hydrateForm(ct: Contact) {
     importanceLevel: ct.importanceLevel ?? null,
     status: ct.status || 'new',
     province: ct.province || '',
-    district: ct.district || '',
     ward: ct.ward || '',
     addressLine: ct.addressLine || '',
     source: ct.source || '',
@@ -585,13 +578,13 @@ function emptyForm() {
   form.value = {
     fullName: '', gender: null, birthDate: '', phone: '', extraPhones: [],
     email: '', industry: '', storeName: '', customerType: null, importanceLevel: null, status: 'new',
-    province: '', district: '', ward: '', addressLine: '', source: '', assignedUserId: null, tags: [],
+    province: '', ward: '', addressLine: '', source: '', assignedUserId: null, tags: [],
   };
 }
 
 // Tỉnh/thành có seed hiện hành; huyện/xã bổ sung từ dữ liệu thực tế của org.
-const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wards: string[] }>({
-  provinces: [], districts: [], wards: [],
+const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wardsByProvince: Record<string, string[]> }>({
+  provinces: [], districts: [], wardsByProvince: {},
 });
 let addressSuggestionsLoaded = false;
 async function loadAddressSuggestions() {
@@ -604,6 +597,15 @@ async function loadAddressSuggestions() {
     // Gợi ý chỉ là tiện ích — field vẫn free text nếu load lỗi.
   }
 }
+// FIX 2026-08-22 (data 34 tỉnh/TP + 3.321 phường/xã sau sáp nhập 2025) — Phường/Xã gợi ý
+// theo ĐÚNG tỉnh/thành đã chọn. Chưa xác định được tỉnh thì không gộp xã toàn quốc.
+const wardSuggestions = computed(() => {
+  return wardsForProvince(
+    form.value.province,
+    addressSuggestions.value.provinces,
+    addressSuggestions.value.wardsByProvince || {},
+  );
+});
 
 // ── Fetch chi tiết khi mở ──
 async function loadDetail() {
@@ -741,9 +743,16 @@ async function loadNotes() {
   finally { loadingNotes.value = false; }
 }
 
+// FIX 2026-08-22 (anh báo: "Mở hồ sơ khách hàng" ở Lịch sử cuộc gọi kẹt mãi "Đang mở...") —
+// route adapter ContactProfileView.vue mount dialog này với modelValue=true NGAY TỪ ĐẦU
+// (không phải false→true như ContactsView.vue). watch() không immediate thì KHÔNG BAO GIỜ
+// fire cho trường hợp này → loadDetail() không chạy → c.value mãi mãi null, không loading,
+// không lỗi, chỉ render rỗng. { immediate: true } cho watcher tự chạy đúng 1 lần lúc mount
+// nếu modelValue đã true sẵn; caller khác (modelValue bắt đầu false) không bị ảnh hưởng vì
+// if (open) vẫn chặn đúng.
 watch(() => props.modelValue, (open) => {
   if (open) { loadDetail(); void loadAddressSuggestions(); }
-});
+}, { immediate: true });
 watch(activeTab, (t) => {
   if (t === 'timeline') loadTimeline();
   if (t === 'notes') loadNotes();
@@ -772,7 +781,6 @@ async function save() {
     importanceLevel: form.value.importanceLevel,
     status: form.value.status,
     province: form.value.province || null,
-    district: form.value.district || null,
     ward: form.value.ward || null,
     addressLine: form.value.addressLine,
     source: form.value.source,
@@ -831,7 +839,7 @@ function goChat() {
 // ── Computed display ──
 const displayName = computed(() => c.value?.fullName || c.value?.crmName || '(chưa đặt tên)');
 const primaryPhone = computed(() => c.value?.phone || null);
-const locationLine = computed(() => [c.value?.province, c.value?.district].filter(Boolean).join(' / '));
+const locationLine = computed(() => [c.value?.ward, c.value?.province].filter(Boolean).join(' / '));
 const ageOf = computed(() => {
   if (!c.value) return null;
   const cy = new Date().getFullYear();
@@ -967,7 +975,6 @@ const attrValues = computed<Record<string, string>>(() => {
     age,
     industry: ct.industry ?? '',
     province: ct.province ?? '',
-    district: ct.district ?? '',
     ward: ct.ward ?? '',
     address: ct.addressLine ?? '',
     income: ct.incomeRange ?? '',
@@ -1086,6 +1093,16 @@ async function copyAttr(code: string) {
 .cpd-in { border: 1px solid transparent; border-radius: 5px; padding: 4px 8px; font-size: 12.5px; font-family: inherit; text-align: right; background: transparent; font-weight: 600; width: 100%; max-width: 230px; color: var(--smax-text); }
 .cpd-in:hover { border-color: var(--smax-grey-300); background: #fff; }
 .cpd-in:focus { outline: none; border-color: var(--smax-primary); background: #fff; text-align: left; }
+.cpd-address-detail { min-height: 54px; padding: 7px 8px; line-height: 1.4; resize: vertical; }
+.kv-address { align-items: stretch; }
+.kv-address .k { width: 96px; display: flex; align-items: center; }
+.kv-address .v { flex-wrap: nowrap; align-items: stretch; justify-content: stretch; }
+.kv-address :deep(.address-ac) { width: 100%; }
+.kv-address :deep(.address-ac-input), .kv-address .cpd-address-detail {
+  width: 100%; max-width: none; box-sizing: border-box; text-align: left;
+  border: 1px solid #d6dde1; border-radius: 7px; background: #fff; font-weight: 500;
+}
+.kv-address-detail .k { align-items: flex-start; padding-top: 8px; }
 .cpd-in-mini { max-width: 72px; text-align: left; flex-shrink: 0; }
 .phones-edit { display: flex; flex-direction: column; gap: 5px; align-items: stretch; width: 100%; }
 .phone-row { display: flex; gap: 6px; align-items: center; justify-content: flex-end; width: 100%; }

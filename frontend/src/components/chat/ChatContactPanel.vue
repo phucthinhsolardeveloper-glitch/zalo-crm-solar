@@ -968,6 +968,33 @@ const router = useRouter();
 const suggestText = ref('');
 const suggestLoading = ref(false);
 
+// FIX 2026-08-22 (anh báo: lỗi "Cannot access ... before initialization" lúc mở hội thoại) —
+// CÙNG LOẠI LỖI với suggestText ở trên: watcher(props.contactId, {immediate:true}) bên dưới
+// đọc cockpit.value/teammates.value lúc mới setup, nhưng useContactCockpit() TRƯỚC ĐÂY khai
+// báo tận dưới dòng ~1020 (sau watcher) → TDZ crash. Đưa khai báo lên đây, trước watcher,
+// đúng quy tắc đã ghi chú ở trên.
+const { cockpit, teammates, loading: cockpitLoading, fetchCockpit, fetchTeammates, generateHandoffMessage } = useContactCockpit();
+
+// FIX 2026-08-22 (đợt 2 — lỗi TDZ vẫn còn sau fix cockpit/teammates ở trên): trace qua
+// sourcemap bundle thật xác nhận thủ phạm THỰC SỰ là latestCallInfo/loadLatestCallInfo —
+// watcher immediate bên dưới gọi loadLatestCallInfo(id) đồng bộ (async function nhưng chạy
+// thẳng tới await đầu tiên), dòng đầu tiên trong đó set latestCallInfo.value=null — nhưng
+// latestCallInfo trước đây khai báo Ở DƯỚI watcher (dòng ~1005) → TDZ y hệt kiểu suggestText/
+// cockpit. Đưa cả interface + ref + function lên đây, trước watcher.
+interface LatestCallInfo {
+  call: { id: string; status: string; startedAt: string; direction: string } | null;
+  latestNote: { id: string; body: string; createdAt: string; author: { id: string; fullName: string } } | null;
+}
+const latestCallInfo = ref<LatestCallInfo | null>(null);
+async function loadLatestCallInfo(contactId: string | null | undefined) {
+  latestCallInfo.value = null;
+  if (!contactId) return;
+  try {
+    const { data } = await api.get(`/telephony/contacts/${contactId}/latest-call`);
+    latestCallInfo.value = data;
+  } catch { /* chỉ là hint tiện ích, im lặng nếu lỗi */ }
+}
+
 // Khi đổi sang contact mới, reset về tab Hồ sơ + refetch relations
 // (NotesSection tự fetch khi prop contactId đổi).
 // Cũng force reset infoExpanded + start countdown — nếu activeTab đã = 'profile',
@@ -991,19 +1018,8 @@ watch(() => props.contactId, (id) => {
 }, { immediate: true });
 
 // Ghi chú mới nhất của cuộc gọi gần nhất — hover nhanh cạnh SĐT (mdi-note-text-outline).
-interface LatestCallInfo {
-  call: { id: string; status: string; startedAt: string; direction: string } | null;
-  latestNote: { id: string; body: string; createdAt: string; author: { id: string; fullName: string } } | null;
-}
-const latestCallInfo = ref<LatestCallInfo | null>(null);
-async function loadLatestCallInfo(contactId: string | null | undefined) {
-  latestCallInfo.value = null;
-  if (!contactId) return;
-  try {
-    const { data } = await api.get(`/telephony/contacts/${contactId}/latest-call`);
-    latestCallInfo.value = data;
-  } catch { /* chỉ là hint tiện ích, im lặng nếu lỗi */ }
-}
+// (interface/ref/function loadLatestCallInfo đã chuyển lên trước watcher phía trên — xem
+// comment ở đó — để tránh TDZ.)
 
 function relativeTime(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -1016,8 +1032,9 @@ function relativeTime(dateStr: string) {
 // ════════════════════════════════════════════════════════════════════════
 // Tab CRM (Mini CRM cockpit) — 7 widget, anh chốt design 2026-05-22
 // docs/designs/CHAT-COL4-CRM-TAB.md
+// (khai báo useContactCockpit() đã chuyển lên trước watcher(props.contactId) phía trên —
+// xem comment ở đó — để tránh TDZ)
 // ════════════════════════════════════════════════════════════════════════
-const { cockpit, teammates, loading: cockpitLoading, fetchCockpit, fetchTeammates, generateHandoffMessage } = useContactCockpit();
 
 // Fetch cockpit + teammates khi tab CRM được mở lần đầu (lazy load tiết kiệm request)
 const crmTabLoaded = ref(false);

@@ -213,7 +213,7 @@
           <col style="width:26px">   <!-- 1 caret -->
           <col style="width:188px">  <!-- 2 Tên (gộp avatar+tên, KHÔNG colspan) -->
           <col style="width:100px">  <!-- 3 SĐT -->
-          <col style="width:68px">   <!-- 4 Tỉnh/Quận -->
+          <col style="width:88px">   <!-- 4 Tỉnh/Phường-Xã -->
           <col style="width:54px">   <!-- 5 Nguồn -->
           <col style="width:72px">   <!-- 6 Trạng thái KH -->
           <col style="width:42px">   <!-- 7 Score -->
@@ -244,7 +244,7 @@
             <th></th>
             <th>Tên CRM / Zalo (KH)</th>
             <th>SĐT</th>
-            <th>Tỉnh/Quận</th>
+            <th>Tỉnh/Phường-Xã</th>
             <th>Nguồn</th>
             <th>Trạng thái KH</th>
             <th class="th-sort" title="Bấm để sắp theo điểm cao → thấp" @click="toggleScoreSort">
@@ -345,8 +345,8 @@
                 </div>
               </td>
               <td>
-                <template v-if="contact.province || contact.district">
-                  {{ [contact.province, contact.district].filter(Boolean).join(' / ') }}
+                <template v-if="contact.province || contact.ward">
+                  {{ [contact.province, contact.ward].filter(Boolean).join(' / ') }}
                 </template>
                 <span v-else class="empty">—</span>
               </td>
