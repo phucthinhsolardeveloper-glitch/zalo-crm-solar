@@ -7,6 +7,10 @@ declare global {
       init: (config: Record<string, unknown>) => Promise<boolean>;
       register: (config: { sipRealm: string; sipUser: string; sipPassword: string; wssUri?: string }) => Promise<{ status: string | boolean; message?: string; error?: string }>;
       unregister: () => void;
+      // Bận/Không nhận cuộc gọi (DND) — đổi trạng thái đăng ký SIP sang BUSY để tổng đài
+      // tự chối cuộc gọi đến, KHÔNG cần unregister/register lại toàn bộ.
+      reregister: (state: unknown) => void;
+      SB_STATE: { BUSY: unknown; [key: string]: unknown };
       makeCall: (remoteNumber: string, options?: {
         isVideo?: boolean;
         sipNumber?: { number: string };
@@ -90,6 +94,9 @@ const fromNumber = ref<string | null>(null);
 const outboundNumberMode = ref<'auto' | 'fixed'>('auto');
 const zccEnabled = ref(false);
 const zccSipNumber = ref<string | null>(null);
+// Bận/Không nhận cuộc gọi (DND) — bật: reregister SB_STATE.BUSY (tổng đài tự chối cuộc gọi
+// đến, KHÔNG ảnh hưởng cuộc gọi đi). Tắt: register() lại bình thường qua initialize(true).
+const doNotDisturb = ref(false);
 const dialogRequest = ref(0);
 const remoteAudioBlocked = ref(false);
 let activeCall: OmicallCallData | null = null;
@@ -430,6 +437,28 @@ function initialize(force = false): Promise<void> {
   return initialized;
 }
 
+// Bật: reregister SB_STATE.BUSY — tổng đài chuyển sang "bận", tự chối cuộc gọi đến, không
+// cần unregister/register lại. Tắt: register() lại từ đầu qua initialize(true) (đơn giản,
+// tái dùng đúng luồng "Kết nối lại" đã có, đảm bảo về đúng trạng thái sẵn sàng nhận cuộc gọi).
+async function setDoNotDisturb(value: boolean) {
+  const sdk = window.OMICallSDK;
+  if (!sdk) return;
+  try {
+    if (value) {
+      sdk.reregister(sdk.SB_STATE.BUSY);
+      doNotDisturb.value = true;
+    } else {
+      await initialize(true);
+      doNotDisturb.value = false;
+    }
+  } catch {
+    // Best effort — DND chỉ là tiện ích, không chặn luồng gọi chính nếu SDK từ chối đổi trạng thái.
+  }
+}
+function toggleDoNotDisturb() {
+  void setDoNotDisturb(!doNotDisturb.value);
+}
+
 async function startOutgoing(target: PhonePeer | ExternalCallTarget, remoteNumber: string) {
   dialogRequest.value += 1;
   errorMessage.value = '';
@@ -538,9 +567,10 @@ export function useOmicallSoftphone() {
   return {
     phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
     activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, activeCallLogId,
-    remoteAudioBlocked,
+    remoteAudioBlocked, doNotDisturb,
     isBusy: computed(() => ['calling', 'ringing', 'answered'].includes(phase.value)),
     fromNumber, initialize, callPeer, callPhone, callConversation,
     answer, reject, hangup, toggleMute, resetEnded, resumeRemoteAudio, loadMoreHistory,
+    toggleDoNotDisturb,
   };
 }

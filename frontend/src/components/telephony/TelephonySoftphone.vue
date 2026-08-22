@@ -5,7 +5,7 @@
     <audio id="omicall-remote-audio" autoplay playsinline />
     <button
       class="phone-trigger"
-      :class="{ live: isBusy, offline: phase === 'error' || phase === 'connecting' }"
+      :class="{ live: isBusy, offline: phase === 'error' || phase === 'connecting', dnd: doNotDisturb }"
       title="Tổng đài nội bộ"
       data-testid="softphone-trigger"
       @click="dialog = true"
@@ -21,8 +21,26 @@
             <span class="eyebrow">SOFTPHONE</span>
             <h2>Tổng đài nội bộ</h2>
           </div>
-          <button class="close-btn" :disabled="isBusy" @click="closeDialog"><v-icon icon="mdi-close" /></button>
+          <div class="head-actions">
+            <!-- FIX 2026-08-22 (bổ sung theo yêu cầu — nút Bận/Không nhận cuộc gọi, dùng
+                 SDK reregister SB_STATE.BUSY) — chỉ đổi được khi SDK đã kết nối xong. -->
+            <button
+              class="dnd-toggle"
+              :class="{ active: doNotDisturb }"
+              :disabled="phase === 'connecting' || phase === 'error'"
+              :title="doNotDisturb ? 'Đang bật: Không nhận cuộc gọi đến — bấm để tắt' : 'Bấm để bật: Không nhận cuộc gọi đến'"
+              @click="toggleDoNotDisturb"
+            >
+              <v-icon :icon="doNotDisturb ? 'mdi-phone-remove-outline' : 'mdi-phone-check-outline'" size="18" />
+            </button>
+            <button class="close-btn" :disabled="isBusy" @click="closeDialog"><v-icon icon="mdi-close" /></button>
+          </div>
         </header>
+
+        <div v-if="doNotDisturb" class="dnd-banner">
+          <v-icon icon="mdi-phone-remove-outline" size="16" />
+          Đang bật chế độ Bận — cuộc gọi đến sẽ bị từ chối tự động
+        </div>
 
         <RouterLink class="full-history-link" to="/call-history" @click="dialog = false">
           <v-icon icon="mdi-history" size="17" />
@@ -204,10 +222,10 @@ const playingRecordingId = ref<string | null>(null);
 const {
   phase, errorMessage, peers, history, historyTotal, historyHasMore, historyLoading,
   activePeer, incoming, muted, elapsedSec, enabled, zccEnabled, dialogRequest, isBusy, activeCallLogId,
-  remoteAudioBlocked,
+  remoteAudioBlocked, doNotDisturb,
   fromNumber, initialize, callPeer, callPhone, answer, reject, hangup, toggleMute, resetEnded,
   resumeRemoteAudio,
-  loadMoreHistory,
+  loadMoreHistory, toggleDoNotDisturb,
 } = useOmicallSoftphone();
 
 onMounted(() => void initialize());
@@ -366,15 +384,19 @@ function historyLabel(item: CallHistoryItem) {
 .phone-trigger { position: relative; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 9px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; }
 .phone-trigger:hover, .phone-trigger.live { background: #16a085; }
 .phone-trigger.offline { opacity: .65; }
+.phone-trigger.dnd:not(.live) { background: #d97706; }
 .live-dot { position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #86efac; box-shadow: 0 0 0 2px #12645d; }
 .softphone { overflow: hidden; border-radius: 18px; background: #fff; color: #17212b; box-shadow: 0 24px 80px rgba(12,35,45,.24); }
 .phone-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 24px 18px; border-bottom: 1px solid #edf1f2; }
+.head-actions { display: flex; align-items: center; gap: 8px; }
 .full-history-link { margin: 12px 24px 0; min-height: 38px; padding: 0 11px; display: flex; align-items: center; gap: 7px; border-radius: 9px; background: #edf7f4; color: #147d70; font-size: 13px; font-weight: 750; text-decoration: none; }
 .full-history-link :last-child { margin-left: auto; }
 .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .15em; color: #15947f; }
 .phone-head h2 { margin: 3px 0 0; font-size: 21px; letter-spacing: -.02em; }
-.close-btn { width: 34px; height: 34px; border: 0; border-radius: 9px; background: #f3f6f6; color: #65727a; cursor: pointer; }
-.close-btn:disabled { opacity: .35; cursor: not-allowed; }
+.close-btn, .dnd-toggle { width: 34px; height: 34px; border: 0; border-radius: 9px; background: #f3f6f6; color: #65727a; cursor: pointer; }
+.close-btn:disabled, .dnd-toggle:disabled { opacity: .35; cursor: not-allowed; }
+.dnd-toggle.active { background: #fef3c7; color: #b45309; }
+.dnd-banner { margin: 12px 24px 0; padding: 9px 12px; display: flex; align-items: center; gap: 7px; border-radius: 9px; background: #fef3c7; color: #92400e; font-size: 12.5px; font-weight: 600; }
 .state-card { margin: 22px 24px; min-height: 76px; padding: 16px; display: flex; align-items: center; gap: 13px; border-radius: 13px; background: #f3f8f7; color: #287869; }
 .state-card div { display: grid; gap: 3px; flex: 1; }
 .state-card small, .empty-state span { color: #718087; }
@@ -441,6 +463,7 @@ function historyLabel(item: CallHistoryItem) {
   .phone-head { padding: 15px 16px 12px; }
   .phone-head h2 { font-size: 18px; }
   .full-history-link { margin: 8px 16px 0; font-size: 12px; }
+  .dnd-banner { margin: 8px 16px 0; }
   .section-title { padding: 14px 16px 7px; }
   .dial-form { margin-inline: 16px; }
   .dial-suggestions { margin-inline: 16px; }
