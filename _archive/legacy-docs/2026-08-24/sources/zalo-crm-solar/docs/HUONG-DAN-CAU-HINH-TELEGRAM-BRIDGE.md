@@ -29,7 +29,7 @@ Cho phép **sale đọc & trả lời chat khách Zalo ngay trong Telegram**. M�
 
 ```bash
 # Bot — bắt buộc để bật cầu ở mức hệ thống
-TELEGRAM_BRIDGE_BOT_TOKEN=<token từ @BotFather>
+TELEGRAM_BRIDGE_BOT_TOKEN=<REDACTED_LEGACY_VALUE>
 TELEGRAM_BRIDGE_BOT_USERNAME=<username bot, KHÔNG dấu @>
 
 # Provisioner — cần để TỰ TẠO group cho nick

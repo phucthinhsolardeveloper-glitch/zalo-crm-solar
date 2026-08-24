@@ -477,7 +477,7 @@ import Excel khách hàng; multi-carrier routing.
 Thêm vào `.env` trước khi `docker compose up`:
 ```
 MINIO_ROOT_USER=<admin-user>
-MINIO_ROOT_PASSWORD=<strong-password>
+MINIO_ROOT_PASSWORD=<REDACTED_LEGACY_VALUE>
 ```
 
 ## v3.3.0 — 25/05/2026

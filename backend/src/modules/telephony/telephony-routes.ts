@@ -397,7 +397,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
         orderBy: { startedAt: 'asc' },
       }),
     ]);
-    // FIX 2026-08-22 (anh báo: "Mở hồ sơ khách hàng"/"Mở hội thoại" không tới được hồ sơ đã
+    // FIX 2026-08-22 ("Mở hồ sơ khách hàng"/"Mở hội thoại" không tới được hồ sơ đã
     // có) — call.contact trước đây CHỈ lấy theo contactId đã LƯU SẴN trên CallLog. Dòng nào
     // chưa từng được PATCH contactId (vd Contact tạo/import SAU cuộc gọi) → contact=null →
     // 2 nút trên bị ẩn hoàn toàn dù SĐT này ĐÃ CÓ hồ sơ. Với các dòng contactId=null, thử

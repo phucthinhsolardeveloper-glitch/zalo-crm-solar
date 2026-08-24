@@ -94,8 +94,8 @@ S3_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com   # Endpoint từ Bư�
 S3_PUBLIC_URL=https://pub-xxxxxxxx.r2.dev                    # Domain công khai từ Bước 2 (KHÔNG kèm tên bucket, KHÔNG dấu / cuối)
 S3_BUCKET=hdgroup                                           # Tên bucket từ Bước 1
 S3_REGION=auto                                             # R2 LUÔN dùng "auto"
-S3_ACCESS_KEY=<Access Key ID từ Bước 3>
-S3_SECRET_KEY=<Secret Access Key từ Bước 3>
+S3_ACCESS_KEY=<REDACTED_LEGACY_VALUE>
+S3_SECRET_KEY=<REDACTED_LEGACY_VALUE>
 ```
 
 ✅ Checklist dễ sai:
@@ -137,10 +137,10 @@ cd /root/0project/ZCRM
 # Nếu ảnh cũ đang ở MinIO:
 DEST=r2 \
 MINIO_ENDPOINT=http://localhost:9000 \
-MINIO_ACCESS_KEY=minioadmin MINIO_SECRET_KEY=<mật khẩu MinIO cũ> \
+MINIO_ACCESS_KEY=<REDACTED_LEGACY_VALUE>
 MINIO_BUCKET=zalocrm-attachments \
 R2_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com \
-R2_ACCESS_KEY=<r2 access key> R2_SECRET_KEY=<r2 secret> R2_BUCKET=hdgroup \
+R2_ACCESS_KEY=<REDACTED_LEGACY_VALUE>
 bash scripts/migrate-storage-rclone.sh
 ```
 

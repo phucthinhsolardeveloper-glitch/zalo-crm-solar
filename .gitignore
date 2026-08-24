@@ -35,13 +35,11 @@ screenshots/
 inspect-log.mjs
 inspect-*.mjs
 /plans/
-AGENTS.md
 TODOS.md
 frontend/public/mockups/
 
 # Dev tools tự gắn (Anh)
 frontend/.capture-submit.js
-CLAUDE.md
 _chat_ui_backups/
 
 # Firebase service account & secrets (KHÔNG commit)

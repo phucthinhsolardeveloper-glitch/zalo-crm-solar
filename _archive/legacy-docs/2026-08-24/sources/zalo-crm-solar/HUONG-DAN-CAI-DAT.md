@@ -54,11 +54,11 @@ Sửa các giá trị sau:
 
 ```
 # Mật khẩu database — đặt bất kỳ (nhớ giữ bí mật)
-DB_PASSWORD=matkhau_cua_ban_o_day
+DB_PASSWORD=<REDACTED_LEGACY_VALUE>
 
 # Secret keys — chạy 2 lệnh bên dưới để tạo giá trị ngẫu nhiên
-JWT_SECRET=     # Dán kết quả lệnh: openssl rand -hex 32
-ENCRYPTION_KEY= # Dán kết quả lệnh: openssl rand -hex 16
+JWT_SECRET=<REDACTED_LEGACY_VALUE>
+ENCRYPTION_KEY=<REDACTED_LEGACY_VALUE>
 
 # URL công khai (nếu có domain)
 APP_URL=https://ten-domain-cua-ban.com
