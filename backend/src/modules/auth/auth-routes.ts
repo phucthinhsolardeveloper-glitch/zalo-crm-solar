@@ -56,10 +56,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return checkSetupStatus();
   });
 
+  // Chống brute-force: giới hạn riêng cho login/setup theo IP, chặt hơn nhiều so với
+  // rate-limit chung 1200/phút (dùng cho toàn bộ API, không nhắm vào endpoint xác thực).
+  const authAttemptLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
+
   // POST /api/v1/setup — create org + owner user, return access + refresh
   app.post<{
     Body: { orgName: string; fullName: string; email: string; password: string; phone?: string };
-  }>('/api/v1/setup', async (request, reply) => {
+  }>('/api/v1/setup', authAttemptLimit, async (request, reply) => {
     const { orgName, fullName, email, password, phone } = request.body;
     if (!orgName || !fullName || !email || !password) {
       return reply.status(400).send({ error: 'Missing required fields' });
@@ -74,7 +78,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/v1/auth/login — verify credentials, return access + refresh
   app.post<{
     Body: { email?: string; identifier?: string; password: string };
-  }>('/api/v1/auth/login', async (request, reply) => {
+  }>('/api/v1/auth/login', authAttemptLimit, async (request, reply) => {
     const { email, identifier, password } = request.body;
     const id = (identifier ?? email ?? '').trim();
     if (!id || !password) {

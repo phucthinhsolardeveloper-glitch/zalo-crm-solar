@@ -488,14 +488,24 @@ function escapeHtml(s: string): string {
 //   f_NN          = font size (Zalo: f_13 small, f_18 big — default ~14)
 //   s_NN          = font size (BACK-COMPAT — code cũ dùng s_ trước khi biết Zalo enum)
 //   lst_1 / lst_2 = bullet / numbered list
+// Zalo payload là dữ liệu bên ngoài (đối phương gửi tới) — st phải khớp đúng format mong đợi
+// trước khi được chèn vào style attribute, tránh HTML/attribute injection (XSS).
+const HEX_COLOR_RE = /^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/;
+const FONT_SIZE_RE = /^\d{1,3}$/;
+
 function openTagFor(st: string): string {
   if (st === 'b') return '<strong>';
   if (st === 'i') return '<em>';
   if (st === 'u') return '<u>';
   if (st === 's') return '<s>';
-  if (st.startsWith('c_')) return `<span style="color:#${st.slice(2)}">`;
-  if (st.startsWith('f_')) return `<span style="font-size:${st.slice(2)}px">`;
-  if (st.startsWith('s_')) return `<span style="font-size:${st.slice(2)}px">`;
+  if (st.startsWith('c_')) {
+    const hex = st.slice(2);
+    return HEX_COLOR_RE.test(hex) ? `<span style="color:#${hex}">` : '';
+  }
+  if (st.startsWith('f_') || st.startsWith('s_')) {
+    const size = st.slice(2);
+    return FONT_SIZE_RE.test(size) ? `<span style="font-size:${size}px">` : '';
+  }
   return '';
 }
 function closeTagFor(st: string): string {
@@ -503,7 +513,10 @@ function closeTagFor(st: string): string {
   if (st === 'i') return '</em>';
   if (st === 'u') return '</u>';
   if (st === 's') return '</s>';
-  if (st.startsWith('c_') || st.startsWith('f_') || st.startsWith('s_')) return '</span>';
+  // Phải khớp chính xác điều kiện hợp lệ trong openTagFor, nếu không sẽ phát sinh </span> thừa
+  // (không mở span tương ứng) khi giá trị màu/size không hợp lệ.
+  if (st.startsWith('c_')) return HEX_COLOR_RE.test(st.slice(2)) ? '</span>' : '';
+  if (st.startsWith('f_') || st.startsWith('s_')) return FONT_SIZE_RE.test(st.slice(2)) ? '</span>' : '';
   return '';
 }
 
