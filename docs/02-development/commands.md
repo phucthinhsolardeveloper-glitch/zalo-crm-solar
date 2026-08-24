@@ -1,5 +1,7 @@
 # Commands
 
+Quy trình Git từ kiểm dirty tree, stage/rename, commit, push, verify SHA đến PR nằm tại [git-workflow.md](git-workflow.md).
+
 ## Backend
 
 ```bash

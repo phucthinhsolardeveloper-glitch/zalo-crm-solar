@@ -8,7 +8,7 @@ Tài liệu này mô tả trạng thái đã xác minh của working tree/produc
 
 - `00-project/`: mục tiêu, trạng thái, glossary.
 - `01-architecture/`: boundary, component, frontend/backend, request/data/dependency flow.
-- `02-development/`: local setup, command, environment, workflow, testing.
+- `02-development/`: local setup, command, environment, workflow, testing và Git runbook chi tiết.
 - `03-data/`: PostgreSQL/Prisma, data model, migration, backup/restore, safety.
 - `04-api/`: API conventions, authentication, integration boundary và route catalog từ Fastify source.
 - `05-security/`: security model, auth/RBAC, secrets, checklist.

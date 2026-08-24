@@ -1,5 +1,7 @@
 # Development workflow
 
+Thao tác branch/stage/commit/push/PR theo `docs/02-development/git-workflow.md`; workflow này không tự cấp quyền force-push, rewrite history hay đưa secret/backup lên remote.
+
 ## Inspect và ownership
 
 Đọc `AGENTS.md`, context map, status và domain doc; kiểm `git status` để bảo vệ thay đổi người dùng. Trace UI → API/middleware → service → Prisma/Redis/storage/provider. Trước implement phải trả lời: behavior đã tồn tại chưa, module nào sở hữu, reuse được gì và có tạo duplicate ownership không.
