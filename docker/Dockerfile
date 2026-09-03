@@ -11,12 +11,19 @@ FROM node:22-alpine AS backend-builder
 WORKDIR /app/backend
 # sharp (nén ảnh + watermark Media): trên alpine/musl cần libvips. Cài vips-dev + build tools
 # để sharp có thể build từ source nếu prebuild musl không tải được (mạng/registry chặn).
+# node-addon-api + node-gyp nằm trong backend devDependencies để nhánh build-from-source
+# chạy được — trước đây thiếu node-addon-api nên fallback fail: "Please add node-addon-api".
 RUN apk add --no-cache vips-dev build-base python3
 COPY backend/package.json backend/package-lock.json ./
 # Dùng `npm install` thay `npm ci` vì lock file đôi khi out of sync với package.json
 # (vd: thêm package mới qua npm install --no-save trong dev). Tradeoff: build chậm hơn ~10s
 # nhưng KHÔNG fail nếu lock drift. Tooling cần regenerate lock sau khi add dep.
-RUN npm install --no-audit --no-fund
+# Mạng chậm/chập chờn từng làm tải prebuilt @img/sharp-linuxmusl-x64 timeout (~39 phút
+# rồi fail) → tăng retry/timeout để ưu tiên lấy prebuilt thay vì build-from-source.
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm config set fetch-timeout 600000 \
+ && npm install --no-audit --no-fund
 COPY backend/ ./
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" npx prisma generate
 RUN npm run build
