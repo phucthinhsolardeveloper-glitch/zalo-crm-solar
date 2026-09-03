@@ -901,7 +901,7 @@ const zaloDisplay = computed<'yes' | 'no' | 'unknown'>(() => {
   return 'unknown';
 });
 const zaloPillClass = computed(() => zaloDisplay.value === 'yes' ? 'z-yes' : zaloDisplay.value === 'no' ? 'z-no' : 'z-unk');
-const zaloPillText = computed(() => zaloDisplay.value === 'yes' ? '🟢 Có Zalo' : zaloDisplay.value === 'no' ? '🔴 Không tìm thấy' : '⚪ Chưa tìm');
+const zaloPillText = computed(() => zaloDisplay.value === 'yes' ? '🟢 Có Zalo' : zaloDisplay.value === 'no' ? '🔴 Không tìm thấy' : '⚪ Chưa kiểm tra');
 
 const statusPillStyle = computed(() => {
   const s: any = c.value?.displayStatus;

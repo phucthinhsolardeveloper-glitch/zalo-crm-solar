@@ -617,6 +617,21 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         : undefined;
       const display = computeAggregateDisplay(contact, visibleFriends as any);
       const preview = computeViewerPreview(contact as any, visibleZaloIds);
+
+      // Họp 25/08/2026 (anh báo): KH có Zalo nhưng bên tin nhắn báo "Chưa kiểm tra"
+      // vì Contact.hasZalo còn null. Có Friend row (nick đang chăm) HOẶC đã lưu Zalo
+      // identity = bằng chứng chắc chắn KH có Zalo → coi như true ở response này và
+      // backfill DB (best-effort) để list / filter / panel chat đồng bộ theo.
+      const zaloProven =
+        (contact.friends?.length ?? 0) > 0 ||
+        !!contact.zaloUid || !!contact.zaloGlobalId || !!contact.zaloUsername;
+      const hasZaloEffective: boolean | null = contact.hasZalo === true || zaloProven ? true : contact.hasZalo;
+      if (contact.hasZalo !== true && zaloProven) {
+        prisma.contact
+          .update({ where: { id: contact.id }, data: { hasZalo: true } })
+          .catch((e) => logger.warn(`[contacts] backfill hasZalo id=${contact.id}: ${e?.message ?? e}`));
+      }
+
       const cScope = await getContactScope(user.id, user.orgId, user.role);
       const viewerRole = cScope.isOrgAdmin
         ? 'admin'
@@ -630,6 +645,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         ...contact,
         ...(preview ?? {}),
         ...display,
+        hasZalo: hasZaloEffective,
         viewerRole,
         grade: leadScoreToGrade(contact.leadScore),
         priorityTier: priorityScoreToTier(contact.priorityScore ?? 0),

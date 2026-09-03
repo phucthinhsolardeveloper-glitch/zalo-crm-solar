@@ -468,7 +468,7 @@
                 <!-- cl-zalo overflow hidden → pill KHÔNG tràn sang Action. 3 trạng thái mutex. -->
                 <span v-if="zaloDisplay(contact) === 'yes'" class="zpill zpill-yes" title="Có Zalo">🟢 Có</span>
                 <span v-else-if="zaloDisplay(contact) === 'no'" class="zpill zpill-no" title="Không tìm thấy Zalo">🔴 Ko</span>
-                <span v-else class="zpill zpill-wait" title="Chưa tìm Zalo">⚪ Chờ</span>
+                <span v-else class="zpill zpill-wait" title="Chưa kiểm tra Zalo">⚪ Chờ</span>
               </td>
               <td v-if="visibleChildCols.zaloUid" class="c-extra" :title="'UID là per-nick — Cha không có UID. Mở ▸ xem UID từng nick.'">
                 <span v-if="(contact.childrenCount ?? 0) >= 1" class="chip chip-multi" title="UID riêng theo từng nick — mở ▸ xem">▸ {{ contact.childrenCount ?? 0 }} nick</span>

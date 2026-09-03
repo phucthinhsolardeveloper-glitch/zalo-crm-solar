@@ -1151,7 +1151,6 @@ export async function chatRoutes(app: FastifyInstance) {
       const sdkGender: number = Number(profile.gender ?? -1); // 0=male, 1=female, -1=unknown
       const sdkPhone: string = String(profile.phoneNumber || '').trim();
       const sdkSdob: string = String(profile.sdob || '').trim(); // YYYY-MM-DD
-      const sdkIsFr: number = Number(profile.isFr ?? 0);
       const sdkZaloName: string = String(profile.zaloName || profile.zalo_name || profile.displayName || '').trim();
       const sdkAvatar: string = String(profile.avatar || '').trim();
       const sdkGlobalId: string = String(profile.globalId || '').trim();
@@ -1173,8 +1172,12 @@ export async function chatRoutes(app: FastifyInstance) {
       if (!contact.birthDate && /^\d{4}-\d{2}-\d{2}$/.test(sdkSdob)) {
         contactPatch.birthDate = new Date(sdkSdob);
       }
-      // hasZalo: luôn refresh (cheap, SDK authoritative)
-      if (sdkIsFr === 1 && contact.hasZalo !== true) contactPatch.hasZalo = true;
+      // hasZalo: getUserInfo trả về profile hợp lệ cho thread user thật = UID này
+      // TỒN TẠI trên Zalo → KH chắc chắn CÓ Zalo, không phụ thuộc đã kết bạn hay chưa.
+      // Trước đây chỉ set khi profile.isFr === 1 nên KH có Zalo nhưng chưa kết bạn với
+      // nick vẫn kẹt hasZalo=null → UI báo "Chưa kiểm tra" dù đang chat trực tiếp
+      // (họp 25/08/2026, anh báo). `profile` đã được guard non-null ở trên.
+      if (contact.hasZalo !== true) contactPatch.hasZalo = true;
       // globalId / username: backfill nếu chưa có
       if (!contact.zaloGlobalId && sdkGlobalId) contactPatch.zaloGlobalId = sdkGlobalId;
       if (!contact.zaloUsername && sdkUsername) contactPatch.zaloUsername = sdkUsername;

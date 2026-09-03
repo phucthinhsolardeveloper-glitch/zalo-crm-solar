@@ -391,16 +391,23 @@ const avatarBg = computed(() => {
   return palette[h % palette.length];
 });
 
-const zaloPillClass = computed(() => {
-  if (props.contact.hasZalo === true) return 'zalo-yes';
-  if (props.contact.hasZalo === false) return 'zalo-no';
-  return 'zalo-unknown';
+// Họp 25/08/2026 (anh báo): KH có Zalo nhưng panel báo "Chưa kiểm tra". Dùng CHUNG
+// bộ tín hiệu như ContactsView.zaloDisplay: có Friend row / Zalo identity / aggregate
+// → chắc chắn có Zalo, không chỉ nhìn mỗi Contact.hasZalo.
+const zaloState = computed<'yes' | 'no' | 'unknown'>(() => {
+  const c: any = props.contact;
+  if (friends.value.length > 0 || (c.childrenCount ?? 0) > 0) return 'yes';
+  if (c.zaloUid || c.zaloGlobalId || c.zaloUsername) return 'yes';
+  if (c.displayHasZalo === true || c.hasZalo === true) return 'yes';
+  if (c.hasZalo === false) return 'no';
+  return 'unknown';
 });
-const zaloPillText = computed(() => {
-  if (props.contact.hasZalo === true) return '🟢 Có Zalo';
-  if (props.contact.hasZalo === false) return '🔴 Không tìm thấy';
-  return '⚪ Chưa tìm';
-});
+const zaloPillClass = computed(() =>
+  zaloState.value === 'yes' ? 'zalo-yes' : zaloState.value === 'no' ? 'zalo-no' : 'zalo-unknown',
+);
+const zaloPillText = computed(() =>
+  zaloState.value === 'yes' ? '🟢 Có Zalo' : zaloState.value === 'no' ? '🔴 Không tìm thấy' : '⚪ Chưa kiểm tra',
+);
 
 const statusPillStyle = computed(() => {
   const s = (props.contact as any).displayStatus;

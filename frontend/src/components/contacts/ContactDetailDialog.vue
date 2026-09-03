@@ -15,17 +15,17 @@
               <span class="cdd-name">{{ contact?.crmName || contact?.fullName || 'KH chưa đặt tên' }}</span>
               <!-- 2026-06-03: thống nhất 3 nhãn Zalo chuẩn (office-hours review) -->
               <v-chip
-                v-if="contact?.hasZalo === true"
+                v-if="zaloState === 'yes'"
                 color="success" size="x-small" variant="tonal"
               >🟢 Có Zalo</v-chip>
               <v-chip
-                v-else-if="contact?.hasZalo === false"
+                v-else-if="zaloState === 'no'"
                 color="error" size="x-small" variant="tonal"
               >🔴 Không tìm thấy</v-chip>
               <v-chip
                 v-else
                 color="grey" size="x-small" variant="tonal"
-              >⚪ Chưa tìm</v-chip>
+              >⚪ Chưa kiểm tra</v-chip>
               <v-chip v-if="contact?.source" size="x-small" variant="tonal" color="info">{{ contact.source }}</v-chip>
               <v-chip v-if="contact?.status" size="x-small" variant="tonal" color="warning">{{ contact.status }}</v-chip>
               <!-- Grade/Priority: tính từ leadScore/priorityScore có sẵn, KHÔNG phải field riêng — xem score-tiers.ts -->
@@ -452,13 +452,13 @@
                 <div class="text-caption text-grey">Có Zalo?</div>
                 <div class="text-body-2">
                   <v-chip
-                    v-if="contact?.hasZalo === true"
+                    v-if="zaloState === 'yes'"
                     color="success"
                     size="x-small"
                     variant="tonal"
                   >Có</v-chip>
                   <v-chip
-                    v-else-if="contact?.hasZalo === false"
+                    v-else-if="zaloState === 'no'"
                     color="error"
                     size="x-small"
                     variant="tonal"
@@ -798,6 +798,17 @@ const show = computed({
 });
 
 const isNew = computed(() => !props.contact?.id);
+
+// Họp 25/08/2026 (anh báo): KH có Zalo nhưng báo "Chưa kiểm tra". Xét chung mọi tín
+// hiệu (Friend row / Zalo identity / aggregate) như các màn khác, không chỉ hasZalo.
+const zaloState = computed<'yes' | 'no' | 'unknown'>(() => {
+  const c = props.contact as any;
+  if (!c) return 'unknown';
+  if ((c.childrenCount ?? 0) > 0 || c.zaloUid || c.zaloGlobalId || c.zaloUsername) return 'yes';
+  if (c.displayHasZalo === true || c.hasZalo === true) return 'yes';
+  if (c.hasZalo === false) return 'no';
+  return 'unknown';
+});
 const activeTab = ref<'basic' | 'personal' | 'friends' | 'address' | 'zalo' | 'activity'>('basic');
 const currentYear = new Date().getFullYear();
 const router = useRouter();
