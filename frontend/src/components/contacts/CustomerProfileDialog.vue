@@ -452,11 +452,26 @@
               <button v-if="c.hasZalo" class="btn primary" @click="goChat">💬 Mở chat Zalo</button>
               <button v-else class="btn virtual" @click="goChat">🔒 Mở chat nội bộ</button>
               <button class="btn" @click="$emit('automation', c)">⚡ Marketing</button>
+              <button class="btn" @click="showAppt = true">📅 Nhắc hẹn</button>
               <span class="spacer"></span>
               <button class="btn" :disabled="saving" @click="save">{{ saving ? '⏳ Đang lưu…' : '💾 Lưu thay đổi' }}</button>
               <button class="btn" @click="close">✕ Đóng</button>
             </template>
           </footer>
+
+          <!-- Họp 25/08/2026: nhắc hẹn tạo ngay từ hồ sơ KH — dùng chung Editor với /appointments -->
+          <AppointmentEditor
+            v-if="c?.id"
+            v-model="showAppt"
+            :prefill-contact="{
+              id: c.id,
+              fullName: c.fullName || c.crmName || null,
+              phone: primaryPhone || c.phone || null,
+              zaloUid: cc.zaloUid ?? null,
+              zaloUsername: cc.zaloUsername ?? null,
+            }"
+            @created="onApptCreated"
+          />
         </template>
       </div>
     </div>
@@ -476,6 +491,7 @@ import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import type { Contact } from '@/composables/use-contacts';
 import AddressAutocomplete from './AddressAutocomplete.vue';
 import { wardsForProvince } from './address-suggestion-utils';
+import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
 
 const props = withDefaults(defineProps<{
   modelValue: boolean;
@@ -521,6 +537,8 @@ const hasScoreBd = computed(() => scoreBd.value.some((x) => x.val > 0));
 const loading = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
+// Họp 25/08/2026: tạo nhắc hẹn ngay từ trang hồ sơ KH (dùng chung AppointmentEditor).
+const showAppt = ref(false);
 
 const friends = ref<any[]>([]);
 const loadingFriends = ref(false);
@@ -835,6 +853,11 @@ async function save() {
   } finally {
     saving.value = false;
   }
+}
+
+function onApptCreated() {
+  toast.success('Đã tạo nhắc hẹn cho khách hàng');
+  if (activeTab.value === 'timeline') void loadTimeline();
 }
 
 function close() { emit('update:modelValue', false); }
