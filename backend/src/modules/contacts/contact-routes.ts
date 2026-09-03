@@ -660,6 +660,16 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           hint: 'Tên chứa ký tự che (▒) — không thể lưu giá trị đã làm mờ',
         });
       }
+      // Họp 25/08/2026 (anh chốt): hồ sơ KH BẮT BUỘC nhập Tỉnh/Thành phố (Phường/Xã
+      // vẫn optional). Chỉ áp cho form hồ sơ đầy đủ này — quick-create (chỉ tên+SĐT)
+      // và import hàng loạt giữ nguyên hành vi.
+      const provinceInput = typeof body.province === 'string' ? body.province.trim() : '';
+      if (!provinceInput) {
+        return reply.status(400).send({
+          error: 'province_required',
+          message: 'Vui lòng chọn Tỉnh/Thành phố',
+        });
+      }
       const contact = await prisma.contact.create({
         data: {
           orgId: user.orgId,
@@ -691,7 +701,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           socialTiktok: body.socialTiktok || undefined,
           preferredLang: body.preferredLang || undefined,
           addressLine: body.addressLine || undefined,
-          province: body.province || undefined,
+          province: provinceInput,
           district: body.district || undefined,
           ward: body.ward || undefined,
           birthYear: createBirthYear,
@@ -1274,7 +1284,18 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       if (body.socialTiktok !== undefined) updateData.socialTiktok = body.socialTiktok || null;
       if (body.preferredLang !== undefined) updateData.preferredLang = body.preferredLang || 'vi';
       if (body.addressLine !== undefined) updateData.addressLine = body.addressLine || null;
-      if (body.province !== undefined) updateData.province = body.province || null;
+      // Họp 25/08/2026 (anh chốt): Tỉnh/Thành phố bắt buộc — không cho xoá trắng khi
+      // sửa hồ sơ. `undefined` = không đụng tới; chuỗi rỗng = từ chối.
+      if (body.province !== undefined) {
+        const p = typeof body.province === 'string' ? body.province.trim() : '';
+        if (!p) {
+          return reply.status(400).send({
+            error: 'province_required',
+            message: 'Không được để trống Tỉnh/Thành phố',
+          });
+        }
+        updateData.province = p;
+      }
       if (body.district !== undefined) updateData.district = body.district || null;
       // BUG 2026-08-20 (anh báo: sửa Ngày sinh không ăn) — `body.ward` chưa từng được đọc ở đây dù
       // FE (ContactDetailDialog.vue) đã gửi lên từ lâu — field Phường/Xã bị âm thầm bỏ qua mọi lần lưu.

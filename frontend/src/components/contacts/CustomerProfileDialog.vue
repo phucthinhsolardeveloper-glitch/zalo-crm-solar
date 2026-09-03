@@ -141,7 +141,7 @@
                     <span class="v"><input v-model="form.storeName" class="cpd-in" /></span>
                   </div>
                   <div class="kv kv-address">
-                    <span class="k">Tỉnh/Thành phố</span>
+                    <span class="k">Tỉnh/Thành phố <span class="cpd-req" title="Bắt buộc">*</span></span>
                     <span class="v">
                       <AddressAutocomplete v-model="form.province" input-class="cpd-in" placeholder="Nhập để tìm tỉnh/thành phố" :suggestions="addressSuggestions.provinces" @select="form.ward = ''" />
                     </span>
@@ -770,6 +770,11 @@ function addTag() {
 }
 async function save() {
   if (saving.value) return;
+  // Họp 25/08/2026 (anh chốt): hồ sơ KH bắt buộc Tỉnh/Thành phố, Phường/Xã vẫn optional.
+  if (!form.value.province || !String(form.value.province).trim()) {
+    toast.warning('Vui lòng chọn Tỉnh/Thành phố');
+    return;
+  }
   const payload: Record<string, any> = {
     fullName: form.value.fullName,
     gender: form.value.gender,
@@ -1041,6 +1046,7 @@ async function copyAttr(code: string) {
 
 .cpd-loading, .cpd-error { padding: 60px; text-align: center; color: var(--smax-grey-700); }
 .cpd-error { color: var(--smax-error); }
+.cpd-req { color: var(--smax-error); font-weight: 700; }
 
 /* Header */
 .cpd-head { padding: 16px 20px; border-bottom: 1px solid var(--smax-grey-200); display: flex; gap: 14px; align-items: flex-start; position: relative; }

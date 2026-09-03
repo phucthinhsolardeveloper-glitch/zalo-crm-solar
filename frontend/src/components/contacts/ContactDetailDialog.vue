@@ -412,8 +412,9 @@
                 <v-combobox
                   v-model="form.province"
                   :items="addressSuggestions.provinces"
-                  label="Tỉnh/Thành phố"
+                  label="Tỉnh/Thành phố *"
                   hint="Nhập tên có dấu hoặc không dấu để tìm"
+                  :rules="[required]"
                   clearable
                   @update:model-value="form.ward = ''"
                 />
@@ -1180,6 +1181,14 @@ function required(v: string) {
 }
 
 async function onSave() {
+  // Họp 25/08/2026 (anh chốt): hồ sơ KH bắt buộc Tỉnh/Thành phố (Phường/Xã optional).
+  const provinceVal = typeof form.value.province === 'string'
+    ? form.value.province.trim()
+    : (form.value.province ? String((form.value.province as any).title ?? form.value.province).trim() : '');
+  if (!provinceVal) {
+    toast.warning('Vui lòng chọn Tỉnh/Thành phố');
+    return;
+  }
   const payload: Partial<Contact> & Record<string, unknown> = {
     fullName: form.value.fullName || null,
     crmName: form.value.crmName || null,
