@@ -114,10 +114,49 @@ Phần **xem chồng chéo**: đúng thiết kế, không cần sửa gấp (câ
 privacy). Phần **tương tác chồng chéo**: H-1 nên thêm cảnh báo (việc nhỏ, có thể
 gộp vào Đợt 2 cùng D); H-2 là ràng buộc bắt buộc của Đợt 4, không phải việc mới.
 
-**D · Trạng thái Kết bạn + nút "Kết bạn" ở màn cuộc gọi**
-- Backend: thêm API tra trạng thái kết bạn theo số điện thoại (nick nào đã là bạn / chưa), dùng lại `campaign-service.attemptFriendRequest()` cho hành động kết bạn; giữ nguyên trần `friend_action` (mặc định 30/ngày, burst 8/60s — `sdk-limit-service.ts`). **Không tăng trần.**
-- Frontend: `views/CallHistoryView.vue`, `components/telephony/CallButton.vue`, `CallNotesPanel.vue`, `TelephonySoftphone.vue` — hiện chip "Kết bạn / Chưa KB Zalo" cạnh số; nút "Kết bạn" chỉ hiện khi `hasZalo !== false`.
-- Phụ thuộc G (trạng thái hasZalo phải đáng tin trước).
+**D · Trạng thái Kết bạn + nút "Kết bạn" ở màn cuộc gọi** — đã rà "có sẵn chưa" 2026-09-03
+
+### Đã có sẵn (KHÔNG viết lại)
+
+| Phần | Có sẵn ở đâu |
+|------|-------------|
+| Gửi lời mời kết bạn + lời chào | `POST /api/v1/zalo-accounts/:accountId/friends/requests {userId, message}` + `components/chat/FriendInviteDialog.vue` |
+| Tra trạng thái lời mời (theo UID) | `GET .../friends/requests/:userId/status` |
+| Trạng thái kết bạn theo KH (mọi nick) | `GET /api/v1/contacts/:id/friendships` + `Friend.friendshipStatus` (`none` / `pending_sent` / `accepted`) |
+| Phone → UID | `POST .../friends/lookup-by-phone` (⚠️ = `findUser`, bị Zalo throttle mạnh) |
+| Trần chống spam | `sdk-limit-service.ts`: `friend_action` 30/ngày·8/60s, `friend_lookup` riêng |
+| UI đầy đủ (nút Kết bạn, chip trạng thái, thu hồi, mời lại) | `components/chat/MessageThread.vue` — **chỉ ở màn chat** |
+
+### Thiếu — chỉ đúng phần này
+
+Màn cuộc gọi (`views/CallHistoryView.vue` + `components/telephony/*`) **không** có
+chip trạng thái kết bạn / nút Kết bạn. Việc của D = **hiển thị lại đồ có sẵn** ở
+màn cuộc gọi: tái dùng `GET /contacts/:id/friendships` + `FriendInviteDialog` +
+`POST .../friends/requests`. **Không thêm endpoint backend.**
+
+### Ràng buộc chính sách Zalo (bắt buộc) — 🟡
+
+- **Trạng thái kết bạn phải suy từ `Friend` rows có sẵn** (`friendships` endpoint,
+  không gọi SDK). **TUYỆT ĐỐI không** gọi `lookup-by-phone`/`findUser` cho từng
+  dòng call log để "kiểm tra" — đó là pattern spam, Zalo chặn `findUser` rất gắt
+  ("Nick đã bị Zalo chặn tạm thời (quá nhiều lượt tra cứu)").
+- Live `findUser` chỉ chạy khi sale **bấm tay** "Kết bạn" trên 1 dòng cụ thể.
+- Gửi lời mời: giữ trần `friend_action` 30/ngày (không tăng), **1 người / lần**
+  (không bulk), hiện số quota còn lại trong ngày.
+- Chỉ cho số **đã thực sự có cuộc gọi** — không quét danh bạ / không auto.
+
+Kết luận D: **làm được**, an toàn nếu theo ràng buộc trên; không phụ thuộc code
+mới, chủ yếu là FE. Vẫn nên có G ổn trước (đã xong).
+
+**H-1 · Cảnh báo khi mở chat mới cho KH nick khác đang chăm** — chưa có
+
+- Hiện trạng: `NewMessageDialog` → `ensure-by-uid` tạo Friend + Conversation thứ 2
+  trên nick B mà không cảnh báo. Có widget "Đồng đội cùng chăm" nhưng không phải
+  cảnh báo chặn trước khi tạo.
+- Việc: trước khi `ensure-by-uid`, gọi `GET /contacts/:id/friendships` (đã có),
+  nếu có nick khác `friendshipStatus='accepted'` → hiện xác nhận "KH đang được
+  nick … chăm, vẫn mở luồng mới?". **Không đụng backend.**
+- Chính sách Zalo: không liên quan (chỉ cảnh báo UI). Việc nhỏ, gộp cùng D.
 
 ### Đợt 3 — Import & địa chỉ sau sáp nhập
 
