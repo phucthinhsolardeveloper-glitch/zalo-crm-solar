@@ -51,14 +51,68 @@ Kết thúc Đợt 1: có demo được cho sếp (F + B nhìn thấy ngay; G l�
 
 ### Đợt 2 — Điều tra + kết bạn từ cuộc gọi
 
-**H · Audit 2 nick Zalo / 1 CRM**
-- Câu hỏi họp: 2 nick (mỗi nick ~300 bạn) trên cùng 1 CRM có xem được danh sách bạn của nhau và có gửi/tương tác chồng chéo không.
-- Đã biết từ code: `Friend` lưu **theo từng nick**; `Contact` là hồ sơ tổng hợp nên cả 2 nick đều thấy KH qua Contact. `campaign-service.ts` đã chặn 2 nick cùng kết bạn 1 người (`NOT EXISTS ... state='accepted'`).
-- Việc cần làm:
-  1. Rà luồng gửi tin/chiến dịch: hệ thống có chọn đúng nick **đang là bạn** với KH không, hay có thể gửi qua nick chưa kết bạn (→ gửi cho người lạ = rủi ro).
-  2. Rà quyền xem: user thấy Friend của nick không được gán có đúng policy không (`zalo-scope.ts`, `zalo-access-middleware.ts`).
-  3. Đối chiếu với chính sách Zalo về nhiều thiết bị/nhiều nick.
-- Đầu ra: báo cáo + danh sách chỗ cần siết (có thể sinh việc code nhỏ). Kết quả có thể đổi phạm vi Đợt 3–4.
+**H · Audit 2 nick Zalo / 1 CRM** — ✅ Đã audit 2026-09-03 (chưa sinh code)
+
+Câu hỏi họp: 2 nick (mỗi nick ~300 bạn) trên cùng 1 CRM có xem được danh sách
+bạn của nhau và có gửi/tương tác chồng chéo không.
+
+### Hệ thống đang hoạt động thế nào (theo code)
+
+- `Friend` lưu **theo từng nick** (`Friend.zaloAccountId`); `Contact` là hồ sơ
+  tổng hợp gom các `Friend` của mọi nick trong org về 1 KH.
+- Quyền **xem nick** (`backend/src/modules/zalo/zalo-scope.ts` — `getZaloScope`):
+  - `owner`/`admin` → thấy **mọi nick** trong org.
+  - `leader`/`deputy` phòng X → thấy nick của user thuộc cây phòng X.
+  - Nhân viên thường → chỉ nick mình sở hữu (`ownerUserId`) **hoặc** được cấp
+    `ZaloAccountAccess`.
+- Quyền **gửi qua nick** (`checkZaloAccess` trong `zalo-access-middleware.ts`):
+  cùng luật trên + phải là `permission >= chat`.
+- Aggregate hiển thị của Contact (score/status/preview tin cuối) tính **theo
+  đúng nick mà viewer được thấy** (`computeAggregateDisplay(contact, visibleFriends)`
+  trong `contact-routes.ts`) — nhân viên chỉ thấy chỉ số từ nick của mình.
+
+### Trả lời từng ý
+
+1. **2 nick cùng owner (1 user cắm 2 nick):** user đó thấy bạn của cả 2 nick;
+   Contact gộp làm 1 KH, badge "Cùng chăm" hiện cả 2. → Thấy nhau, đúng thiết kế.
+2. **2 nick khác owner:** nhân viên A (chỉ có nick A) **không** thấy danh sách
+   bạn thô của nick B qua các màn nick-level; nhưng ở màn **Contact/hồ sơ KH**,
+   mảng `friends` trả về gồm Friend của **mọi nick** (`{...contact}` spread ở
+   `contact-routes.ts` list + detail) → A vẫn biết "KH này nick B cũng đang chăm"
+   (badge "Đồng đội cùng chăm"). Chỉ số tổng hợp thì bị giới hạn theo scope.
+   → Cố ý cho biết *có người khác đang chăm*, không cho xem sâu.
+3. **Kết bạn hàng loạt (campaign):** `pickRandomEligibleContact` loại KH mà
+   *bất kỳ* nick đã `state='accepted'` **và** KH nick hiện tại đã từng thử →
+   2 nick **không** cùng gửi lời mời 1 người. ✅ Đã có chốt chặn.
+4. **Nhắn tin trong hội thoại có sẵn:** `Conversation` gắn cứng 1 `zaloAccountId`
+   → gửi luôn đúng nick đó, không lẫn.
+5. **Mở hội thoại MỚI từ nick B cho KH nick A đang chăm:** `NewMessageDialog`
+   → `lookup-by-phone` trên nick B → `ensure-by-uid` `attach:contactId`. Hệ
+   thống **tạo Friend + Conversation thứ 2** trên nick B cho cùng KH, **không
+   cảnh báo** "nick A đang chăm KH này" (ngoài badge "Cùng chăm").
+
+### Chỗ có rủi ro / cần siết
+
+| # | Vấn đề | Mức | Ghi chú |
+|---|--------|-----|---------|
+| H-1 | Mở chat mới từ nick B cho KH nick A đang chăm không cảnh báo | Vừa | 2 sale nhắn song song 1 KH; KH nhận 2 luồng. Nên hiện cảnh báo "KH đang được nick … chăm" trước khi `ensure-by-uid`. |
+| H-2 | Gửi hàng loạt (Đợt 4) phải chọn đúng nick đã kết bạn với từng KH | Cao | Chưa có code; bước "lọc điều kiện" trong kiến trúc Kênh A phải chặn recipient mà nick chọn chưa kết bạn (không thì gửi cho người lạ = spam). |
+| H-3 | Mảng `friends` cross-nick trả nguyên trong response Contact list/detail | Thấp | Là dữ liệu để render "Cùng chăm"; PII đã qua lớp `redactContact`. Không phải lỗ hổng, nhưng nếu siết privacy thì lọc `friends` theo scope luôn. |
+
+### Chính sách Zalo (nhiều nick / 1 CRM)
+
+- Mỗi nick = 1 tài khoản Zalo cá nhân độc lập, có trần riêng
+  (`sdk-limit-service.ts`, per `zaloAccountId`). Cắm nhiều nick vào 1 CRM
+  **không** làm Zalo coi là 1 — mỗi nick vẫn bị đánh giá spam riêng.
+- Rủi ro thật: cùng nội dung gửi từ 2 nick tới cùng tệp KH trong thời gian
+  ngắn → cả 2 nick dễ bị gắn cờ. Đợt 4 phải rải theo nick + chống trùng KH
+  trong 1 chiến dịch (đã ghi ở kiến trúc: khoá theo `contactId`).
+
+### Kết luận
+
+Phần **xem chồng chéo**: đúng thiết kế, không cần sửa gấp (cân nhắc H-3 khi làm
+privacy). Phần **tương tác chồng chéo**: H-1 nên thêm cảnh báo (việc nhỏ, có thể
+gộp vào Đợt 2 cùng D); H-2 là ràng buộc bắt buộc của Đợt 4, không phải việc mới.
 
 **D · Trạng thái Kết bạn + nút "Kết bạn" ở màn cuộc gọi**
 - Backend: thêm API tra trạng thái kết bạn theo số điện thoại (nick nào đã là bạn / chưa), dùng lại `campaign-service.attemptFriendRequest()` cho hành động kết bạn; giữ nguyên trần `friend_action` (mặc định 30/ngày, burst 8/60s — `sdk-limit-service.ts`). **Không tăng trần.**
