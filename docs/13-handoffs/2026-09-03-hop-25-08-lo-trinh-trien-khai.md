@@ -1,7 +1,9 @@
 # Lộ trình triển khai — Cuộc họp 25/08/2026
 
 Ngày lập: 2026-09-03. Nguồn: biên bản họp 25/08 + đọc code nhánh hiện tại.
-Trạng thái: **KẾ HOẠCH — CHƯA CODE**. Chờ chốt từng mục theo cột "Cần trước khi làm".
+Trạng thái: **ĐANG TRIỂN KHAI**. Đợt 1 (F + B + G) đã xong trên `master01`:
+`6b8474e` (F), `cfc2eb2` (B), `f7831d7` (G). Các đợt sau chờ chốt theo bảng
+"Việc cần user / sếp chốt".
 
 Tài liệu kiến trúc phần gửi hàng loạt: `docs/13-handoffs/` không chứa — xem artifact "Kiến trúc gửi tin nhắn hàng loạt" đã trình sếp.
 
@@ -11,9 +13,9 @@ Tài liệu kiến trúc phần gửi hàng loạt: `docs/13-handoffs/` không c
 
 | ID | Hạng mục | Repo | Chính sách Zalo | Ước lượng | Trạng thái |
 |----|----------|------|-----------------|-----------|------------|
-| F | Hồ sơ KH: bắt buộc **tỉnh**, không bắt buộc **xã** | zalo-crm-solar | Không liên quan | S | Sẵn sàng |
-| B | Nút tạo nhắc hẹn ngay trên trang khách hàng | zalo-crm-solar | Không liên quan | S | Sẵn sàng |
-| G | Fix: KH có Zalo nhưng báo "chưa kết nối / chưa làm" | zalo-crm-solar | Không liên quan | S–M | Chờ xác nhận triệu chứng |
+| F | Hồ sơ KH: bắt buộc **tỉnh**, không bắt buộc **xã** | zalo-crm-solar | Không liên quan | S | ✅ Xong `6b8474e` |
+| B | Nút tạo nhắc hẹn ngay trên trang khách hàng | zalo-crm-solar | Không liên quan | S | ✅ Xong `cfc2eb2` |
+| G | Fix: KH có Zalo nhưng báo "chưa kết nối / chưa làm" | zalo-crm-solar | Không liên quan | S–M | ✅ Xong `f7831d7` |
 | H | Audit: 2 nick Zalo / 1 CRM — thấy & tương tác chồng chéo? | zalo-crm-solar | Cần đối chiếu chính sách | M (điều tra) | Sẵn sàng |
 | D | Trạng thái Kết bạn/Chưa KB + nút "Kết bạn" ở màn cuộc gọi | zalo-crm-solar | Giới hạn kết bạn — giữ trần | M | Sẵn sàng |
 | E | Import KH: ánh xạ địa chỉ cũ → mới sau sáp nhập | zalo-crm-solar | Không liên quan | M | Chờ dữ liệu ánh xạ |
@@ -121,6 +123,20 @@ Frontend:
 
 ## NEXT
 
-1. User trả lời 6 điểm ở bảng "Việc cần user / sếp chốt".
-2. Bắt đầu Đợt 1 (F + B) — không phụ thuộc gì thêm.
-3. G sau khi có xác nhận triệu chứng.
+1. **Đợt 1 (F + B + G) đã xong** — chờ chạy thử trên app thật / phản hồi.
+2. User trả lời 6 điểm ở bảng "Việc cần user / sếp chốt" để mở Đợt 2–4.
+3. Đợt 2 (H audit + D kết bạn màn cuộc gọi) bắt đầu được ngay, không chặn bởi
+   quyết định của sếp.
+
+## G — cách xử lý đã chọn
+
+Không có mô tả triệu chứng chính xác nên fix theo hướng hệ thống, an toàn:
+
+- **Không** tự gọi `findUser` cho `hasZalo` null/false (giữ nguyên quyết định
+  M52/M53). Chỉ ghi nhận `hasZalo=true` khi Zalo đã tự resolve (mở chat →
+  `getUserInfo` trả profile) hoặc khi đã có Friend row / Zalo identity.
+- `GET /contacts/:id` backfill `hasZalo=true` best-effort khi có bằng chứng.
+- Các màn hiển thị dùng chung bộ tín hiệu 3 trạng thái; nhãn unknown đổi thành
+  "Chưa kiểm tra".
+
+Nếu vẫn còn màn nào báo sai, gửi ảnh chụp màn đó để chỉnh tiếp.
