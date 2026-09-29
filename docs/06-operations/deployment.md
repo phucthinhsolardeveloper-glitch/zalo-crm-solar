@@ -13,6 +13,14 @@ Dockerfile multi-stage dùng Node 22 Alpine, build frontend/backend và chạy `
 
 ## Production snapshot
 
-VPS `zalo-crm-pts`, `/root/zcrm`, branch `fix/omicall-sip-call-history`, commit `6c7e99c`, xác minh 2026-08-24. Sáu service app/db/redis/minio/clamav/backup healthy. Đây là snapshot, phải kiểm lại trước deploy.
+Xác minh 2026-09-29: VPS `pts-prod-01` (`222.255.182.182`), source
+`/srv/zcrm`, branch `master01`, domain `https://zcrm.phucthinhsolar.com`.
+App/db/Redis/ClamAV/backup healthy; Caddy nằm ở stack `/srv/phucthinhsolar`
+và route tới app qua external network `phucthinhsolar_edge`.
+
+VPS có override server-local `/srv/zcrm/docker-compose.vps.yml`: app không publish
+host port, tham gia Caddy edge network, dependency MinIO được bỏ khi
+`STORAGE_DRIVER=local`, còn MinIO/minio-init nằm trong profile `object-storage`.
+Không commit `.env` production hoặc sao chép secret về workstation.
 
 Không chạy deploy/migration khi chưa có backup kiểm tra non-zero và rollback decision. Không dùng `down -v`.

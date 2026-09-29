@@ -1,5 +1,12 @@
 # Documentation changelog
 
+## 2026-09-29
+
+- Cập nhật production snapshot sang VPS `pts-prod-01`, source `/srv/zcrm` và domain HTTPS `zcrm.phucthinhsolar.com`.
+- Ghi topology Caddy edge network, compose override server-local và local storage không chạy MinIO mặc định.
+- Ghi database mới có 119 migration, đang chờ owner initial setup; OmiCall/ZCC tắt.
+- Cập nhật setup UI theo ngữ cảnh CRM nội bộ công ty.
+
 ## 2026-08-24
 
 - Tái dựng canonical docs từ code/config/schema/test/runtime của `zalo-crm-solar`.

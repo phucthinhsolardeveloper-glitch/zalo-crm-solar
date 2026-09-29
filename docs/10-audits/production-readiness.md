@@ -24,13 +24,13 @@
 - **Verification:** artifact + transcript/manual checklist hai phía.
 - **Status:** `BLOCKED_EXTERNAL/NEEDS VERIFICATION`.
 
-## P1 — Transport/tenant hardening chưa enforce
+## P1 — Tenant hardening chưa enforce
 
-- **Issue:** production HTTP/IP; CSP report-only; tenant guard off; RLS set-config false.
-- **Evidence:** runtime env snapshot và `tenant-rls.sql` header.
+- **Issue:** HTTPS/domain đã hoàn tất ngày 2026-09-29, nhưng CSP report-only; tenant guard off; RLS set-config false.
+- **Evidence:** HTTPS/HSTS runtime response, runtime env snapshot và `tenant-rls.sql` header.
 - **Root Cause:** staged rollout chưa hoàn tất.
 - **Risk:** network exposure và thiếu DB defense-in-depth nếu application scope bug.
-- **Recommended Fix:** HTTPS first; guard warn clean; RLS staging; IDOR suite; enforce.
+- **Recommended Fix:** guard warn clean; RLS staging; IDOR suite; CSP/tenant enforce theo rollout.
 - **Verification:** headers/TLS scan, zero warnings, RLS cross-org tests.
 - **Status:** `NEEDS FIX`.
 

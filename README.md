@@ -6,14 +6,14 @@ Repo này sở hữu kênh Zalo, Contact aggregation và telephony orchestration
 
 ## Trạng thái đã xác minh
 
-Snapshot ngày 2026-08-24: branch `fix/omicall-sip-call-history`, commit `6c7e99c`. Trước reconstruction, working tree có một thay đổi comment của user trong `backend/src/modules/telephony/telephony-routes.ts`; thay đổi này được giữ nguyên.
+Snapshot runtime ngày 2026-09-29: branch `master01` được triển khai tại
+`/srv/zcrm` trên VPS `pts-prod-01` (`222.255.182.182`).
 
-Production đã được quan sát read-only tại cùng commit:
-
-- Hostname `zalo-crm-pts`; app/database/Redis/MinIO/ClamAV/backup services healthy.
-- 119 migration đã apply; `/health` báo database connected.
-- Backup ngày 2026-08-23/24 tồn tại khác rỗng; log backup báo thành công.
-- Runtime có ClamAV bật và fail-closed; OmiCall/ZCC feature flags tắt.
+- Domain `https://zcrm.phucthinhsolar.com` đi qua Caddy dùng chung và có TLS tự động.
+- App/PostgreSQL/Redis/ClamAV/backup đều healthy; `/health` báo database connected.
+- 119 migration đã apply; database mới đang ở trạng thái `needsSetup=true` và chưa có dữ liệu nghiệp vụ.
+- Production dùng `STORAGE_DRIVER=local`; MinIO được tách khỏi profile mặc định trên VPS.
+- OmiCall/ZCC tắt cho tới khi có credential production và đóng các gate telephony.
 
 Kết luận theo quality gate: **NOT READY FOR PRODUCTION** dù runtime hiện đang chạy.
 
@@ -21,7 +21,7 @@ Blocker:
 
 - Chưa có telephony grant trong RBAC; OmiCall production đang disabled.
 - Audio/recording đủ hai phía chưa verified; audit cũ ghi nhận recording mono.
-- Production còn HTTP/chưa domain-TLS được xác minh; CSP report-only.
+- HTTPS/domain đã hoàn tất; CSP vẫn ở `report-only`.
 - Tenant guard off và RLS false; backend scope phụ thuộc route/service.
 - Restore rehearsal chưa được thực hiện/ghi evidence.
 - Thiếu browser E2E ổn định theo role/org/Zalo scope.

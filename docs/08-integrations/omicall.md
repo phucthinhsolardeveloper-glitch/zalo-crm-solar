@@ -20,7 +20,7 @@ Không trả SIP secret cho user không sở hữu/không được cấp quyền
 
 ## Provisioning và trạng thái
 
-Source có auto-provisioning nhưng mapping role/grant, disable/reactivate, vendor drift và cleanup khi user nghỉ cần xác minh. Production snapshot 2026-08-24 có OmiCall/ZCC disabled, nên không được tuyên bố live chỉ dựa trên code.
+Source có auto-provisioning nhưng mapping role/grant, disable/reactivate, vendor drift và cleanup khi user nghỉ cần xác minh. Production snapshot 2026-09-29 có OmiCall/ZCC disabled; API trial từng trả provider HTTP 401 nên không được đưa credential dev/trial lên VPS hoặc tuyên bố live chỉ dựa trên code.
 
 ## Verification matrix
 

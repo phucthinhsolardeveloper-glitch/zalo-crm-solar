@@ -11,8 +11,8 @@ Integration là ranh giới failure/security riêng, không chỉ là một conf
 - [Storage và antivirus](storage-antivirus.md): local/R2/MinIO, public/private media và ClamAV.
 - [AI, webhook và provider khác](ai-webhooks-other.md): model registry, RAG, outbound webhook và các integration chưa đủ runtime evidence.
 
-## Trạng thái production snapshot 2026-08-24
+## Trạng thái production snapshot 2026-09-29
 
-Storage driver là `local`; ClamAV bật fail-closed; OmiCall và ZCC disabled. Trạng thái credential/runtime của Zalo, Telegram, AI, ads và webhook riêng lẻ không được suy ra từ việc có code/config. Mọi snapshot phải được kiểm lại trước release.
+Storage driver là `local`, MinIO không chạy trong profile mặc định; ClamAV bật fail-closed; OmiCall và ZCC disabled. Database mới đang chờ initial setup nên chưa có integration nào được kết luận là live. Trạng thái credential/runtime của Zalo, Telegram, AI, ads và webhook riêng lẻ không được suy ra từ việc có code/config. Mọi snapshot phải được kiểm lại trước release.
 
 Integration chưa có test contract/negative path hoặc runtime evidence phải ghi `NEEDS VERIFICATION`; provider quota/SLA/capacity chưa benchmark phải ghi `UNKNOWN` hoặc `CAPACITY NOT YET BENCHMARKED`.

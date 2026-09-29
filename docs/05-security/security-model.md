@@ -14,7 +14,7 @@ ZCRM Solar dùng nhiều lớp: TLS/reverse proxy (chưa có config trong repo),
 
 ## Control chưa enforce
 
-- Production đang HTTP/IP; transport confidentiality chưa đạt.
+- HTTPS/HSTS production đã bật qua Caddy ngày 2026-09-29; cấu hình proxy nằm ngoài repo tại `/srv/phucthinhsolar`.
 - CSP `report-only`; tenant guard `off`; RLS chưa apply/set-config.
 - Telephony chưa có resource RBAC riêng.
 - MinIO S3 API public và bucket media cho anonymous download theo design; random key không thay access control cho dữ liệu nhạy cảm.

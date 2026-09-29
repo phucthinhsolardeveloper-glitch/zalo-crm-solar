@@ -18,6 +18,6 @@ Backend nạp optional `src/_ee/index.js`; directory `_ee` không có trong repo
 ## Không nằm trong bằng chứng hiện tại
 
 - Không có CI/CD workflow trong repo.
-- Không có reverse-proxy/TLS config trong repo; production snapshot vẫn dùng HTTP/IP.
+- Không có reverse-proxy/TLS config trong repo; production dùng Caddy/TLS ở stack ngoài repo `/srv/phucthinhsolar`.
 - Không có benchmark capacity đáng tin cậy: **CAPACITY NOT YET BENCHMARKED**.
 - Không có bằng chứng restore rehearsal cho backup production hiện tại.

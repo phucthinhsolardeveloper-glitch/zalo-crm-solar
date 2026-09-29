@@ -2,7 +2,7 @@
 
 ## Driver và boundary
 
-Ứng dụng hỗ trợ `local` và S3-compatible/R2; Docker Compose có MinIO. Production snapshot 2026-08-24 dùng `STORAGE_DRIVER=local` dù MinIO vẫn chạy. Sự hiện diện của container không chứng minh app đang ghi vào đó.
+Ứng dụng hỗ trợ `local` và S3-compatible/R2; Docker Compose có MinIO. Production snapshot 2026-09-29 dùng `STORAGE_DRIVER=local`; MinIO/minio-init bị loại khỏi profile mặc định bằng compose override trên VPS. Dữ liệu file nằm trong volume `zcrm_file_storage`; cần backup volume này cùng PostgreSQL.
 
 Media dùng cho Zalo có thể cần URL provider truy cập được; recording và dữ liệu riêng phải đi qua authorization/private delivery và encryption phù hợp. Public URL, private object và retention không được dùng lẫn.
 
