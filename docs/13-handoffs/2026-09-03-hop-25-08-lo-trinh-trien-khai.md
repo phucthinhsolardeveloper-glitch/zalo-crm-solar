@@ -13,11 +13,11 @@ Tài liệu kiến trúc phần gửi hàng loạt: `docs/13-handoffs/` không c
 
 | ID | Hạng mục | Repo | Chính sách Zalo | Ước lượng | Trạng thái |
 |----|----------|------|-----------------|-----------|------------|
-| F | Hồ sơ KH: bắt buộc **tỉnh**, không bắt buộc **xã** | zalo-crm-solar | Không liên quan | S | ✅ Xong `6b8474e` |
+| F | Hồ sơ KH + import: bắt buộc **tỉnh**, không bắt buộc **xã** | zalo-crm-solar | Không liên quan | S | ✅ Xong (bổ sung import 29/09) |
 | B | Nút tạo nhắc hẹn ngay trên trang khách hàng | zalo-crm-solar | Không liên quan | S | ✅ Xong `cfc2eb2` |
 | G | Fix: KH có Zalo nhưng báo "chưa kết nối / chưa làm" | zalo-crm-solar | Không liên quan | S–M | ✅ Xong `f7831d7` |
-| H | Audit: 2 nick Zalo / 1 CRM — thấy & tương tác chồng chéo? | zalo-crm-solar | Cần đối chiếu chính sách | M (điều tra) | Sẵn sàng |
-| D | Trạng thái Kết bạn/Chưa KB + nút "Kết bạn" ở màn cuộc gọi | zalo-crm-solar | Giới hạn kết bạn — giữ trần | M | Sẵn sàng |
+| H | Audit: 2 nick Zalo / 1 CRM — thấy & tương tác chồng chéo? | zalo-crm-solar | Cần đối chiếu chính sách | M (điều tra) | ✅ Audit + cảnh báo chéo |
+| D | Trạng thái Kết bạn/Chưa KB + nút "Kết bạn" ở màn cuộc gọi | zalo-crm-solar | Giới hạn kết bạn — giữ trần | M | ✅ Đã triển khai 29/09 |
 | E | Import KH: ánh xạ địa chỉ cũ → mới sau sáp nhập | zalo-crm-solar | Không liên quan | M | Chờ dữ liệu ánh xạ |
 | C | Queue chia lô gửi tin nhắn hàng loạt | zalo-crm-solar | **Rủi ro khoá nick** | L | **TẠM HOÃN — chờ sếp duyệt** |
 | A | Gửi ảnh chung: chọn nhiều ảnh + gửi nhiều người | zalo-crm-solar | Rủi ro (đi qua C) | M | **TẠM HOÃN — phụ thuộc C** |
@@ -127,12 +127,12 @@ gộp vào Đợt 2 cùng D); H-2 là ràng buộc bắt buộc của Đợt 4, 
 | Trần chống spam | `sdk-limit-service.ts`: `friend_action` 30/ngày·8/60s, `friend_lookup` riêng |
 | UI đầy đủ (nút Kết bạn, chip trạng thái, thu hồi, mời lại) | `components/chat/MessageThread.vue` — **chỉ ở màn chat** |
 
-### Thiếu — chỉ đúng phần này
+### Đã bổ sung 29/09/2026
 
-Màn cuộc gọi (`views/CallHistoryView.vue` + `components/telephony/*`) **không** có
-chip trạng thái kết bạn / nút Kết bạn. Việc của D = **hiển thị lại đồ có sẵn** ở
-màn cuộc gọi: tái dùng `GET /contacts/:id/friendships` + `FriendInviteDialog` +
-`POST .../friends/requests`. **Không thêm endpoint backend.**
+Màn cuộc gọi (`views/CallHistoryView.vue`) đã có cột trạng thái kết bạn và nút
+Kết bạn. Trạng thái lấy cùng query call log từ `Friend` trong DB; chỉ khi người
+dùng chọn nick và bấm thao tác thì mới gọi `lookup-by-phone`, mở
+`FriendInviteDialog` rồi gửi qua `POST .../friends/requests`.
 
 ### Ràng buộc chính sách Zalo (bắt buộc) — 🟡
 
@@ -145,10 +145,10 @@ màn cuộc gọi: tái dùng `GET /contacts/:id/friendships` + `FriendInviteDia
   (không bulk), hiện số quota còn lại trong ngày.
 - Chỉ cho số **đã thực sự có cuộc gọi** — không quét danh bạ / không auto.
 
-Kết luận D: **làm được**, an toàn nếu theo ràng buộc trên; không phụ thuộc code
-mới, chủ yếu là FE. Vẫn nên có G ổn trước (đã xong).
+Kết luận D: **đã triển khai** theo ràng buộc trên; trần chống spam tiếp tục được
+backend áp dụng theo từng nick.
 
-**H-1 · Cảnh báo khi mở chat mới cho KH nick khác đang chăm** — chưa có
+**H-1 · Cảnh báo khi mở chat mới cho KH nick khác đang chăm** — ✅ đã triển khai 29/09/2026
 
 - Hiện trạng: `NewMessageDialog` → `ensure-by-uid` tạo Friend + Conversation thứ 2
   trên nick B mà không cảnh báo. Có widget "Đồng đội cùng chăm" nhưng không phải
@@ -158,7 +158,15 @@ mới, chủ yếu là FE. Vẫn nên có G ổn trước (đã xong).
   nick … chăm, vẫn mở luồng mới?". **Không đụng backend.**
 - Chính sách Zalo: không liên quan (chỉ cảnh báo UI). Việc nhỏ, gộp cùng D.
 
+Kết quả: trước khi tạo/mở luồng mới bằng nick khác, UI đọc `friendships` và yêu
+cầu xác nhận nếu đã có nick khác kết bạn. Nếu không kiểm tra được trạng thái thì
+fail-closed, không tạo luồng mới.
+
 ### Đợt 3 — Import & địa chỉ sau sáp nhập
+
+Đã hoàn tất phần độc lập với dữ liệu sáp nhập: import bắt buộc map và có giá trị
+`Tỉnh/Thành phố`; `Phường/Xã` vẫn không bắt buộc. Phần ánh xạ cũ → mới bên dưới
+tiếp tục để backlog vì chưa có bộ dữ liệu nguồn chính thức.
 
 **E · Ánh xạ địa chỉ cũ → mới khi import KH**
 - Backend: `backend/src/modules/contacts/contact-import-service.ts`, `contact-import-routes.ts`, `contact-import-types.ts`.
@@ -216,10 +224,10 @@ Frontend:
 
 ## NEXT
 
-1. **Đợt 1 (F + B + G) đã xong** — chờ chạy thử trên app thật / phản hồi.
-2. User trả lời 6 điểm ở bảng "Việc cần user / sếp chốt" để mở Đợt 2–4.
-3. Đợt 2 (H audit + D kết bạn màn cuộc gọi) bắt đầu được ngay, không chặn bởi
-   quyết định của sếp.
+1. **Đợt 1 + Đợt 2 đã xong**; import cũng đã được siết bắt buộc tỉnh.
+2. Chờ dữ liệu địa chỉ cũ ↔ mới chính thức để làm E.
+3. Chờ OA/template/quyết định kênh gửi hợp lệ để mở C/A/I; không triển khai bulk
+   trên tài khoản cá nhân. J (tồn kho) được lưu backlog sau cùng.
 
 ## G — cách xử lý đã chọn
 

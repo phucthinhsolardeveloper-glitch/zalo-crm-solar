@@ -164,6 +164,7 @@
               <th>Thời gian</th>
               <th>Thời lượng</th>
               <th>Trạng thái</th>
+              <th>Kết bạn Zalo</th>
               <th>Ghi âm</th>
               <th>Ghi chú</th>
               <th>Hành động</th>
@@ -208,6 +209,36 @@
                 <td data-label="Thời gian"><time>{{ dateTime(call.startedAt) }}</time></td>
                 <td data-label="Thời lượng">{{ duration(call.durationSec || 0, true) }}</td>
                 <td data-label="Trạng thái"><span class="status" :class="call.status">{{ statusLabel(call.status) }}</span></td>
+                <td data-label="Kết bạn Zalo">
+                  <span v-if="friendshipStateFor(call) === 'accepted'" class="friendship-pill accepted">Đã kết bạn</span>
+                  <span v-else-if="friendshipStateFor(call) === 'pending'" class="friendship-pill pending">Đã gửi lời mời</span>
+                  <span v-else-if="!call.contact" class="friendship-pill unknown">Chưa có hồ sơ KH</span>
+                  <v-menu v-else location="bottom start">
+                    <template #activator="{ props: menuProps }">
+                      <button
+                        v-bind="menuProps"
+                        class="friendship-btn"
+                        :disabled="!connectedZaloAccounts.length || invitePreparing"
+                        :title="connectedZaloAccounts.length ? 'Chọn nick Zalo để kiểm tra và gửi lời mời' : 'Chưa có nick Zalo đang kết nối'"
+                      >
+                        <v-icon icon="mdi-account-plus-outline" size="15" />
+                        {{ zaloStateFor(call) === 'no' ? 'Kiểm tra lại' : 'Kết bạn' }}
+                      </button>
+                    </template>
+                    <v-card class="friend-account-menu">
+                      <div class="friend-account-title">Gửi bằng nick</div>
+                      <button
+                        v-for="account in connectedZaloAccounts"
+                        :key="account.id"
+                        type="button"
+                        @click="prepareFriendInvite(call, account)"
+                      >
+                        <strong>{{ account.displayName || 'Nick chưa đặt tên' }}</strong>
+                        <small>{{ account.phone || 'Đang kết nối' }}</small>
+                      </button>
+                    </v-card>
+                  </v-menu>
+                </td>
                 <td data-label="Ghi âm">
                   <button
                     v-if="recordingUrl(call)"
@@ -343,6 +374,12 @@
       @update:model-value="onCreateCustomerDialogVisibility"
       @created="onCustomerCreated"
     />
+    <FriendInviteDialog
+      v-model="inviteDialogOpen"
+      :receiver-name="inviteTarget?.receiverName"
+      :loading="inviteSending"
+      @submit="sendFriendInvite"
+    />
   </main>
 </template>
 
@@ -356,6 +393,7 @@ import { useOmicallSoftphone } from '@/composables/use-omicall-softphone';
 import CallButton from '@/components/telephony/CallButton.vue';
 import CallNotesPanel from '@/components/telephony/CallNotesPanel.vue';
 import AddCustomerQuickDialog from '@/components/contacts/AddCustomerQuickDialog.vue';
+import FriendInviteDialog from '@/components/chat/FriendInviteDialog.vue';
 import { useCrmLinkSocket } from '@/composables/use-crm-link-socket';
 
 interface CallItem {
@@ -374,6 +412,12 @@ interface CallItem {
     // ContactDetailPanel.zaloState) — chỉ đọc dữ liệu có sẵn, không gọi SDK.
     hasZalo?: boolean | null; zaloUid?: string | null; zaloGlobalId?: string | null; zaloUsername?: string | null;
     _count?: { friends: number };
+    friends?: Array<{
+      zaloAccountId: string;
+      friendshipStatus: string;
+      relationshipKind: string;
+      zaloAccount: { id: string; displayName: string | null };
+    }>;
   } | null;
   peerUser?: { id: string; fullName: string; avatarUrl?: string | null } | null;
   latestNote?: { id: string; body: string; createdAt: string; author: { id: string; fullName: string } } | null;
@@ -402,6 +446,11 @@ const { peers } = useOmicallSoftphone();
 const canViewOrganization = computed(() => auth.isAdmin);
 const calls = ref<CallItem[]>([]);
 const users = ref<Array<{ id: string; fullName: string }>>([]);
+interface ZaloAccountLite { id: string; displayName: string | null; phone?: string | null; status?: string; liveStatus?: string }
+const zaloAccounts = ref<ZaloAccountLite[]>([]);
+const connectedZaloAccounts = computed(() => zaloAccounts.value.filter((account) =>
+  String(account.liveStatus || account.status || '').toLowerCase() === 'connected',
+));
 const loading = ref(false);
 const syncing = ref(false);
 const errorMessage = ref('');
@@ -455,7 +504,7 @@ const filters = reactive({
   to: defaults.to,
 });
 
-const columnCount = computed(() => canViewOrganization.value && filters.scope === 'organization' ? 10 : 9);
+const columnCount = computed(() => canViewOrganization.value && filters.scope === 'organization' ? 11 : 10);
 const pageStart = computed(() => pagination.total ? (pagination.page - 1) * pagination.pageSize + 1 : 0);
 const pageEnd = computed(() => Math.min(pagination.page * pagination.pageSize, pagination.total));
 
@@ -508,6 +557,15 @@ async function loadUsers() {
     }));
   } catch {
     users.value = [];
+  }
+}
+
+async function loadZaloAccounts() {
+  try {
+    const { data } = await api.get('/zalo-accounts');
+    zaloAccounts.value = Array.isArray(data) ? data : [];
+  } catch {
+    zaloAccounts.value = [];
   }
 }
 
@@ -580,6 +638,80 @@ function zaloPillClassFor(call: CallItem) {
 function zaloPillTextFor(call: CallItem) {
   const s = zaloStateFor(call);
   return s === 'yes' ? '🟢 Có Zalo' : s === 'no' ? '🔴 Không tìm thấy' : '⚪ Chưa kiểm tra';
+}
+
+function friendshipStateFor(call: CallItem): 'accepted' | 'pending' | 'none' {
+  const rows = call.contact?.friends || [];
+  if (rows.some((row) => row.friendshipStatus === 'accepted' || row.relationshipKind === 'friend')) return 'accepted';
+  if (rows.some((row) => row.friendshipStatus === 'pending_sent' || row.friendshipStatus === 'pending_received')) return 'pending';
+  return 'none';
+}
+
+const inviteDialogOpen = ref(false);
+const invitePreparing = ref(false);
+const inviteSending = ref(false);
+const inviteTarget = ref<{
+  call: CallItem;
+  accountId: string;
+  userId: string;
+  receiverName: string;
+} | null>(null);
+
+async function prepareFriendInvite(call: CallItem, account: ZaloAccountLite) {
+  const phone = call.contact?.phone || call.externalNumber;
+  if (!call.contact || !phone) {
+    toast.error('Khách hàng chưa có số điện thoại để kiểm tra Zalo');
+    return;
+  }
+  invitePreparing.value = true;
+  try {
+    // Chỉ gọi findUser sau thao tác bấm tay trên một cuộc gọi cụ thể; không quét tự động.
+    const { data } = await api.post(`/zalo-accounts/${account.id}/friends/lookup-by-phone`, { phone });
+    if (!data?.found || !data?.uid) {
+      toast.error(data?.detail || `Nick ${account.displayName || ''} không tìm thấy tài khoản Zalo của số này`);
+      return;
+    }
+    inviteTarget.value = {
+      call,
+      accountId: account.id,
+      userId: data.uid,
+      receiverName: callName(call),
+    };
+    inviteDialogOpen.value = true;
+  } catch (error: any) {
+    toast.error(error?.response?.data?.error || error?.response?.data?.detail || 'Không kiểm tra được tài khoản Zalo');
+  } finally {
+    invitePreparing.value = false;
+  }
+}
+
+async function sendFriendInvite(message: string) {
+  const target = inviteTarget.value;
+  if (!target) return;
+  inviteSending.value = true;
+  try {
+    await api.post(`/zalo-accounts/${target.accountId}/friends/requests`, { userId: target.userId, message });
+    const contact = target.call.contact;
+    if (contact) {
+      const account = zaloAccounts.value.find((row) => row.id === target.accountId);
+      contact.friends = [
+        ...(contact.friends || []).filter((row) => row.zaloAccountId !== target.accountId),
+        {
+          zaloAccountId: target.accountId,
+          friendshipStatus: 'pending_sent',
+          relationshipKind: 'pending_friend',
+          zaloAccount: { id: target.accountId, displayName: account?.displayName || null },
+        },
+      ];
+    }
+    toast.success('Đã gửi lời mời kết bạn');
+    inviteDialogOpen.value = false;
+    inviteTarget.value = null;
+  } catch (error: any) {
+    toast.error(error?.response?.data?.error || 'Không thể gửi lời mời kết bạn');
+  } finally {
+    inviteSending.value = false;
+  }
 }
 
 // Cuộc gọi nội bộ (channel='internal') không có externalNumber — gọi lại phải qua
@@ -824,7 +956,7 @@ function channelLabel(channel: string) {
 }
 
 onMounted(() => {
-  void Promise.all([loadCalls(1), loadUsers()]);
+  void Promise.all([loadCalls(1), loadUsers(), loadZaloAccounts()]);
 });
 </script>
 
@@ -938,6 +1070,18 @@ tbody tr:not(.recording-row):hover { background: #fbfdfc; }
 .zalo-pill-mini.zalo-yes { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
 .zalo-pill-mini.zalo-no { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
 .zalo-pill-mini.zalo-unknown { background: #f1f5f9; color: #475569; border: 1px dashed #cbd5e1; }
+.friendship-pill { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.friendship-pill.accepted { background: #dcfce7; color: #166534; }
+.friendship-pill.pending { background: #fff4d9; color: #8a5b10; }
+.friendship-pill.unknown { background: #f1f5f9; color: #64748b; }
+.friendship-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid #b8dcd4; border-radius: 8px; background: #f1faf8; color: #147d70; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.friendship-btn:disabled { opacity: .5; cursor: not-allowed; }
+.friend-account-menu { min-width: 230px; padding: 8px; }
+.friend-account-title { padding: 4px 7px 7px; color: #718087; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.friend-account-menu button { width: 100%; display: grid; gap: 2px; padding: 8px; border: 0; border-radius: 7px; background: #fff; text-align: left; cursor: pointer; }
+.friend-account-menu button:hover { background: #f1faf8; }
+.friend-account-menu strong { color: #253238; font-size: 12px; }
+.friend-account-menu small { color: #819096; font-size: 11px; }
 .direction { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .channel, .status { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 750; white-space: nowrap; }
 .channel.zcc { background: #e6f3ff; color: #1168ad; }

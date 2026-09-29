@@ -300,6 +300,7 @@ import AddCustomerQuickDialog from '@/components/contacts/AddCustomerQuickDialog
 import NickPickerPopup from '@/components/zalo-accounts/NickPickerPopup.vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
 
 interface AccountLite { id: string; displayName: string | null; avatarUrl?: string | null }
 interface FriendRow {
@@ -352,6 +353,29 @@ const emit = defineEmits<{
 }>();
 
 const toast = useToast();
+const { confirm } = useConfirm();
+
+async function confirmCrossNickCare(contactId: string): Promise<boolean> {
+  if (!selectedAccountId.value) return false;
+  try {
+    const { data } = await api.get(`/contacts/${contactId}/friendships`);
+    const otherAccepted = (Array.isArray(data?.friendships) ? data.friendships : []).filter((row: any) =>
+      row.zaloAccountId !== selectedAccountId.value
+      && (row.friendshipStatus === 'accepted' || row.relationshipKind === 'friend'),
+    );
+    if (!otherAccepted.length) return true;
+    const nickNames = [...new Set(otherAccepted.map((row: any) => row.zaloAccount?.displayName || 'nick khác'))];
+    return confirm({
+      title: 'Khách hàng đang được nick khác chăm sóc',
+      message: `${nickNames.join(', ')} đã kết bạn với khách hàng này. Mở thêm hội thoại bằng ${accountTitle.value} có thể khiến khách nhận nội dung trùng. Bạn vẫn muốn tiếp tục?`,
+      confirmText: 'Vẫn mở hội thoại',
+      cancelText: 'Quay lại',
+    });
+  } catch {
+    toast.error('Không kiểm tra được nick đang chăm sóc khách hàng. Vui lòng thử lại.');
+    return false;
+  }
+}
 
 const selectedAccount = computed(() =>
   props.accounts.find(a => a.id === selectedAccountId.value) || null,
@@ -588,6 +612,8 @@ async function onOpenChat() {
   try {
     if (pickedKind.value === 'friend' && pickedId.value) {
       // KH đã có Friend với nick này → mở conv (idempotent ensure)
+      const friend = friendRows.value.find(row => row.id === pickedId.value);
+      if (friend?.contact?.id && !(await confirmCrossNickCare(friend.contact.id))) return;
       const res = await api.post<{ conversationId: string; created: boolean }>(
         `/friends/${pickedId.value}/ensure-conversation`, {},
       );
@@ -619,6 +645,8 @@ async function onOpenChat() {
         return;
       }
 
+      if (!(await confirmCrossNickCare(c.id))) return;
+
       // KH đã có Zalo (hasZalo=true) — gắn vào nick này qua lookup-by-phone.
       // Cần lookup Zalo trước để biết UID per-nick — KHÔNG dùng Contact.zaloUid
       // vì đó là UID per-viewer của nick KHÁC (sẽ không gửi tin được từ nick này).
@@ -648,6 +676,10 @@ async function onOpenChat() {
       emit('opened', res.data.conversationId);
     } else if (pickedKind.value === 'lookup' && lookupResult.value) {
       const r = lookupResult.value;
+      const attachedContactId = lookupCommitMode.value.startsWith('attach:')
+        ? lookupCommitMode.value.slice('attach:'.length)
+        : null;
+      if (attachedContactId && !(await confirmCrossNickCare(attachedContactId))) return;
       const res = await api.post<{ conversationId: string; created: boolean }>(
         '/conversations/ensure-by-uid',
         {

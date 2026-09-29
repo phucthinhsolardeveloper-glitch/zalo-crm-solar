@@ -7,6 +7,7 @@ import { authMiddleware, requireActiveUser } from '../auth/auth-middleware.js';
 import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
 import { logger } from '../../shared/utils/logger.js';
 import { checkZaloAccess } from '../zalo/zalo-access-middleware.js';
+import { getZaloScope } from '../zalo/zalo-scope.js';
 import { OmicallApiError, syncOmicallHistoryForUser } from './omicall-history-sync.js';
 import { decryptOmicallSecret } from './omicall-token.js';
 import { listUnassignedOmicallExtensions } from './omicall-directory.js';
@@ -329,6 +330,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
     const pageSize = Math.min(Math.max(Math.floor(Number(query.pageSize || query.limit) || 20), 1), 100);
     const canViewOrganization = current.role === 'owner' || current.role === 'admin';
     const organizationScope = query.scope === 'organization' && canViewOrganization;
+    const zaloScope = await getZaloScope(current.id, current.orgId, current.role);
     const where: Prisma.TelephonyCallWhereInput = {
       orgId: current.orgId,
       // Trang này chỉ hiển thị lịch sử Omicall — loại record cũ từ Stringee
@@ -382,6 +384,19 @@ export async function telephonyRoutes(app: FastifyInstance) {
               id: true, fullName: true, crmName: true, avatarUrl: true, phone: true,
               hasZalo: true, zaloUid: true, zaloGlobalId: true, zaloUsername: true,
               _count: { select: { friends: true } },
+              friends: {
+                where: {
+                  relationshipKind: { not: 'ghost' },
+                  zaloAccountId: { in: zaloScope.accessibleIds },
+                  zaloAccount: { archivedAt: null },
+                },
+                select: {
+                  zaloAccountId: true,
+                  friendshipStatus: true,
+                  relationshipKind: true,
+                  zaloAccount: { select: { id: true, displayName: true } },
+                },
+              },
             },
           },
         },

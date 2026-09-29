@@ -32,7 +32,7 @@
 
         <!-- ── STEP 2: Column Mapping ─────────────────────────────────── -->
         <div v-else-if="step === 'mapping'" class="cid-mapping">
-          <p class="cid-hint">Chọn cột nào trong file khớp với trường nào trong CRM. "Họ tên" và "SĐT" là bắt buộc.</p>
+          <p class="cid-hint">Chọn cột nào trong file khớp với trường nào trong CRM. "Họ tên", "SĐT" và "Tỉnh/Thành phố" là bắt buộc.</p>
           <div class="cid-map-grid">
             <div v-for="col in sourceColumns" :key="col.index" class="cid-map-row">
               <div class="cid-map-source">
@@ -148,7 +148,7 @@ const TARGET_FIELDS = [
   { key: 'storeName', label: 'Tên cửa hàng' },
   { key: 'customerType', label: 'Đối tượng' },
   { key: 'importanceLevel', label: 'Mức độ quan trọng' },
-  { key: 'province', label: 'Tỉnh/Thành phố' },
+  { key: 'province', label: 'Tỉnh/Thành phố *' },
   { key: 'district', label: 'Quận/Huyện' },
   { key: 'ward', label: 'Phường/Xã' },
   { key: 'addressLine', label: 'Địa chỉ chi tiết' },
@@ -307,8 +307,8 @@ async function runPreview() {
   mappingError.value = '';
   const mappedList = Object.values(columnMapping.value).filter(Boolean);
   const mappedFields = new Set(mappedList);
-  if (!mappedFields.has('fullName') || !mappedFields.has('phone')) {
-    mappingError.value = 'Cần map ít nhất "Họ tên" và "SĐT" trước khi tiếp tục.';
+  if (!mappedFields.has('fullName') || !mappedFields.has('phone') || !mappedFields.has('province')) {
+    mappingError.value = 'Cần map "Họ tên", "SĐT" và "Tỉnh/Thành phố" trước khi tiếp tục.';
     return;
   }
   // 2 cột cùng map 1 field → cột sau âm thầm đè cột trước khi build payload. Chặn sớm
@@ -357,6 +357,7 @@ function invalidReasonLabel(reason: string | null) {
   return ({
     missing_full_name: 'Thiếu họ tên',
     missing_phone: 'Thiếu SĐT',
+    missing_province: 'Thiếu Tỉnh/Thành phố',
     invalid_phone: 'SĐT không hợp lệ',
   } as Record<string, string>)[reason || ''] || 'Không hợp lệ';
 }

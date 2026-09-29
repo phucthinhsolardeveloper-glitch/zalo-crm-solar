@@ -34,6 +34,7 @@ export type ContactImportRowStatus = 'valid' | 'invalid' | 'duplicate';
 export type ContactImportInvalidReason =
   | 'missing_full_name'
   | 'missing_phone'
+  | 'missing_province'
   | 'invalid_phone';
 
 export interface ContactImportPreviewRow extends ContactImportRow {

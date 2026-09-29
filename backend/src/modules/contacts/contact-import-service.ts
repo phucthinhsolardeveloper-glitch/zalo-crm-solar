@@ -20,8 +20,8 @@ import type {
   ContactImportInvalidReason,
 } from './contact-import-types.js';
 
-/** Validate 1 row (đủ fullName + phone hợp lệ). Không query DB — pure. */
-function validateRow(row: ContactImportRow): {
+/** Validate 1 row (đủ fullName, phone hợp lệ và tỉnh). Không query DB — pure. */
+export function validateContactImportRow(row: ContactImportRow): {
   status: 'valid' | 'invalid';
   invalidReason: ContactImportInvalidReason | null;
   phoneNormalized: string | null;
@@ -32,6 +32,7 @@ function validateRow(row: ContactImportRow): {
   if (!rawPhone) return { status: 'invalid', invalidReason: 'missing_phone', phoneNormalized: null };
   const phoneNormalized = normalizePhone(rawPhone);
   if (!phoneNormalized) return { status: 'invalid', invalidReason: 'invalid_phone', phoneNormalized: null };
+  if (!row.province?.trim()) return { status: 'invalid', invalidReason: 'missing_province', phoneNormalized: null };
   return { status: 'valid', invalidReason: null, phoneNormalized };
 }
 
@@ -106,7 +107,7 @@ export async function previewContactImport(
   rows: ContactImportRow[],
   orgId: string,
 ): Promise<ContactImportPreviewResult> {
-  const validated = rows.map((row) => ({ row, ...validateRow(row) }));
+  const validated = rows.map((row) => ({ row, ...validateContactImportRow(row) }));
 
   const normalizedPhones = validated
     .filter((v) => v.status === 'valid' && v.phoneNormalized)
