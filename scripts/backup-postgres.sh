@@ -6,12 +6,13 @@ set -e
 
 # Configuration
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
+BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-2}"
 DB_CONTAINER="zalo-crm-db"
 DB_NAME="${DB_NAME:-zalocrm}"
 DB_USER="${DB_USER:-crmuser}"
-RETENTION_DAYS=7
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_FILE="$BACKUP_DIR/zalocrm_${TIMESTAMP}.sql.gz"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
@@ -39,8 +40,8 @@ else
   exit 1
 fi
 
-# Cleanup old backups (keep last 7 days)
-echo "[INFO] Cleaning up backups older than $RETENTION_DAYS days..."
-find "$BACKUP_DIR" -name "zalocrm_*.sql.gz" -mtime "+$RETENTION_DAYS" -delete
+# Cleanup old backups only after a successful, non-empty dump.
+BACKUP_DIR="$BACKUP_DIR" BACKUP_KEEP_COUNT="$BACKUP_KEEP_COUNT" \
+  "$SCRIPT_DIR/prune-backups.sh"
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Backup complete!"

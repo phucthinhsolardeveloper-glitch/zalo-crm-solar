@@ -2,7 +2,7 @@
 
 ## Phân loại: PARTIAL
 
-**IMPLEMENTED:** Compose `backup` dùng `prodrigestivill/postgres-backup-local`, bind `./backups`, chạy `@daily`, giữ 7 ngày/4 tuần/3 tháng. Production ghi file thành công 2026-08-23 và 2026-08-24; file ngày 24 có 60,354 byte và log `SQL backup created successfully`.
+**IMPLEMENTED:** Compose `backup` dùng `prodrigestivill/postgres-backup-local`, bind `./backups` và chạy `@daily`. Sau mỗi backup thành công, hook `scripts/prune-backups.sh` gom các file `daily/weekly/monthly/last` có cùng SHA-256 thành một snapshot và chỉ giữ đúng 2 snapshot mới nhất. Backup shell, PowerShell và pre-upgrade cũng áp dụng cùng giới hạn 2 bản. Production từng ghi file thành công 2026-08-23 và 2026-08-24; file ngày 24 có 60,354 byte và log `SQL backup created successfully`.
 
 **IMPLEMENTED:** `scripts/backup-postgres.sh`, `.ps1` và deploy script có manual/pre-upgrade dump. Local workspace cũng có một SQL backup ngày 2026-08-18.
 

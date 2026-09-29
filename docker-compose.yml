@@ -176,6 +176,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./backups:/backups
+      - ./scripts/prune-backups.sh:/hooks/10-retain-two:ro
     environment:
       # TZ giờ VN → SCHEDULE '@daily' chạy 00:00 giờ VN (trước đây UTC = 07:00 sáng VN);
       # tên file backup cũng theo giờ VN. Dữ liệu dump vẫn là UTC y như DB lưu.
@@ -185,9 +186,13 @@ services:
       POSTGRES_USER: ${DB_USER:-crmuser}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       SCHEDULE: "@daily"
-      BACKUP_KEEP_DAYS: 7
-      BACKUP_KEEP_WEEKS: 4
-      BACKUP_KEEP_MONTHS: 3
+      # Hook 10-retain-two is the authoritative retention policy. The image's
+      # native age-based rotation cannot express "exactly two snapshots".
+      BACKUP_KEEP_COUNT: 2
+      BACKUP_KEEP_DAYS: 3650
+      BACKUP_KEEP_WEEKS: 520
+      BACKUP_KEEP_MONTHS: 120
+      BACKUP_KEEP_MINS: 5256000
     depends_on:
       - db
 

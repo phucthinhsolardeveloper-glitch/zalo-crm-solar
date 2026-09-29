@@ -128,10 +128,15 @@ is_existing() {
 
 backup_db() {
   docker inspect "$DB" >/dev/null 2>&1 || { warn "Chưa có DB container — bỏ qua backup."; return 0; }
-  local f="backup-zalocrm-$(date +%F-%H%M).sql"
+  local backup_dir="${BACKUP_DIR:-./backups/manual}"
+  local keep_count="${BACKUP_KEEP_COUNT:-2}"
+  mkdir -p "$backup_dir"
+  local f="$backup_dir/backup-zalocrm-$(date +%F-%H%M).sql"
   log "Backup database → $f …"
   docker exec "$DB" pg_dump -U "$DBUSER" "$DBNAME" > "$f" || die "Backup thất bại."
   [ -s "$f" ] || die "File backup rỗng — DỪNG (không nâng cấp khi chưa có backup an toàn)."
+  BACKUP_DIR="${BACKUP_DIR:-./backups}" BACKUP_KEEP_COUNT="$keep_count" \
+    ./scripts/prune-backups.sh
   ok "Backup OK: $f ($(du -h "$f" | cut -f1))."
 }
 

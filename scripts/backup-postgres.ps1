@@ -1,10 +1,9 @@
-@echo off
-REM Backup script for zalo-crm-solar PostgreSQL database (Windows PowerShell version)
-REM Schedule via Task Scheduler to run daily at 2 AM
+# Backup script for zalo-crm-solar PostgreSQL database (Windows PowerShell version)
+# Schedule via Task Scheduler to run daily at 2 AM
 
 param(
-    [string]$BackupDir = "D:\IT\zalo-crm-solar\backups",
-    [int]$RetentionDays = 7,
+    [string]$BackupDir = (Join-Path $PSScriptRoot "..\backups"),
+    [int]$BackupKeepCount = 2,
     [string]$DBContainer = "zalo-crm-db",
     [string]$DBName = "zalocrm",
     [string]$DBUser = "crmuser"
@@ -50,13 +49,27 @@ try {
     exit 1
 }
 
-# Cleanup old backups (keep last 7 days)
-Write-Host "[INFO] Cleaning up backups older than $RetentionDays days..." -ForegroundColor Cyan
-$oldBackups = Get-ChildItem $BackupDir -Filter "zalocrm_*.sql*" | 
-              Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) }
-foreach ($backup in $oldBackups) {
-    Remove-Item $backup.FullName -Force
-    Write-Host "  Deleted: $($backup.Name)" -ForegroundColor Yellow
+# Cleanup old backups by snapshot content. Category files created by the Docker
+# backup image can be hard links, so identical hashes count as one snapshot.
+if ($BackupKeepCount -lt 1) {
+    throw "BackupKeepCount must be a positive integer"
+}
+$snapshotGroups = Get-ChildItem $BackupDir -Recurse -File |
+    Where-Object { $_.Name -match '\.sql(\.gz)?$' -and $_.Name -notmatch '-latest\.sql' } |
+    ForEach-Object {
+        [PSCustomObject]@{
+            File = $_
+            Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+        }
+    } |
+    Group-Object Hash |
+    Sort-Object { ($_.Group.File.LastWriteTime | Measure-Object -Maximum).Maximum } -Descending
+
+$snapshotGroups | Select-Object -Skip $BackupKeepCount | ForEach-Object {
+    $_.Group.File | ForEach-Object {
+        Remove-Item $_.FullName -Force
+        Write-Host "  Deleted: $($_.FullName)" -ForegroundColor Yellow
+    }
 }
 
 Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Backup complete!" -ForegroundColor Green
