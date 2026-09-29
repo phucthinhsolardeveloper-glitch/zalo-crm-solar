@@ -18,7 +18,7 @@ Tài liệu kiến trúc phần gửi hàng loạt: `docs/13-handoffs/` không c
 | G | Fix: KH có Zalo nhưng báo "chưa kết nối / chưa làm" | zalo-crm-solar | Không liên quan | S–M | ✅ Xong `f7831d7` |
 | H | Audit: 2 nick Zalo / 1 CRM — thấy & tương tác chồng chéo? | zalo-crm-solar | Cần đối chiếu chính sách | M (điều tra) | ✅ Audit + cảnh báo chéo |
 | D | Trạng thái Kết bạn/Chưa KB + nút "Kết bạn" ở màn cuộc gọi | zalo-crm-solar | Giới hạn kết bạn — giữ trần | M | ✅ Đã triển khai 29/09 |
-| E | Import KH: ánh xạ địa chỉ cũ → mới sau sáp nhập | zalo-crm-solar | Không liên quan | M | Chờ dữ liệu ánh xạ |
+| E | Import KH: ánh xạ địa chỉ cũ → mới sau sáp nhập | zalo-crm-solar | Không liên quan | M | ✅ Tự động map + review trường hợp mơ hồ |
 | C | Queue chia lô gửi tin nhắn hàng loạt | zalo-crm-solar | **Rủi ro khoá nick** | L | **TẠM HOÃN — chờ sếp duyệt** |
 | A | Gửi ảnh chung: chọn nhiều ảnh + gửi nhiều người | zalo-crm-solar | Rủi ro (đi qua C) | M | **TẠM HOÃN — phụ thuộc C** |
 | I | Gửi thông báo chung qua Zalo OA + ZNS | zalo-crm-solar (module mới) | Kênh hợp pháp — cần OA | L | **TẠM HOÃN — chờ quyết định OA** |
@@ -164,15 +164,16 @@ fail-closed, không tạo luồng mới.
 
 ### Đợt 3 — Import & địa chỉ sau sáp nhập
 
-Đã hoàn tất phần độc lập với dữ liệu sáp nhập: import bắt buộc map và có giá trị
-`Tỉnh/Thành phố`; `Phường/Xã` vẫn không bắt buộc. Phần ánh xạ cũ → mới bên dưới
-tiếp tục để backlog vì chưa có bộ dữ liệu nguồn chính thức.
+Đã hoàn tất import bắt buộc có tỉnh hoặc đủ bộ ba địa chỉ cũ để tự chuyển đổi;
+`Phường/Xã` hiện tại vẫn không bắt buộc nếu người dùng nhập địa chỉ mới ở cấp
+tỉnh. Bộ dữ liệu `backend/src/shared/data/vietnam-sap-nhap-phuong-xa.csv` được
+đóng gói cùng app.
 
 **E · Ánh xạ địa chỉ cũ → mới khi import KH**
 - Backend: `backend/src/modules/contacts/contact-import-service.ts`, `contact-import-routes.ts`, `contact-import-types.ts`.
-- Thêm bảng ánh xạ `địa chỉ cũ (tỉnh/huyện/xã) → địa chỉ mới (tỉnh/xã)`; khi import: match theo địa chỉ cũ trong file → ghi địa chỉ mới vào KH, giữ địa chỉ cũ để tham chiếu/đối chiếu.
-- Xử lý case không match (fuzzy / cần review thủ công).
-- **Cần user cung cấp:** nguồn dữ liệu ánh xạ sáp nhập chính thức (danh sách tỉnh/xã cũ ↔ mới).
+- Khi import đủ `Tỉnh/TP cũ`, `Quận/Huyện cũ`, `Phường/Xã cũ`, hệ thống match theo bảng chính thức → ghi tỉnh/xã mới vào Contact và lưu địa chỉ cũ + mã xã mới trong `metadata.addressMigration`.
+- Case một địa chỉ cũ có nhiều đích mới hoặc không có trong bảng bị chặn ở Preview với trạng thái cần review; không fuzzy-match và không tự đoán.
+- Nguồn hiện tại: `vietnam-sap-nhap-phuong-xa.csv` do user cung cấp, 10.602 dòng.
 - **Cần quyết định:** `zalo-crm-solar` giữ mô hình 3 cấp (`district`) hay chuyển sang 2 cấp (tỉnh + xã) như `crm-custom` đã dùng (`addressProvinceCode/Name`, `addressWardCode/Name`). Nếu chuyển → cần migration + cập nhật form/filter (`@@index([orgId, province, district])` sẽ đổi).
 
 ### Đợt 4 — Gửi hàng loạt *(TẠM HOÃN — chờ sếp duyệt)*
@@ -197,7 +198,7 @@ Giữ nguyên tài liệu kiến trúc đã trình. Khi được duyệt sẽ n�
 | # | Nội dung | Chặn hạng mục |
 |---|----------|---------------|
 | 1 | Xác nhận triệu chứng lỗi "chưa kết nối" (màn hình + trường hợp cụ thể) | G, D |
-| 2 | Cung cấp dữ liệu ánh xạ địa chỉ cũ ↔ mới sau sáp nhập | E |
+| 2 | Xác nhận các dòng địa chỉ mơ hồ trong Preview import | E |
 | 3 | Quyết định: giữ địa chỉ 3 cấp hay chuyển 2 cấp cho zalo-crm-solar | E |
 | 4 | Duyệt kiến trúc gửi hàng loạt + trần rủi ro Kênh A | C, A |
 | 5 | Quyết định có làm Zalo OA + ngân sách ZNS | I |

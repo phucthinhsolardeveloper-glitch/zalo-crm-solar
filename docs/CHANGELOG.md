@@ -5,6 +5,7 @@
 - Lịch sử cuộc gọi hiển thị trạng thái kết bạn Zalo và cho gửi lời mời thủ công qua nick đang kết nối; tra cứu theo số chỉ chạy sau thao tác người dùng.
 - Cảnh báo trước khi mở thêm hội thoại cho khách hàng đang được nick Zalo khác chăm sóc.
 - Import khách hàng bắt buộc Họ tên, SĐT và Tỉnh/Thành phố; Phường/Xã vẫn tùy chọn.
+- Import hỗ trợ bộ ba địa chỉ cũ và tự chuyển sang tỉnh/xã mới theo bảng sáp nhập; trường hợp mơ hồ/không khớp được đưa ra review, địa chỉ cũ được lưu trong metadata.
 - Giữ backlog cho ánh xạ địa chỉ cũ–mới, Zalo OA/broadcast và tích hợp tồn kho đến khi có dữ liệu hoặc cấu hình chính thức.
 - Cập nhật production snapshot sang VPS `pts-prod-01`, source `/srv/zcrm` và domain HTTPS `zcrm.phucthinhsolar.com`.
 - Ghi topology Caddy edge network, compose override server-local và local storage không chạy MinIO mặc định.

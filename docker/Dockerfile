@@ -42,6 +42,7 @@ WORKDIR /app
 
 # Copy built artefacts
 COPY --from=backend-builder /app/backend/dist       /app/dist
+COPY --from=backend-builder /app/backend/src/shared/data /app/dist/shared/data
 COPY --from=backend-builder /app/backend/node_modules /app/node_modules
 COPY --from=backend-builder /app/backend/prisma     /app/prisma
 COPY --from=backend-builder /app/backend/prisma.config.ts /app/prisma.config.ts

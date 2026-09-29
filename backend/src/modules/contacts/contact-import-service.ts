@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { logger } from '../../shared/utils/logger.js';
+import { resolveAddressMigration } from '../../shared/data/address-migration-map.js';
 import type {
   ContactImportRow,
   ContactImportPreviewRow,
@@ -107,7 +108,30 @@ export async function previewContactImport(
   rows: ContactImportRow[],
   orgId: string,
 ): Promise<ContactImportPreviewResult> {
-  const validated = rows.map((row) => ({ row, ...validateContactImportRow(row) }));
+  const prepared = rows.map((row) => {
+    const addressMigration = resolveAddressMigration(row);
+    const migratedRow = addressMigration.status === 'applied' && addressMigration.new
+      ? { ...row, province: addressMigration.new.province, district: null, ward: addressMigration.new.ward }
+      : row;
+    return { row: migratedRow, addressMigration };
+  });
+  const validated = prepared.map(({ row, addressMigration }) => {
+    const base = validateContactImportRow(row);
+    const migrationReason: ContactImportInvalidReason | null = addressMigration.status === 'incomplete'
+      ? 'address_mapping_incomplete'
+      : addressMigration.status === 'not_found'
+        ? 'address_mapping_not_found'
+        : addressMigration.status === 'ambiguous'
+          ? 'address_mapping_ambiguous'
+          : null;
+    return {
+      row,
+      addressMigration,
+      status: migrationReason ? 'invalid' as const : base.status,
+      invalidReason: migrationReason || base.invalidReason,
+      phoneNormalized: base.phoneNormalized,
+    };
+  });
 
   const normalizedPhones = validated
     .filter((v) => v.status === 'valid' && v.phoneNormalized)
@@ -144,19 +168,19 @@ export async function previewContactImport(
   // dòng lặp lại bị đánh duplicate để KHÔNG tạo 2 Contact giống nhau từ cùng 1 file).
   const seenInBatch = new Set<string>();
 
-  const outRows: ContactImportPreviewRow[] = validated.map(({ row, status, invalidReason, phoneNormalized }) => {
+  const outRows: ContactImportPreviewRow[] = validated.map(({ row, addressMigration, status, invalidReason, phoneNormalized }) => {
     if (status === 'invalid') {
-      return { ...row, status: 'invalid', invalidReason, phoneNormalized: null, duplicateContactId: null, duplicateContactName: null };
+      return { ...row, status: 'invalid', invalidReason, phoneNormalized: null, duplicateContactId: null, duplicateContactName: null, addressMigration };
     }
     const existing = existingByPhone.get(phoneNormalized!);
     if (existing) {
-      return { ...row, status: 'duplicate', invalidReason: null, phoneNormalized, duplicateContactId: existing.id, duplicateContactName: existing.name };
+      return { ...row, status: 'duplicate', invalidReason: null, phoneNormalized, duplicateContactId: existing.id, duplicateContactName: existing.name, addressMigration };
     }
     if (seenInBatch.has(phoneNormalized!)) {
-      return { ...row, status: 'duplicate', invalidReason: null, phoneNormalized, duplicateContactId: null, duplicateContactName: 'Trùng SĐT với dòng khác trong cùng file' };
+      return { ...row, status: 'duplicate', invalidReason: null, phoneNormalized, duplicateContactId: null, duplicateContactName: 'Trùng SĐT với dòng khác trong cùng file', addressMigration };
     }
     seenInBatch.add(phoneNormalized!);
-    return { ...row, status: 'valid', invalidReason: null, phoneNormalized, duplicateContactId: null, duplicateContactName: null };
+    return { ...row, status: 'valid', invalidReason: null, phoneNormalized, duplicateContactId: null, duplicateContactName: null, addressMigration };
   });
 
   return {
@@ -212,7 +236,9 @@ export async function commitContactImport(
             hasZalo: null,
             assignedUserId: userId,
             tags: [],
-            metadata: {},
+            metadata: row.addressMigration.status === 'applied'
+              ? { addressMigration: row.addressMigration }
+              : {},
           },
         }),
         prisma.contactAccess.create({

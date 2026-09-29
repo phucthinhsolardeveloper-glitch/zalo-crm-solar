@@ -17,6 +17,9 @@ export interface ContactImportRow {
   province: string | null;
   district: string | null;
   ward: string | null;
+  oldProvince: string | null;
+  oldDistrict: string | null;
+  oldWard: string | null;
   addressLine: string | null;
   // YYYY-MM-DD hoặc chuỗi ngày Excel serial đã convert phía frontend.
   birthDate: string | null;
@@ -29,12 +32,24 @@ export interface ContactImportRow {
   contactStatus: string | null;
 }
 
+export type ContactImportAddressMigrationStatus = 'not_requested' | 'incomplete' | 'not_found' | 'ambiguous' | 'applied';
+
+export interface ContactImportAddressMigration {
+  status: ContactImportAddressMigrationStatus;
+  old: { province: string | null; district: string | null; ward: string | null };
+  new?: { province: string; ward: string; unitType: string; wardCode: string };
+  candidates?: Array<{ province: string; ward: string; unitType: string; wardCode: string }>;
+}
+
 export type ContactImportRowStatus = 'valid' | 'invalid' | 'duplicate';
 
 export type ContactImportInvalidReason =
   | 'missing_full_name'
   | 'missing_phone'
   | 'missing_province'
+  | 'address_mapping_incomplete'
+  | 'address_mapping_not_found'
+  | 'address_mapping_ambiguous'
   | 'invalid_phone';
 
 export interface ContactImportPreviewRow extends ContactImportRow {
@@ -44,6 +59,7 @@ export interface ContactImportPreviewRow extends ContactImportRow {
   // Khi status='duplicate' — Contact hiện có khớp SĐT này.
   duplicateContactId: string | null;
   duplicateContactName: string | null;
+  addressMigration: ContactImportAddressMigration;
 }
 
 export interface ContactImportPreviewResult {

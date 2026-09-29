@@ -32,7 +32,7 @@
 
         <!-- ── STEP 2: Column Mapping ─────────────────────────────────── -->
         <div v-else-if="step === 'mapping'" class="cid-mapping">
-          <p class="cid-hint">Chọn cột nào trong file khớp với trường nào trong CRM. "Họ tên", "SĐT" và "Tỉnh/Thành phố" là bắt buộc.</p>
+          <p class="cid-hint">Chọn cột nào trong file khớp với trường nào trong CRM. "Họ tên" và "SĐT" là bắt buộc. Có thể dùng bộ ba địa chỉ cũ để tự chuyển sang địa chỉ mới sau sáp nhập.</p>
           <div class="cid-map-grid">
             <div v-for="col in sourceColumns" :key="col.index" class="cid-map-row">
               <div class="cid-map-source">
@@ -69,8 +69,16 @@
                     <td>{{ row.phone || '—' }}</td>
                     <td><span class="cid-status-badge" :class="row.status">{{ statusLabel(row.status) }}</span></td>
                     <td class="cid-detail-cell">
-                      <template v-if="row.status === 'invalid'">{{ invalidReasonLabel(row.invalidReason) }}</template>
+                      <template v-if="row.status === 'invalid'">
+                        {{ invalidReasonLabel(row.invalidReason) }}
+                        <small v-if="row.addressMigration?.status === 'ambiguous' && row.addressMigration.candidates?.length">
+                          Có {{ row.addressMigration.candidates.length }} đích mới, cần bổ sung thông tin
+                        </small>
+                      </template>
                       <template v-else-if="row.status === 'duplicate'">{{ row.duplicateContactName || 'Trùng SĐT' }}</template>
+                      <template v-else-if="row.addressMigration?.status === 'applied'">
+                        Đã chuyển: {{ row.addressMigration.new?.province }} · {{ row.addressMigration.new?.ward }}
+                      </template>
                     </td>
                   </tr>
                 </tbody>
@@ -151,6 +159,9 @@ const TARGET_FIELDS = [
   { key: 'province', label: 'Tỉnh/Thành phố *' },
   { key: 'district', label: 'Quận/Huyện' },
   { key: 'ward', label: 'Phường/Xã' },
+  { key: 'oldProvince', label: 'Tỉnh/TP cũ' },
+  { key: 'oldDistrict', label: 'Quận/Huyện cũ' },
+  { key: 'oldWard', label: 'Phường/Xã cũ' },
   { key: 'addressLine', label: 'Địa chỉ chi tiết' },
   { key: 'birthDate', label: 'Ngày sinh' },
   { key: 'source', label: 'Nguồn' },
@@ -167,6 +178,9 @@ const HEADER_GUESSES: Array<{ field: TargetField; patterns: RegExp }> = [
   { field: 'storeName', patterns: /t[eê]n\s*c[uử]a\s*h[aà]ng|store/i },
   { field: 'customerType', patterns: /[dđ][oố]i\s*t[uượ]ng|customer\s*type|lo[aạ]i\s*kh[aá]ch/i },
   { field: 'importanceLevel', patterns: /m[uứ]c\s*[dđ][oộ]\s*quan\s*tr[oọ]ng|importance|priority/i },
+  { field: 'oldProvince', patterns: /t[iỉ]nh\/tp\s*c[uũ]|t[iỉ]nh.*tr[uư][oớ]c.*s[aá]p|old.*province/i },
+  { field: 'oldDistrict', patterns: /qu[aậ]n\/huy[eệ]n\s*c[uũ]|old.*district/i },
+  { field: 'oldWard', patterns: /ph[uườ]ng\/x[aã]\s*c[uũ]|old.*ward/i },
   { field: 'province', patterns: /t[iỉ]nh|th[aà]nh\s*ph[oố]|province/i },
   { field: 'district', patterns: /qu[aậ]n|huy[eệ]n|district/i },
   { field: 'ward', patterns: /ph[uườ]ng|x[aã]|ward/i },
@@ -185,7 +199,7 @@ function downloadCsvTemplate() {
   const headers = TARGET_FIELDS.map((field) => field.label.replace(/ \*$/, ''));
   const sample = [
     'Nguyễn Văn An', '0901234567', 'an@example.com', 'Bất động sản',
-    'Cửa hàng An Phát', 'Đại lý', 'Quan trọng', 'TP Hồ Chí Minh', 'Quận 1', 'Phường Bến Nghé',
+    'Cửa hàng An Phát', 'Đại lý', 'Quan trọng', 'TP Hồ Chí Minh', 'Quận 1', 'Phường Bến Nghé', '', '', '',
     '12 Nguyễn Huệ, tầng 2', '1990-01-31', 'import', 'Mới',
   ];
   const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
@@ -299,6 +313,11 @@ interface PreviewRow {
   invalidReason: string | null;
   duplicateContactId: string | null;
   duplicateContactName: string | null;
+  addressMigration?: {
+    status: string;
+    new?: { province: string; ward: string; unitType: string; wardCode: string };
+    candidates?: Array<{ province: string; ward: string; unitType: string; wardCode: string }>;
+  };
 }
 interface PreviewResult { total: number; valid: number; invalid: number; duplicate: number; rows: PreviewRow[] }
 const previewResult = ref<PreviewResult | null>(null);
@@ -307,8 +326,9 @@ async function runPreview() {
   mappingError.value = '';
   const mappedList = Object.values(columnMapping.value).filter(Boolean);
   const mappedFields = new Set(mappedList);
-  if (!mappedFields.has('fullName') || !mappedFields.has('phone') || !mappedFields.has('province')) {
-    mappingError.value = 'Cần map "Họ tên", "SĐT" và "Tỉnh/Thành phố" trước khi tiếp tục.';
+  const hasOldAddress = ['oldProvince', 'oldDistrict', 'oldWard'].every((field) => mappedFields.has(field));
+  if (!mappedFields.has('fullName') || !mappedFields.has('phone') || (!mappedFields.has('province') && !hasOldAddress)) {
+    mappingError.value = 'Cần map "Họ tên", "SĐT" và "Tỉnh/Thành phố", hoặc đủ bộ ba địa chỉ cũ để hệ thống tự chuyển đổi.';
     return;
   }
   // 2 cột cùng map 1 field → cột sau âm thầm đè cột trước khi build payload. Chặn sớm
@@ -358,6 +378,9 @@ function invalidReasonLabel(reason: string | null) {
     missing_full_name: 'Thiếu họ tên',
     missing_phone: 'Thiếu SĐT',
     missing_province: 'Thiếu Tỉnh/Thành phố',
+    address_mapping_incomplete: 'Thiếu một phần địa chỉ cũ (cần đủ tỉnh, huyện, xã)',
+    address_mapping_not_found: 'Không tìm thấy địa chỉ cũ trong bảng ánh xạ',
+    address_mapping_ambiguous: 'Địa chỉ cũ có nhiều địa chỉ mới, cần rà soát',
     invalid_phone: 'SĐT không hợp lệ',
   } as Record<string, string>)[reason || ''] || 'Không hợp lệ';
 }
