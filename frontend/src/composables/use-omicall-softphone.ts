@@ -4,6 +4,8 @@ import { useToast } from '@/composables/use-toast';
 
 declare global {
   interface Window {
+    OMIToastify?: OmicallToastFactory;
+    Toastify?: OmicallToastFactory;
     OMICallSDK?: {
       init: (config: Record<string, unknown>) => Promise<boolean>;
       register: (config: { sipRealm: string; sipUser: string; sipPassword: string; wssUri?: string }) => Promise<{ status: string | boolean; message?: string; error?: string }>;
@@ -21,6 +23,20 @@ declare global {
     };
   }
 }
+
+interface OmicallToastOptions {
+  text?: string;
+  [key: string]: unknown;
+}
+
+interface OmicallToastInstance {
+  showToast: () => void;
+  hideToast?: () => void;
+}
+
+type OmicallToastFactory = ((options: OmicallToastOptions) => OmicallToastInstance) & {
+  __zcrmGenericErrorFiltered?: boolean;
+};
 
 export type PhonePhase = 'disabled' | 'connecting' | 'ready' | 'calling' | 'ringing' | 'answered' | 'ended' | 'error';
 export interface PhonePeer {
@@ -112,6 +128,30 @@ let sdkInitialized = false;
 let terminalHandled = false;
 let historyPage = 1;
 const HISTORY_PAGE_SIZE = 20;
+
+/**
+ * OmiCall SDK maps an empty provider error to its own generic toast
+ * "Có lỗi xảy ra". CRM already renders the actionable backend error (invalid,
+ * expired or misconfigured API credentials), so showing both is duplicate and
+ * the generic red toast obscures the useful message.
+ *
+ * Keep all specific SDK messages; suppress only that generic fallback.
+ */
+function suppressGenericOmicallToast() {
+  const toastFactory = window.OMIToastify || window.Toastify;
+  if (!toastFactory || window.OMIToastify?.__zcrmGenericErrorFiltered) return;
+
+  const filteredFactory = ((options: OmicallToastOptions) => {
+    const message = String(options?.text || '').trim().replace(/[.!]+$/, '');
+    if (message === 'Có lỗi xảy ra') {
+      return { showToast: () => undefined, hideToast: () => undefined };
+    }
+    return toastFactory(options);
+  }) as OmicallToastFactory;
+
+  filteredFactory.__zcrmGenericErrorFiltered = true;
+  window.OMIToastify = filteredFactory;
+}
 
 function loadSdk(): Promise<void> {
   if (window.OMICallSDK) return Promise.resolve();
@@ -411,6 +451,7 @@ async function connect() {
     zccEnabled.value = Boolean(data.zcc?.enabled);
     zccSipNumber.value = data.zcc?.sipNumber || null;
     if (!window.OMICallSDK) throw new Error('Omicall SDK chưa sẵn sàng');
+    suppressGenericOmicallToast();
     // Theo luồng chính thức của OmiCall v3: init đúng một lần; reconnect chỉ
     // unregister/register. Gọi init() lặp lại có thể để lại transport/event cũ
     // và khiến lần đăng ký kế tiếp bị SDK từ chối dù credential vẫn đúng.
