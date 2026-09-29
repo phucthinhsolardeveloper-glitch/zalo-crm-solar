@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue';
 import { api } from '@/api';
+import { useToast } from '@/composables/use-toast';
 
 declare global {
   interface Window {
@@ -78,6 +79,8 @@ function isExternalCallTarget(target: PhonePeer | ExternalCallTarget | string): 
 }
 
 const SDK_URL = 'https://cdn.omicrm.com/sdk/web/3.0.41/core.min.js';
+const OMICALL_SYNC_TOAST_THROTTLE_MS = 5 * 60_000;
+let lastOmicallSyncToastAt = 0;
 const phase = ref<PhonePhase>('connecting');
 const errorMessage = ref('');
 const peers = ref<PhonePeer[]>([]);
@@ -219,8 +222,17 @@ async function syncHistory() {
   await refreshHistory();
   try {
     await api.post('/telephony/omicall/sync', { days: 30 }, { skipErrorToast: true } as any);
-  } catch {
-    // Webhook-only mode remains fully usable when OMICALL_API_KEY is absent.
+  } catch (error: any) {
+    // Webhook-only mode remains fully usable when history backfill is unavailable,
+    // but surface provider configuration errors instead of failing silently.
+    const details = error?.response?.data;
+    const isProviderConfigError = details?.provider === 'omicall'
+      && typeof details?.code === 'string'
+      && details.code.startsWith('omicall_api_');
+    if (isProviderConfigError && Date.now() - lastOmicallSyncToastAt >= OMICALL_SYNC_TOAST_THROTTLE_MS) {
+      lastOmicallSyncToastAt = Date.now();
+      useToast().warning(details.error || 'OmiCall không thể đồng bộ lịch sử cuộc gọi');
+    }
   } finally {
     await refreshHistory();
   }

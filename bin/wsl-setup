@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# WSL-first developer bootstrap. This script does not delete data or alter Docker volumes.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TARGET_DIR="${ZCRM_WSL_DIR:-$HOME/src/zalo-crm-solar}"
+
+log() { printf '▶ %s\n' "$*"; }
+ok() { printf '✓ %s\n' "$*"; }
+warn() { printf '⚠ %s\n' "$*" >&2; }
+die() { printf '✗ %s\n' "$*" >&2; exit 1; }
+
+is_wsl() { grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; }
+is_mounted_windows_path() { [[ "$REPO_ROOT" == /mnt/* ]]; }
+
+is_wsl || die "Script này phải chạy bên trong WSL2 (Ubuntu/Debian), không chạy từ PowerShell/Git Bash."
+command -v git >/dev/null 2>&1 || die "Thiếu git. Cài bằng: sudo apt update && sudo apt install -y git"
+if is_mounted_windows_path; then
+  warn "Source hiện nằm trên Windows mount: $REPO_ROOT"
+  warn "Nên làm việc ở filesystem Linux: $TARGET_DIR (nhanh hơn, ít lỗi quyền/watcher hơn)."
+fi
+
+if [[ "$REPO_ROOT" != "$TARGET_DIR" ]]; then
+  if [[ -e "$TARGET_DIR" ]]; then
+    die "Đích đã tồn tại: $TARGET_DIR. Chọn ZCRM_WSL_DIR khác hoặc kiểm tra thủ công."
+  fi
+  command -v rsync >/dev/null 2>&1 || die "Thiếu rsync. Cài bằng: sudo apt install -y rsync"
+  mkdir -p "$(dirname "$TARGET_DIR")"
+  log "Sao chép source sang filesystem Linux: $TARGET_DIR"
+  # Giữ .git, env local và upload-dev; chỉ bỏ artifact có thể tái tạo.
+  rsync -a --delete \
+    --exclude 'node_modules/' \
+    --exclude 'frontend/dist/' \
+    --exclude 'backend/dist/' \
+    --exclude '.git/worktrees/' \
+    "$REPO_ROOT/" "$TARGET_DIR/"
+  ok "Đã sao chép source. Không xóa source cũ: $REPO_ROOT"
+else
+  log "Đang chạy trực tiếp trong target WSL: $TARGET_DIR"
+fi
+
+cd "$TARGET_DIR"
+[[ -x bin/dev-setup ]] || chmod +x bin/dev-setup
+[[ -x scripts/zalocrm-deploy.sh ]] || chmod +x scripts/zalocrm-deploy.sh
+
+command -v node >/dev/null 2>&1 || die "Thiếu Node.js. Cài Node 22 rồi chạy lại (khuyến nghị nvm)."
+command -v npm >/dev/null 2>&1 || die "Thiếu npm trong Node.js 22."
+node_major="$(node -p 'process.versions.node.split(".")[0]')"
+[[ "$node_major" == "22" ]] || die "Project yêu cầu Node.js 22; hiện tại là $(node --version)."
+command -v docker >/dev/null 2>&1 || die "Thiếu Docker CLI trong WSL."
+if ! docker info >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+Docker CLI đã có nhưng chưa truy cập được Docker daemon.
+
+Nếu dùng Docker Desktop: bật Settings → Resources → WSL Integration cho distro này,
+sau đó chạy `wsl.exe --shutdown` từ PowerShell và mở lại WSL.
+Nếu dùng Docker Engine trong WSL: chạy `sudo systemctl start docker` hoặc kiểm tra
+user đã có quyền group docker. Không chạy deploy bằng root nếu không cần.
+EOF
+  die "Docker daemon chưa sẵn sàng."
+fi
+docker compose version >/dev/null 2>&1 || die "Thiếu Docker Compose v2 (docker compose)."
+
+log "Cài dependencies native trong WSL"
+if [[ ! -d backend/node_modules ]]; then (cd backend && npm ci); fi
+if [[ ! -d frontend/node_modules ]]; then (cd frontend && npm ci --legacy-peer-deps); fi
+
+ok "WSL workspace sẵn sàng: $TARGET_DIR"
+printf '%s\n' "Tiếp theo: cd '$TARGET_DIR' && docker compose up -d db redis minio minio-init && ./bin/dev-setup"

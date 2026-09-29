@@ -25,3 +25,19 @@ Source có auto-provisioning nhưng mapping role/grant, disable/reactivate, vend
 ## Verification matrix
 
 Outbound/inbound/decline/missed/hangup; duplicate/out-of-order webhook; history reconciliation; SIP revoke; unauthorized/cross-org; vendor 401/429/5xx; recording hai phía; relay timeout/duplicate/recovery. Cần test thật hai đầu audio và kiểm file playback, vì legacy evidence từng phản ánh chỉ một phía.
+
+## Provider error notifications
+
+History sync trả lỗi có mã rõ ràng để UI hiển thị đúng nguyên nhân, không lẫn với lỗi
+đăng nhập CRM:
+
+- `omicall_api_key_missing`: chưa cấu hình `OMICALL_API_KEY`.
+- `omicall_api_unauthorized` (provider HTTP 401): API key sai, hết hạn hoặc không
+  khớp môi trường `OMICALL_API_BASE_URL`.
+- `omicall_api_forbidden` (provider HTTP 403): key không có quyền đọc Call
+  Transaction/History.
+- `omicall_api_rate_limited` (provider HTTP 429): OmiCall giới hạn tần suất.
+- `omicall_api_unavailable` (provider HTTP 5xx): OmiCall tạm thời không khả dụng.
+
+Provider status được trả trong field `providerStatus`; API key không bao giờ được
+ghi vào log hoặc response.

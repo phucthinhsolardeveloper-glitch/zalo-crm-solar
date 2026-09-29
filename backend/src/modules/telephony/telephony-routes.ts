@@ -7,7 +7,7 @@ import { authMiddleware, requireActiveUser } from '../auth/auth-middleware.js';
 import { normalizePhone, phoneVariants } from '../../shared/utils/phone.js';
 import { logger } from '../../shared/utils/logger.js';
 import { checkZaloAccess } from '../zalo/zalo-access-middleware.js';
-import { syncOmicallHistoryForUser } from './omicall-history-sync.js';
+import { OmicallApiError, syncOmicallHistoryForUser } from './omicall-history-sync.js';
 import { decryptOmicallSecret } from './omicall-token.js';
 import { listUnassignedOmicallExtensions } from './omicall-directory.js';
 import { getObjectBuffer, keyFromPublicUrl } from '../../shared/storage/minio-client.js';
@@ -374,7 +374,16 @@ export async function telephonyRoutes(app: FastifyInstance) {
         include: {
           ownerUser: { select: { id: true, fullName: true, avatarUrl: true } },
           peerUser: { select: { id: true, fullName: true, avatarUrl: true } },
-          contact: { select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true } },
+          // FIX 2026-09-03 (anh báo: màn Cuộc gọi không có trạng thái Zalo, chỉ Khách
+          // hàng/Chat mới có) — thêm field cần cho check 3 trạng thái (giống
+          // ContactDetailPanel.zaloState), KHÔNG gọi SDK/findUser — chỉ đọc dữ liệu có sẵn.
+          contact: {
+            select: {
+              id: true, fullName: true, crmName: true, avatarUrl: true, phone: true,
+              hasZalo: true, zaloUid: true, zaloGlobalId: true, zaloUsername: true,
+              _count: { select: { friends: true } },
+            },
+          },
         },
         orderBy: { startedAt: 'desc' },
         skip: (page - 1) * pageSize,
@@ -407,7 +416,11 @@ export async function telephonyRoutes(app: FastifyInstance) {
     const unmatchedNumbers = [...new Set(
       calls.filter((c) => !c.contact && c.externalNumber).map((c) => c.externalNumber as string),
     )];
-    const contactByPhone = new Map<string, { id: string; fullName: string | null; crmName: string | null; avatarUrl: string | null; phone: string | null }>();
+    const contactByPhone = new Map<string, {
+      id: string; fullName: string | null; crmName: string | null; avatarUrl: string | null; phone: string | null;
+      hasZalo: boolean | null; zaloUid: string | null; zaloGlobalId: string | null; zaloUsername: string | null;
+      _count: { friends: number };
+    }>();
     if (unmatchedNumbers.length) {
       const contactScope = await getContactScope(current.id, current.orgId, current.role);
       const variantSet = new Set<string>();
@@ -426,14 +439,22 @@ export async function telephonyRoutes(app: FastifyInstance) {
             { phone3: { in: [...variantSet] } },
           ],
         },
-        select: { id: true, fullName: true, crmName: true, avatarUrl: true, phone: true, phone2: true, phone3: true, phoneNormalized: true },
+        select: {
+          id: true, fullName: true, crmName: true, avatarUrl: true, phone: true, phone2: true, phone3: true, phoneNormalized: true,
+          hasZalo: true, zaloUid: true, zaloGlobalId: true, zaloUsername: true,
+          _count: { select: { friends: true } },
+        },
       });
       for (const c of matched) {
         for (const p of [c.phoneNormalized, c.phone, c.phone2, c.phone3]) {
           if (!p) continue;
           const norm = normalizePhone(p);
           if (norm && unmatchedNumbers.includes(norm) && !contactByPhone.has(norm)) {
-            contactByPhone.set(norm, { id: c.id, fullName: c.fullName, crmName: c.crmName, avatarUrl: c.avatarUrl, phone: c.phone });
+            contactByPhone.set(norm, {
+              id: c.id, fullName: c.fullName, crmName: c.crmName, avatarUrl: c.avatarUrl, phone: c.phone,
+              hasZalo: c.hasZalo, zaloUid: c.zaloUid, zaloGlobalId: c.zaloGlobalId, zaloUsername: c.zaloUsername,
+              _count: c._count,
+            });
           }
         }
       }
@@ -578,8 +599,21 @@ export async function telephonyRoutes(app: FastifyInstance) {
       });
       return result;
     } catch (error: any) {
-      logger.warn({ userId: current.id, error: error?.message }, '[omicall-history] sync failed');
-      return reply.status(502).send({ error: error?.message || 'Không đồng bộ được lịch sử tổng đài' });
+      const code = error instanceof OmicallApiError ? error.code : 'omicall_history_sync_failed';
+      const providerStatus = error instanceof OmicallApiError ? error.providerStatus : null;
+      logger.warn({
+        userId: current.id,
+        code,
+        providerStatus,
+        baseUrl: config.omicallApiBaseUrl,
+        error: error?.message,
+      }, '[omicall-history] sync failed');
+      return reply.status(502).send({
+        error: error?.message || 'Không đồng bộ được lịch sử tổng đài',
+        code,
+        provider: 'omicall',
+        providerStatus,
+      });
     }
   });
 

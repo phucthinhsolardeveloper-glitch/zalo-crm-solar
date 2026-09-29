@@ -7,6 +7,26 @@ import { forwardCallToCrm } from './omicall-crm-forward.js';
 
 type OmicallHistoryItem = Record<string, any>;
 
+export type OmicallApiErrorCode =
+  | 'omicall_api_key_missing'
+  | 'omicall_api_unauthorized'
+  | 'omicall_api_forbidden'
+  | 'omicall_api_rate_limited'
+  | 'omicall_api_unavailable'
+  | 'omicall_api_error';
+
+export class OmicallApiError extends Error {
+  readonly code: OmicallApiErrorCode;
+  readonly providerStatus: number | null;
+
+  constructor(code: OmicallApiErrorCode, message: string, providerStatus: number | null = null) {
+    super(message);
+    this.name = 'OmicallApiError';
+    this.code = code;
+    this.providerStatus = providerStatus;
+  }
+}
+
 function providerDate(value: unknown): Date | undefined {
   const timestamp = Number(value);
   if (!Number.isFinite(timestamp) || timestamp <= 0) return undefined;
@@ -28,7 +48,12 @@ export async function syncOmicallHistoryForUser(args: {
   extension: string;
   days?: number;
 }): Promise<{ synced: number; total: number; pages: number }> {
-  if (!config.omicallApiKey) throw new Error('OMICALL_API_KEY chưa được cấu hình');
+  if (!config.omicallApiKey) {
+    throw new OmicallApiError(
+      'omicall_api_key_missing',
+      'Thiếu API key OmiCall. Hãy cấu hình OMICALL_API_KEY trước khi đồng bộ lịch sử tổng đài.',
+    );
+  }
 
   const days = Math.min(Math.max(args.days || 30, 1), 90);
   const toDate = Date.now();
@@ -59,11 +84,62 @@ export async function syncOmicallHistoryForUser(args: {
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
-      throw new Error(`Omicall history API trả HTTP ${response.status}`);
+      if (response.status === 401) {
+        throw new OmicallApiError(
+          'omicall_api_unauthorized',
+          'API key OmiCall không hợp lệ, đã hết hạn hoặc không khớp môi trường. Kiểm tra OMICALL_API_KEY và OMICALL_API_BASE_URL.',
+          response.status,
+        );
+      }
+      if (response.status === 403) {
+        throw new OmicallApiError(
+          'omicall_api_forbidden',
+          'API key OmiCall không có quyền đọc lịch sử cuộc gọi (Call Transaction/History). Kiểm tra quyền trên OmiCall.',
+          response.status,
+        );
+      }
+      if (response.status === 429) {
+        throw new OmicallApiError(
+          'omicall_api_rate_limited',
+          'OmiCall đang giới hạn tần suất gọi API. Vui lòng thử lại sau.',
+          response.status,
+        );
+      }
+      if (response.status >= 500) {
+        throw new OmicallApiError(
+          'omicall_api_unavailable',
+          `OmiCall history API hiện không khả dụng (HTTP ${response.status}).`,
+          response.status,
+        );
+      }
+      throw new OmicallApiError(
+        'omicall_api_error',
+        `OmiCall history API trả HTTP ${response.status}.`,
+        response.status,
+      );
     }
     const json = await response.json() as Record<string, any>;
     if (json.status_code != null && Number(json.status_code) !== 9999) {
-      throw new Error(String(json.message || 'API tổng đài từ chối yêu cầu'));
+      const providerStatus = Number(json.status_code);
+      if (providerStatus === 401) {
+        throw new OmicallApiError(
+          'omicall_api_unauthorized',
+          'API key OmiCall không hợp lệ, đã hết hạn hoặc không khớp môi trường. Kiểm tra OMICALL_API_KEY và OMICALL_API_BASE_URL.',
+          providerStatus,
+        );
+      }
+      if (providerStatus === 403) {
+        throw new OmicallApiError(
+          'omicall_api_forbidden',
+          'API key OmiCall không có quyền đọc lịch sử cuộc gọi (Call Transaction/History). Kiểm tra quyền trên OmiCall.',
+          providerStatus,
+        );
+      }
+      throw new OmicallApiError(
+        'omicall_api_error',
+        String(json.message || 'API tổng đài từ chối yêu cầu'),
+        Number.isFinite(providerStatus) ? providerStatus : null,
+      );
     }
     const payload = json.payload ?? json;
     const items: OmicallHistoryItem[] = Array.isArray(payload?.items)

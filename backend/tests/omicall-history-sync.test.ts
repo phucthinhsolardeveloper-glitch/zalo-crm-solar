@@ -21,12 +21,27 @@ vi.mock('../src/modules/telephony/omicall-recording.js', () => ({
 }));
 
 import { prisma } from '../src/shared/database/prisma-client.js';
-import { syncOmicallHistoryForUser } from '../src/modules/telephony/omicall-history-sync.js';
+import { OmicallApiError, syncOmicallHistoryForUser } from '../src/modules/telephony/omicall-history-sync.js';
 
 describe('syncOmicallHistoryForUser', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('reports an invalid or expired API key clearly on provider HTTP 401', async () => {
+    (fetch as any).mockResolvedValue({ ok: false, status: 401 });
+
+    await expect(syncOmicallHistoryForUser({
+      userId: 'user-1',
+      orgId: 'org-1',
+      extension: '101',
+    })).rejects.toMatchObject({
+      name: 'OmicallApiError',
+      code: 'omicall_api_unauthorized',
+      providerStatus: 401,
+      message: expect.stringContaining('không hợp lệ, đã hết hạn'),
+    } satisfies Partial<OmicallApiError>);
   });
 
   it('imports an answered call and prefers the concrete recording_file URL', async () => {

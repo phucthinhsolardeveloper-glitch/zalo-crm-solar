@@ -190,6 +190,8 @@
                     <div>
                       <strong>{{ callName(call) }}</strong>
                       <span>{{ displayPhone(call.externalNumber) || (call.channel === 'internal' ? 'Cuộc gọi nội bộ' : '') }}</span>
+                      <!-- FIX 2026-09-03 (anh báo: cuộc gọi không kiểm tra KH có Zalo) -->
+                      <span v-if="call.contact" class="zalo-pill-mini" :class="zaloPillClassFor(call)">{{ zaloPillTextFor(call) }}</span>
                     </div>
                   </div>
                 </td>
@@ -366,7 +368,13 @@ interface CallItem {
   externalNumber?: string | null;
   recordingId?: string | null;
   ownerUser?: { id: string; fullName: string; avatarUrl?: string | null } | null;
-  contact?: { id: string; fullName?: string | null; crmName?: string | null; phone?: string | null } | null;
+  contact?: {
+    id: string; fullName?: string | null; crmName?: string | null; phone?: string | null;
+    // FIX 2026-09-03: cần cho badge trạng thái Zalo ở màn Cuộc gọi (giống
+    // ContactDetailPanel.zaloState) — chỉ đọc dữ liệu có sẵn, không gọi SDK.
+    hasZalo?: boolean | null; zaloUid?: string | null; zaloGlobalId?: string | null; zaloUsername?: string | null;
+    _count?: { friends: number };
+  } | null;
   peerUser?: { id: string; fullName: string; avatarUrl?: string | null } | null;
   latestNote?: { id: string; body: string; createdAt: string; author: { id: string; fullName: string } } | null;
 }
@@ -537,7 +545,7 @@ function goPage(page: number) {
 async function syncOmicall() {
   syncing.value = true;
   try {
-    const { data } = await api.post('/telephony/omicall/sync', { days: 30 });
+    const { data } = await api.post('/telephony/omicall/sync', { days: 30 }, { skipErrorToast: true } as any);
     toast.success(`Đã đồng bộ ${data.synced ?? 0} cuộc gọi từ tổng đài`);
     await loadCalls(1);
   } catch (error: any) {
@@ -550,6 +558,28 @@ async function syncOmicall() {
 function callName(call: CallItem) {
   return call.contact?.crmName || call.contact?.fullName || call.peerUser?.fullName
     || displayPhone(call.externalNumber) || 'Không rõ khách hàng';
+}
+
+// FIX 2026-09-03 (anh báo: màn Cuộc gọi không có kiểm tra "KH có Zalo không" như
+// bên Khách hàng/Chat) — cùng logic 3 trạng thái với ContactDetailPanel.zaloState,
+// chỉ đọc dữ liệu Friend/Contact có sẵn, KHÔNG gọi SDK/findUser cho từng dòng
+// (đúng ràng buộc chính sách Zalo — xem docs/13-handoffs/... mục H).
+function zaloStateFor(call: CallItem): 'yes' | 'no' | 'unknown' {
+  const c = call.contact;
+  if (!c) return 'unknown';
+  if ((c._count?.friends ?? 0) > 0) return 'yes';
+  if (c.zaloUid || c.zaloGlobalId || c.zaloUsername) return 'yes';
+  if (c.hasZalo === true) return 'yes';
+  if (c.hasZalo === false) return 'no';
+  return 'unknown';
+}
+function zaloPillClassFor(call: CallItem) {
+  const s = zaloStateFor(call);
+  return s === 'yes' ? 'zalo-yes' : s === 'no' ? 'zalo-no' : 'zalo-unknown';
+}
+function zaloPillTextFor(call: CallItem) {
+  const s = zaloStateFor(call);
+  return s === 'yes' ? '🟢 Có Zalo' : s === 'no' ? '🔴 Không tìm thấy' : '⚪ Chưa kiểm tra';
 }
 
 // Cuộc gọi nội bộ (channel='internal') không có externalNumber — gọi lại phải qua
@@ -898,6 +928,16 @@ tbody tr:not(.recording-row):hover { background: #fbfdfc; }
 .customer-cell div { display: grid; gap: 2px; }
 .customer-cell strong, .agent-name { color: #253238; font-weight: 700; }
 .customer-cell span { color: #819096; font-size: 12px; }
+/* FIX 2026-09-03 (badge trạng thái Zalo ở màn Cuộc gọi) — cùng màu với
+   ContactDetailPanel.zalo-pill, thu nhỏ cho vừa ô bảng. */
+.customer-cell .zalo-pill-mini {
+  display: inline-flex; align-items: center; width: fit-content;
+  font-size: 10.5px; font-weight: 700; white-space: nowrap;
+  padding: 1px 8px; border-radius: 9999px; margin-top: 1px;
+}
+.zalo-pill-mini.zalo-yes { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+.zalo-pill-mini.zalo-no { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.zalo-pill-mini.zalo-unknown { background: #f1f5f9; color: #475569; border: 1px dashed #cbd5e1; }
 .direction { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .channel, .status { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 8px; font-size: 11px; font-weight: 750; white-space: nowrap; }
 .channel.zcc { background: #e6f3ff; color: #1168ad; }

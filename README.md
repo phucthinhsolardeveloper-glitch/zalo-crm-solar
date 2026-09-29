@@ -160,8 +160,11 @@ API inventory: [375 literal Fastify routes/55 areas](docs/04-api/route-catalog.m
 
 ## Yêu cầu hệ thống
 
-- Docker Engine và Compose v2 cho full stack.
-- Node.js 22 + npm nếu chạy hybrid/local ngoài container.
+- Windows: WSL2 (Ubuntu/Debian) là môi trường phát triển được khuyến nghị; đặt source
+  trong filesystem Linux (`~/src/...`), không build trực tiếp dưới `/mnt/c` hoặc `/mnt/d`.
+- Docker Engine trong WSL hoặc Docker Desktop với WSL Integration bật cho distro đang dùng,
+  kèm Docker Compose v2.
+- Node.js 22 + npm nếu chạy hybrid/local ngoài container (`.nvmrc` là nguồn chuẩn).
 - Port mặc định 3080 và các infra ports theo Compose còn trống.
 - Browser hỗ trợ WebRTC nếu dùng softphone.
 - Secret/local environment mới; không copy/paste production `.env`.
@@ -180,7 +183,22 @@ docker exec zalo-crm-app npx prisma migrate deploy
 
 Truy cập mặc định `http://localhost:3080`, rồi dùng setup flow tạo organization/owner nếu database trống. Không chạy migration reset hoặc `db push --accept-data-loss`.
 
-### Hybrid development
+### WSL-first hybrid development
+
+Mở Ubuntu/WSL2 rồi chạy từ repo hiện tại (script sẽ sao chép sang filesystem Linux nếu
+repo đang ở `/mnt/d`):
+
+```bash
+./bin/wsl-setup
+cd ~/src/zalo-crm-solar
+```
+
+Sau đó khởi động infrastructure bằng Docker và chạy app native trong WSL:
+
+```bash
+docker compose up -d db redis minio minio-init
+./bin/dev-setup
+```
 
 Khởi động PostgreSQL/Redis/storage theo [local setup](docs/02-development/local-setup.md), rồi:
 

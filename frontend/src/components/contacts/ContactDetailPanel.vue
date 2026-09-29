@@ -252,6 +252,20 @@
         </template>
       </section>
     </div>
+
+    <!-- FIX 2026-09-03: nút "Đặt lịch hẹn" ở header giờ mở đúng AppointmentEditor
+         (trước đây chỉ mở lại form sửa KH) — cùng pattern CustomerProfileDialog.vue. -->
+    <AppointmentEditor
+      v-model="showAppt"
+      :prefill-contact="{
+        id: contact.id,
+        fullName: contact.crmName || contact.fullName || null,
+        phone: contact.phone || null,
+        zaloUid: (contact as any).zaloUid ?? null,
+        zaloUsername: (contact as any).zaloUsername ?? null,
+      }"
+      @created="onApptCreated"
+    />
   </div>
 </template>
 
@@ -267,8 +281,11 @@ import {
 } from '@/composables/use-contacts';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import CallButton from '@/components/telephony/CallButton.vue';
+import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
+import { useToast } from '@/composables/use-toast';
 
 const router = useRouter();
+const toast = useToast();
 
 const props = defineProps<{ contact: Contact }>();
 const emit = defineEmits<{ close: []; 'go-chat': []; saved: []; edit: [] }>();
@@ -504,8 +521,17 @@ function apptStatusLabel(s: string): string {
   } as Record<string, string>)[s] || s;
 }
 
-function openAppointment() { emit('edit'); /* mở dialog nhắc hẹn — hiện tại reuse edit */ }
+function openAppointment() { showAppt.value = true; }
 function addNote() { activeTab.value = 'notes'; /* TODO: focus textarea note */ }
+
+// FIX 2026-09-03 (anh báo: nút "Đặt lịch hẹn" chưa mở form nhắc hẹn thật, chỉ mở
+// lại form sửa KH) — nối đúng AppointmentEditor, cùng pattern đã dùng ở
+// CustomerProfileDialog.vue (họp 25/08/2026).
+const showAppt = ref(false);
+function onApptCreated() {
+  toast.success('Đã tạo nhắc hẹn cho khách hàng');
+  if (activeTab.value === 'appt') void loadAppts();
+}
 
 // M53 2026-05-30: Mở Virtual Chat cho KH no-Zalo
 const virtualLoading = ref(false);

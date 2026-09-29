@@ -42,3 +42,21 @@ curl http://localhost:3080/health
 ```
 
 Không có script lint trong hai `package.json`; không tuyên bố lint gate tồn tại.
+# WSL quick start
+
+```bash
+./bin/wsl-setup
+cd ~/src/zalo-crm-solar
+docker compose up -d db redis minio minio-init
+./bin/dev-setup
+```
+
+Build/test native trong WSL dùng Node.js 22:
+
+```bash
+cd backend && npm test && npm run build
+cd ../frontend && npm test && npm run build
+```
+
+Không dùng `docker compose down -v`, `prisma migrate reset` hoặc xóa volume khi
+chuyển môi trường. Các volume Docker hiện tại độc lập với vị trí source.
