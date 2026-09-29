@@ -15,3 +15,11 @@ Legacy được giữ theo source project tại `_archive/legacy-docs/2026-08-24
 ## Quality gate
 
 Kiểm link/anchor, path/command, secret pattern, boilerplate/file quá mỏng, số liệu snapshot, inventory/trackability và reverse-compare legacy liên quan. Không copy credential, `.env`, cookie, PII hay production payload vào tài liệu.
+
+## Rà soát định kỳ
+
+- Hàng tháng: rà soát runbook, backup/restore, disk/Docker, deploy và các
+  command/path biến động.
+- Sau milestone hoặc thay đổi lớn: cập nhật canonical docs trước khi đóng task.
+- Hàng quý: kiểm link, số liệu snapshot, secret pattern, archive/handoff và
+  reverse-compare với implementation.

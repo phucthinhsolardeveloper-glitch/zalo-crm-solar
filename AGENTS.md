@@ -53,3 +53,22 @@ Không tuyên bố thành công chỉ dựa vào build. Phân loại failure: `P
 Thay đổi architecture, schema, API, auth/RBAC, environment, deployment, integration, operational behavior hoặc user-visible behavior phải cập nhật canonical docs tương ứng. Mỗi fact có một canonical home; các file khác link tới đó thay vì copy dài.
 
 Đọc [docs/12-ai/context-map.md](docs/12-ai/context-map.md) để nạp minimum sufficient context. Handoff tạm đặt trong `docs/13-handoffs/`; kiến thức còn giá trị phải chuyển về canonical docs.
+
+## Quy tắc phối hợp và bảo trì vận hành
+
+- Phân loại thay đổi trước khi chạy: `docs-only`, frontend rủi ro thấp,
+  backend/API, data/migration, security/infrastructure. Chọn mức kiểm tra/deploy
+  nhỏ nhất phù hợp; không chạy quy trình nặng cho thay đổi nhỏ, nhưng không dùng
+  đường nhanh để né test dữ liệu hoặc bảo mật.
+- Tác vụ dài phải có checkpoint và log; nếu timeout là giới hạn công cụ thì giữ
+  process/artifact để theo dõi, không lặp lại cùng lệnh khi chưa có chẩn đoán mới.
+- Bảo trì disk/Docker bắt đầu bằng `df -h`, `du -x` và `docker system df -v`.
+  Chỉ prune cache/image không dùng sau khi xác định current/previous/rollback;
+  không xóa volume database, upload, secrets hoặc state reference.
+- Comment source chỉ ghi rationale kỹ thuật, invariant và giới hạn; không ghi lời
+  hội thoại, tên AI hoặc trích dẫn người dùng.
+- Sau milestone lớn, migration, thay đổi kiến trúc/API/deployment hoặc đợt bảo trì
+  phải rà soát canonical docs và ghi lịch sử; không cần ghi real-time cho mọi thay
+  đổi nhỏ.
+- Báo cáo bằng tiếng Việt, nêu evidence, test đã/chưa chạy, unknown, rủi ro,
+  rollback point và blocker production.
