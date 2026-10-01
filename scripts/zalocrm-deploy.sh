@@ -36,7 +36,9 @@ set_env() {
 }
 env_val() {  # đọc giá trị KEY từ .env; rỗng nếu chưa có .env / không khớp (an toàn set -e)
   [ -f .env ] || return 0
-  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- || true
+  # .env thường được chỉnh trên Windows nên có thể còn CRLF; không để `\r`
+  # dính vào DB_USER/DB_NAME rồi làm PostgreSQL tìm nhầm role/database.
+  grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true
 }
 gen() { openssl rand -hex "${1:-32}"; }
 
