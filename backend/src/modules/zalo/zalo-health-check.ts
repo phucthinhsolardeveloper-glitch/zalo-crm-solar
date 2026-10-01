@@ -27,6 +27,10 @@ export function startZaloHealthCheck(): void {
         prisma.zaloAccount.findMany({
           where: {
             sessionData: { not: Prisma.JsonNull }, archivedAt: null, zaloUid: { not: null },
+            // Session expired / QR required is a terminal state for the
+            // automatic loop. The user must scan a fresh QR; retrying every
+            // five minutes only creates provider noise and rate-limit risk.
+            status: { not: 'qr_pending' },
             NOT: { disconnectReason: 'manual' },
           },
           select: { id: true, displayName: true, sessionData: true },
@@ -62,6 +66,8 @@ export function startZaloHealthCheck(): void {
         prisma.zaloAccount.findMany({
           where: {
             sessionData: { not: Prisma.JsonNull }, archivedAt: null, zaloUid: { not: null },
+            // Do not force-refresh a nick already marked as requiring QR.
+            status: { not: 'qr_pending' },
             NOT: { disconnectReason: 'manual' },
           },
           select: { id: true, sessionData: true },
