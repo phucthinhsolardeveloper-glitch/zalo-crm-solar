@@ -47,6 +47,7 @@ const prismaMock = {
   automationBroadcast: {
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue({}),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
   },
   block: { findUnique: vi.fn() },
   contact: { findUnique: vi.fn() },
@@ -79,7 +80,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   getStatusMock.mockReturnValue('connected');
   prismaMock.block.findUnique.mockResolvedValue(BLOCK);
+  prismaMock.automationBroadcast.updateMany.mockResolvedValue({ count: 1 });
 });
+
+function lastBroadcastUpdateData(): any {
+  const updateManyCall = prismaMock.automationBroadcast.updateMany.mock.calls.at(-1)?.[0];
+  if (updateManyCall) return updateManyCall.data;
+  return prismaMock.automationBroadcast.update.mock.calls.at(-1)?.[0]?.data;
+}
 
 describe('processBroadcastTick — cổng an toàn', () => {
   it('skip contact chưa kết bạn với nick này (H-2) — không gửi', async () => {
@@ -91,7 +99,7 @@ describe('processBroadcastTick — cổng an toàn', () => {
 
     expect(sendCampaignMessageMock).not.toHaveBeenCalled();
     expect(result.state).toBe('completed'); // hết 2 contact (đều skip) → completed
-    const updateData = prismaMock.automationBroadcast.update.mock.calls.at(-1)?.[0].data;
+    const updateData = lastBroadcastUpdateData();
     expect(updateData.workerStats.skipped.some((s: any) => s.reason === 'not_friend_or_stranger_chat')).toBe(true);
   });
 
@@ -131,7 +139,7 @@ describe('processBroadcastTick — cổng an toàn', () => {
     const result = await processBroadcastTick('bc-1');
 
     expect(result.state).toBe('paused');
-    const updateData = prismaMock.automationBroadcast.update.mock.calls.at(-1)?.[0].data;
+    const updateData = lastBroadcastUpdateData();
     expect(updateData.state).toBe('paused');
     // failedCount không được tăng lên — hết quota là "tạm dừng", không phải "gửi lỗi".
     expect(updateData.failedCount?.increment ?? 0).toBe(0);
@@ -147,7 +155,7 @@ describe('processBroadcastTick — cổng an toàn', () => {
     const result = await processBroadcastTick('bc-1');
 
     expect(result.state).toBe('paused');
-    const updateData = prismaMock.automationBroadcast.update.mock.calls.at(-1)?.[0].data;
+    const updateData = lastBroadcastUpdateData();
     expect(updateData.workerStats.lastError).toBe('kill_switch_active');
   });
 
@@ -174,7 +182,7 @@ describe('processBroadcastTick — cổng an toàn', () => {
     const result = await processBroadcastTick('bc-1');
 
     expect(result.state).toBe('completed');
-    const updateData = prismaMock.automationBroadcast.update.mock.calls.at(-1)?.[0].data;
+    const updateData = lastBroadcastUpdateData();
     expect(updateData.sentCount).toEqual({ increment: 1 });
     expect(sendCampaignMessageMock).toHaveBeenCalledWith('nick-1', 'uid-1', 0, { msg: 'Xin chào KH' });
   });
@@ -187,5 +195,26 @@ describe('processBroadcastTick — cổng an toàn', () => {
 
     expect(result.state).toBe('paused');
     expect(sendCampaignMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('không ghi đè pause/cancel đến trong lúc chunk đang gửi', async () => {
+    const running = baseBroadcast({ segmentSpec: { contactIds: ['c1'] } });
+    prismaMock.automationBroadcast.findUnique
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce({ state: 'cancelled' });
+    prismaMock.contact.findUnique.mockResolvedValue({ id: 'c1', consentStatus: 'implicit' });
+    prismaMock.friend.findFirst.mockResolvedValue({ zaloUidInNick: 'uid-1' });
+    sendCampaignMessageMock.mockResolvedValue({ success: true });
+    prismaMock.automationBroadcast.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(result.state).toBe('paused');
+    expect(prismaMock.automationBroadcast.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'bc-1' }, data: expect.not.objectContaining({ state: expect.anything() }) }),
+    );
+    expect(prismaMock.automationBroadcast.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'bc-1', state: 'running' } }),
+    );
   });
 });

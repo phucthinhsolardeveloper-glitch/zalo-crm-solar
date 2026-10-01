@@ -174,22 +174,35 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
   }
 
   const nextState = pausedReason ? 'paused' : (startIdx + processed >= contactIds.length ? 'completed' : 'running');
-  await prisma.automationBroadcast.update({
-    where: { id: broadcastId },
-    data: {
-      state: nextState,
-      resumeCursor: lastCursor,
-      sentCount: { increment: sentDelta },
-      failedCount: { increment: failedDelta },
-      completedAt: nextState === 'completed' ? new Date() : undefined,
-      workerStats: {
-        ...stats,
-        skipped,
-        lastError: pausedReason,
-        lastTickAt: new Date().toISOString(),
-      } as any,
-    },
+  const progressData = {
+    resumeCursor: lastCursor,
+    sentCount: { increment: sentDelta },
+    failedCount: { increment: failedDelta },
+    completedAt: nextState === 'completed' ? new Date() : undefined,
+    workerStats: {
+      ...stats,
+      skipped,
+      lastError: pausedReason,
+      lastTickAt: new Date().toISOString(),
+    } as any,
+  };
+
+  // Pause/cancel can arrive while this chunk is sending. Only the worker that
+  // still owns the `running` state may transition it; otherwise it must not
+  // resurrect a campaign that the user already stopped. Persist progress in a
+  // second update while preserving the newer control state.
+  const stateUpdate = await prisma.automationBroadcast.updateMany({
+    where: { id: broadcastId, state: 'running' },
+    data: { ...progressData, state: nextState },
   });
+  if (stateUpdate.count === 0) {
+    await prisma.automationBroadcast.update({ where: { id: broadcastId }, data: progressData });
+    const latest = await prisma.automationBroadcast.findUnique({
+      where: { id: broadcastId },
+      select: { state: true },
+    });
+    return { state: latest?.state === 'running' ? 'running' : 'paused', processed };
+  }
 
   return { state: nextState, processed };
 }

@@ -155,7 +155,10 @@ const loading = ref(false);
 const broadcasts = ref<BroadcastRow[]>([]);
 const nicks = ref<NickOption[]>([]);
 
-const connectedNicks = computed(() => nicks.value);
+// Chỉ cho chọn nick đang sống trong pool. Nick DB còn record nhưng đã mất
+// session sẽ khiến worker pause ngay ở tick đầu tiên, nên không được hiện như
+// một sender hợp lệ trong form tạo chiến dịch.
+const connectedNicks = computed(() => nicks.value.filter((nick) => nick.liveStatus === 'connected'));
 
 async function loadBroadcasts() {
   loading.value = true;
