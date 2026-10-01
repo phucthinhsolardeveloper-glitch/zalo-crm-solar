@@ -4,8 +4,9 @@
   BroadcastsView — Phase 2 (mục C, 2026-09-30): giao diện tạo/theo dõi chiến
   dịch gửi hàng loạt từ nick cá nhân. Backend Phase 1 đã xong (broadcast-routes.ts,
   broadcast-worker.ts) — xem docs/13-handoffs/2026-09-30-broadcast-phase1.md.
-  Phase 1 giới hạn: chỉ text đơn giản, đối tượng chọn tay (contactIds cố định),
-  1 broadcast = 1 nick.
+  Phase 3a (2026-10-01): thêm ảnh/album (attachmentAssetIds, chọn từ Kho media
+  hoặc tải mới). Giới hạn còn lại: đối tượng chọn tay (contactIds cố định),
+  1 broadcast = 1 nick, chưa hỗ trợ video/file.
 -->
 <template>
   <div class="bc-view">
@@ -96,8 +97,94 @@
 
           <label class="bc-field">
             <span class="bc-label">Nội dung tin nhắn</span>
-            <textarea v-model="form.messageText" class="bc-input bc-textarea" rows="4" placeholder="Nội dung sẽ gửi cho tất cả người nhận bên dưới..."></textarea>
+            <textarea v-model="form.messageText" class="bc-input bc-textarea" rows="4" placeholder="Nội dung sẽ gửi cho tất cả người nhận bên dưới (có thể để trống nếu chỉ gửi ảnh)..."></textarea>
           </label>
+
+          <div class="bc-field">
+            <span class="bc-label">Ảnh đính kèm ({{ form.attachments.length }}/{{ MAX_ATTACHMENTS }})</span>
+            <div class="bc-attach-row">
+              <label class="btn btn-ghost btn-sm bc-upload-btn">
+                <v-icon size="16">mdi-upload</v-icon> Tải ảnh mới
+                <input type="file" accept="image/*" multiple hidden @change="onUploadFiles" />
+              </label>
+              <button type="button" class="btn btn-ghost btn-sm" @click="openImagePicker">
+                <v-icon size="16">mdi-image-multiple-outline</v-icon> Chọn từ kho
+              </button>
+              <span v-if="uploading" class="bc-help">Đang tải lên...</span>
+            </div>
+            <div v-if="form.attachments.length" class="bc-attach-thumbs">
+              <div v-for="a in form.attachments" :key="a.id" class="bc-thumb">
+                <img :src="a.thumbnailUrl || a.url || undefined" :alt="a.name" />
+                <button type="button" class="bc-thumb-x" @click="removeAttachment(a.id)"><v-icon size="12">mdi-close</v-icon></button>
+              </div>
+            </div>
+            <span v-if="form.attachments.length > 1" class="bc-help">{{ form.attachments.length }} ảnh sẽ gửi gộp thành 1 album.</span>
+          </div>
+
+          <!-- Picker chọn ảnh có sẵn trong Kho media -->
+          <div v-if="showImagePicker" class="bc-picker-overlay" @click.self="showImagePicker = false">
+            <div class="bc-picker">
+              <header class="bc-dialog-head">
+                <span>Chọn ảnh từ Kho</span>
+                <button class="bc-x" @click="showImagePicker = false"><v-icon size="18">mdi-close</v-icon></button>
+              </header>
+              <div class="bc-picker-body">
+                <div v-if="libraryLoading" class="bc-loading">Đang tải...</div>
+                <div v-else-if="libraryImages.length === 0" class="bc-empty">Kho chưa có ảnh nào.</div>
+                <div v-else class="bc-picker-grid">
+                  <div
+                    v-for="img in libraryImages"
+                    :key="img.id"
+                    class="bc-picker-item"
+                    :class="{ selected: isSelected(img.id) }"
+                    @click="toggleLibraryImage(img)"
+                  >
+                    <img :src="img.thumbnailUrl || img.url || undefined" :alt="img.name" />
+                    <v-icon v-if="isSelected(img.id)" size="18" class="bc-picker-check">mdi-check-circle</v-icon>
+                  </div>
+                </div>
+              </div>
+              <footer class="bc-dialog-foot">
+                <button class="btn btn-primary btn-sm" @click="showImagePicker = false">Xong ({{ form.attachments.length }} đã chọn)</button>
+              </footer>
+            </div>
+          </div>
+
+          <!-- Picker chọn NHIỀU người nhận cùng lúc bằng tick-list (thay vì phải gõ
+               tìm từng người 1 — phản hồi user 2026-10-01: ô gõ-tìm-1-người-1-lần
+               "làm khó nhau" khi cần chọn nhiều người). -->
+          <div v-if="showContactPicker" class="bc-picker-overlay" @click.self="showContactPicker = false">
+            <div class="bc-picker bc-contact-picker">
+              <header class="bc-dialog-head">
+                <span>Chọn người nhận</span>
+                <button class="bc-x" @click="showContactPicker = false"><v-icon size="18">mdi-close</v-icon></button>
+              </header>
+              <div class="bc-picker-search">
+                <input v-model="contactPickerQuery" class="bc-input" placeholder="Lọc theo tên/SĐT..." @input="onContactPickerSearch" />
+              </div>
+              <div class="bc-picker-body bc-contact-list">
+                <div v-if="contactPickerLoading && contactPickerItems.length === 0" class="bc-loading">Đang tải...</div>
+                <div v-else-if="contactPickerItems.length === 0" class="bc-empty">Không có khách hàng nào khớp.</div>
+                <label v-for="c in contactPickerItems" :key="c.id" class="bc-contact-row">
+                  <input type="checkbox" :checked="isContactSelected(c.id)" @change="toggleContactPicked(c)" />
+                  <span class="bc-contact-name">{{ c.crmName || c.fullName || '(chưa đặt tên)' }}</span>
+                  <span class="bc-sub">{{ c.phone }}</span>
+                </label>
+                <button
+                  v-if="contactPickerHasMore"
+                  type="button"
+                  class="btn btn-ghost btn-sm bc-loadmore"
+                  :disabled="contactPickerLoading"
+                  @click="loadMoreContactPicker"
+                >
+                  {{ contactPickerLoading ? 'Đang tải...' : 'Tải thêm' }}
+                </button>
+              </div>
+              <footer class="bc-dialog-foot">
+                <button class="btn btn-primary btn-sm" @click="showContactPicker = false">Xong ({{ form.contacts.length }} đã chọn)</button>
+              </footer>
+            </div>
+          </div>
 
           <div class="bc-grid">
             <label class="bc-field">
@@ -120,7 +207,12 @@
 
           <div class="bc-field">
             <span class="bc-label">Người nhận ({{ form.contacts.length }} đã chọn)</span>
-            <input v-model="contactQuery" class="bc-input" placeholder="Gõ tên/SĐT để tìm khách hàng..." @input="onSearchContacts" />
+            <div class="bc-attach-row">
+              <input v-model="contactQuery" class="bc-input" style="flex:1" placeholder="Gõ tên/SĐT để tìm nhanh 1 khách..." @input="onSearchContacts" />
+              <button type="button" class="btn btn-ghost btn-sm" @click="openContactPicker">
+                <v-icon size="16">mdi-format-list-checks</v-icon> Chọn từ danh sách
+              </button>
+            </div>
             <div v-if="contactSuggestions.length" class="bc-suggestions">
               <div
                 v-for="c in contactSuggestions"
@@ -173,6 +265,9 @@ interface BroadcastRow {
 }
 interface NickOption { id: string; displayName: string | null; phone: string | null; liveStatus?: string; status: string }
 interface ContactOption { id: string; fullName: string | null; crmName: string | null; phone: string | null }
+interface MediaItem { id: string; name: string; url: string | null; thumbnailUrl: string | null }
+
+const MAX_ATTACHMENTS = 12; // khớp giới hạn backend (broadcast-routes.ts)
 
 const loading = ref(false);
 const broadcasts = ref<BroadcastRow[]>([]);
@@ -255,6 +350,7 @@ const form = ref({
   nickId: '',
   messageText: '',
   contacts: [] as ContactOption[],
+  attachments: [] as MediaItem[],
   batchSize: 5,
   intervalSec: 60,
   startAt: '',
@@ -263,19 +359,88 @@ const form = ref({
 const canSubmit = computed(() =>
   form.value.name.trim().length > 0 &&
   form.value.nickId.length > 0 &&
-  form.value.messageText.trim().length > 0 &&
+  (form.value.messageText.trim().length > 0 || form.value.attachments.length > 0) &&
   form.value.contacts.length > 0,
 );
 
 function openCreate() {
-  form.value = { name: '', nickId: '', messageText: '', contacts: [], batchSize: 5, intervalSec: 60, startAt: '' };
+  form.value = { name: '', nickId: '', messageText: '', contacts: [], attachments: [], batchSize: 5, intervalSec: 60, startAt: '' };
   contactQuery.value = '';
   contactSuggestions.value = [];
+  contactPickerItems.value = [];
+  contactPickerQuery.value = '';
   createError.value = '';
   showCreate.value = true;
 }
 function closeCreate() {
   showCreate.value = false;
+}
+
+// ── Ảnh đính kèm (Phase 3a, 2026-10-01) — tải mới hoặc chọn từ Kho media ────
+const uploading = ref(false);
+const showImagePicker = ref(false);
+const libraryLoading = ref(false);
+const libraryImages = ref<MediaItem[]>([]);
+
+function removeAttachment(id: string) {
+  form.value.attachments = form.value.attachments.filter((a) => a.id !== id);
+}
+
+async function onUploadFiles(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = '';
+  if (files.length === 0) return;
+  uploading.value = true;
+  try {
+    for (const file of files) {
+      if (form.value.attachments.length >= MAX_ATTACHMENTS) {
+        toast.error(`Tối đa ${MAX_ATTACHMENTS} ảnh/chiến dịch`);
+        break;
+      }
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await api.post('/media/upload', fd);
+      const assetId = data?.assets?.[0]?.id;
+      if (!assetId) continue;
+      // Ảnh mới tải chưa có trong libraryImages — dùng preview local tạm thời
+      // (object URL) cho tới khi picker "Kho" load lại; đủ để xem trước ngay.
+      form.value.attachments.push({ id: assetId, name: file.name, url: URL.createObjectURL(file), thumbnailUrl: null });
+    }
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error || 'Tải ảnh lên thất bại');
+  } finally {
+    uploading.value = false;
+  }
+}
+
+function isSelected(id: string): boolean {
+  return form.value.attachments.some((a) => a.id === id);
+}
+function toggleLibraryImage(img: MediaItem) {
+  if (isSelected(img.id)) {
+    removeAttachment(img.id);
+    return;
+  }
+  if (form.value.attachments.length >= MAX_ATTACHMENTS) {
+    toast.error(`Tối đa ${MAX_ATTACHMENTS} ảnh/chiến dịch`);
+    return;
+  }
+  form.value.attachments.push(img);
+}
+
+async function openImagePicker() {
+  showImagePicker.value = true;
+  if (libraryImages.value.length > 0) return;
+  libraryLoading.value = true;
+  try {
+    const { data } = await api.get('/media', { params: { kind: 'image', limit: 60 } });
+    libraryImages.value = data.items ?? [];
+  } catch (err) {
+    console.error('load media library failed', err);
+  } finally {
+    libraryLoading.value = false;
+  }
 }
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -302,6 +467,60 @@ function removeContact(id: string) {
   form.value.contacts = form.value.contacts.filter((c) => c.id !== id);
 }
 
+// ── Picker chọn nhiều người nhận cùng lúc (tick-list, 2026-10-01) ───────────
+const showContactPicker = ref(false);
+const contactPickerQuery = ref('');
+const contactPickerLoading = ref(false);
+const contactPickerItems = ref<ContactOption[]>([]);
+const contactPickerPage = ref(1);
+const contactPickerHasMore = ref(false);
+const CONTACT_PICKER_PAGE_SIZE = 50;
+
+function isContactSelected(id: string): boolean {
+  return form.value.contacts.some((c) => c.id === id);
+}
+function toggleContactPicked(c: ContactOption) {
+  if (isContactSelected(c.id)) {
+    removeContact(c.id);
+  } else {
+    form.value.contacts.push(c);
+  }
+}
+
+async function fetchContactPickerPage(page: number, append: boolean) {
+  contactPickerLoading.value = true;
+  try {
+    const { data } = await api.get('/contacts', {
+      params: { search: contactPickerQuery.value.trim(), limit: CONTACT_PICKER_PAGE_SIZE, page, sort: 'name' },
+    });
+    const rows: ContactOption[] = data.contacts ?? data.items ?? [];
+    contactPickerItems.value = append ? [...contactPickerItems.value, ...rows] : rows;
+    contactPickerPage.value = page;
+    const total = Number(data.total ?? 0);
+    contactPickerHasMore.value = contactPickerItems.value.length < total;
+  } catch (err) {
+    console.error('load contact picker failed', err);
+  } finally {
+    contactPickerLoading.value = false;
+  }
+}
+
+function openContactPicker() {
+  showContactPicker.value = true;
+  contactPickerQuery.value = '';
+  void fetchContactPickerPage(1, false);
+}
+
+let contactPickerTimer: ReturnType<typeof setTimeout> | null = null;
+function onContactPickerSearch() {
+  if (contactPickerTimer) clearTimeout(contactPickerTimer);
+  contactPickerTimer = setTimeout(() => { void fetchContactPickerPage(1, false); }, 300);
+}
+
+function loadMoreContactPicker() {
+  void fetchContactPickerPage(contactPickerPage.value + 1, true);
+}
+
 async function submitCreate() {
   if (!canSubmit.value) return;
   creating.value = true;
@@ -312,6 +531,7 @@ async function submitCreate() {
       nickId: form.value.nickId,
       messageText: form.value.messageText.trim(),
       contactIds: form.value.contacts.map((c) => c.id),
+      attachmentAssetIds: form.value.attachments.map((a) => a.id),
       batchSize: Number(form.value.batchSize),
       intervalSec: Number(form.value.intervalSec),
       scheduledAt: form.value.startAt ? new Date(form.value.startAt).toISOString() : null,
@@ -394,4 +614,43 @@ onMounted(() => {
 .bc-chip button { border: none; background: none; cursor: pointer; color: inherit; display: flex; }
 .bc-error { color: #b91c1c; font-size: 13px; }
 .bc-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid #e5e7eb; }
+
+.bc-attach-row { display: flex; align-items: center; gap: 8px; }
+.bc-upload-btn { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.bc-attach-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.bc-thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; }
+.bc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bc-thumb-x {
+  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0,0,0,.6); color: #fff; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.bc-picker-overlay {
+  position: fixed; inset: 0; background: rgba(24, 29, 38, 0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 1400;
+}
+.bc-picker {
+  width: 640px; max-width: 94vw; max-height: 80vh; overflow: hidden;
+  background: var(--surface, #fff); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.25);
+  display: flex; flex-direction: column;
+}
+.bc-picker-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+.bc-picker-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.bc-picker-item { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; cursor: pointer; border: 2px solid transparent; }
+.bc-picker-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bc-picker-item.selected { border-color: #4338ca; }
+.bc-picker-check { position: absolute; top: 4px; right: 4px; color: #4338ca; background: #fff; border-radius: 50%; }
+
+.bc-contact-picker { width: 480px; }
+.bc-picker-search { padding: 12px 18px 0; }
+.bc-contact-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; }
+.bc-contact-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 8px;
+  cursor: pointer; font-size: 13px;
+}
+.bc-contact-row:hover { background: #f8fafc; }
+.bc-contact-row input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; }
+.bc-contact-name { flex: 1; font-weight: 500; }
+.bc-loadmore { align-self: center; margin-top: 8px; }
 </style>

@@ -97,11 +97,8 @@ Frontend: `use-address-kit.ts` (mới), `ProvinceWardPicker.vue` (mới),
 
 1. User tự kiểm tra 1 contact còn review (Gia Lai) nếu cần chuẩn hoá luôn.
 2. Cân nhắc dọn endpoint `address-suggestions` khi rảnh.
-3. **C và I (kế hoạch riêng, chưa bắt đầu code):**
-   - C: user xác nhận cho phép gửi hàng loạt từ nick cá nhân TRONG GIỚI HẠN.
-     Đề xuất (do user giao quyền quyết): category quota mới `campaign_message`
-     tách khỏi `message` 300/ngày, mặc định 50/ngày/nick — lý do đã ghi trong
-     plan file. Chưa code, cần plan riêng (model Batch/Recipient, worker).
-   - I: user xác nhận sẽ có Zalo OA nhưng CHƯA đăng ký/CHƯA có credential.
-     Việc kỹ thuật: dựng khung module rỗng trả 501 trước, nối thật khi có OA
-     ID + API key.
+3. **Cập nhật 2026-10-01 — C đã xong, không còn là "chưa bắt đầu code":** xem
+   `docs/13-handoffs/2026-09-30-broadcast-phase1.md` — Phase 1+2 đã deploy và
+   nghiệm thu gửi thật thành công trên Full Docker. Quota `campaign_message`
+   tách khỏi `message` (nay 5000/ngày, không còn 300/ngày như ghi lúc đầu).
+4. **I (Zalo OA) vẫn CHƯA bắt đầu** — vẫn chờ user có OA ID + API key thật.

@@ -323,6 +323,16 @@ async function sendCampaignMessage(accountId: string, threadId: string, threadTy
     (api) => api.sendMessage(msg, threadId, threadType));
 }
 
+// Mục C Phase 3a (2026-10-01) — sibling CỐ Ý tách khỏi sendImage() (category
+// 'message'): broadcast gửi ảnh/album PHẢI đi qua đây để dùng đúng quota
+// 'campaign_message' (tách khỏi quota tin trả lời khách thật), nhất quán với
+// sendCampaignMessage() ở trên. 1+ local path trong `attachments` → zca-js tự
+// gộp thành album nếu >1 (giống sendImage()).
+async function sendCampaignImage(accountId: string, threadId: string, threadType: 0 | 1, attachments: any[], io?: Server | null, caption: string = '') {
+  return exec({ accountId, category: 'campaign_message', operation: 'sendCampaignImage', io },
+    (api) => api.sendMessage({ msg: caption, attachments }, threadId, threadType));
+}
+
 // 2026-06-12 FIX: thêm `msg` (kể cả '') vào payload. zca-js sendMessage.cjs:445 đọc
 // `msg.length` → thiếu msg = crash undefined. Có msg + attachments là local path CÓ ĐUÔI
 // ảnh (.jpg/.png/.webp) → Zalo nhận ẢNH INLINE (không phải file). caption tùy chọn.
@@ -808,6 +818,7 @@ export const zaloOps = {
   // Messaging
   sendMessage,
   sendCampaignMessage,
+  sendCampaignImage,
   sendImage,
   sendSticker,
   sendLink,

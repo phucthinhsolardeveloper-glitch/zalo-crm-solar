@@ -6,6 +6,8 @@
  * segmentSpec={contactIds} cố định (không filter động), 1 broadcast = 1 Block
  * = 1 nick (qua Block.ownerNickId). Xem plan + broadcast-worker.ts cho các
  * cổng an toàn (không gửi cho người chưa kết bạn, quota riêng, kill switch).
+ * Phase 3a (2026-10-01): hỗ trợ thêm ảnh/album qua `attachmentAssetIds`
+ * (ID từ Kho media /api/v1/media, server tự tra URL thật — xem CreateBody).
  */
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
@@ -17,6 +19,8 @@ import { enqueueBroadcastTick } from './broadcast-queue.js';
 
 const BASE = '/api/v1/broadcasts';
 
+const MAX_ATTACHMENTS = 12; // khớp giới hạn album send-block (chat-routes.ts)
+
 interface CreateBody {
   name?: unknown;
   nickId?: unknown;
@@ -25,6 +29,10 @@ interface CreateBody {
   batchSize?: unknown;
   intervalSec?: unknown;
   scheduledAt?: unknown;
+  // Mục C Phase 3a (2026-10-01): ID ảnh từ Kho media (/api/v1/media) của CHÍNH
+  // org — KHÔNG nhận URL trực tiếp từ client (chặn SSRF/IDOR), server tự tra
+  // lại publicUrl thật từ MediaAsset bên dưới.
+  attachmentAssetIds?: unknown;
 }
 
 export async function broadcastRoutes(app: FastifyInstance) {
@@ -64,9 +72,15 @@ export async function broadcastRoutes(app: FastifyInstance) {
     const scheduledAt = typeof body.scheduledAt === 'string' && body.scheduledAt.trim()
       ? new Date(body.scheduledAt)
       : null;
+    const attachmentAssetIds = Array.isArray(body.attachmentAssetIds)
+      ? [...new Set(body.attachmentAssetIds.filter((v): v is string => typeof v === 'string' && v.length > 0))]
+      : [];
 
     if (!name) return reply.status(400).send({ error: 'name_required' });
-    if (!messageText) return reply.status(400).send({ error: 'message_text_required' });
+    if (!messageText && attachmentAssetIds.length === 0)
+      return reply.status(400).send({ error: 'message_text_or_attachment_required' });
+    if (attachmentAssetIds.length > MAX_ATTACHMENTS)
+      return reply.status(400).send({ error: 'too_many_attachments', hint: `Tối đa ${MAX_ATTACHMENTS} ảnh/chiến dịch` });
     if (contactIds.length === 0) return reply.status(400).send({ error: 'contact_ids_required' });
     if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 50)
       return reply.status(400).send({ error: 'batch_size_invalid', hint: 'batchSize phải từ 1 đến 50' });
@@ -86,6 +100,20 @@ export async function broadcastRoutes(app: FastifyInstance) {
     const validIds = validContacts.map((c) => c.id);
     if (validIds.length === 0) return reply.status(400).send({ error: 'no_valid_contacts' });
 
+    // Tra lại URL THẬT từ Kho media (org-scoped, chỉ ảnh, chưa xoá) — không tin
+    // URL do client gửi lên (chặn SSRF/IDOR, xem comment CreateBody).
+    let attachments: Array<{ kind: 'image'; url: string; mediaAssetId: string }> = [];
+    if (attachmentAssetIds.length > 0) {
+      const assets = await prisma.mediaAsset.findMany({
+        where: { id: { in: attachmentAssetIds }, orgId: user.orgId, kind: 'image', archivedAt: null },
+        include: { blobs: { where: { variantType: 'original' } } },
+      });
+      attachments = assets
+        .map((a) => ({ kind: 'image' as const, url: a.blobs[0]?.publicUrl ?? '', mediaAssetId: a.id }))
+        .filter((a) => a.url);
+      if (attachments.length === 0) return reply.status(400).send({ error: 'no_valid_attachments' });
+    }
+
     const blockId = randomUUID();
     const broadcastId = randomUUID();
     await prisma.$transaction([
@@ -96,7 +124,10 @@ export async function broadcastRoutes(app: FastifyInstance) {
           name: `[Broadcast] ${name}`,
           channel: 'zalo_user',
           actionType: 'send_message',
-          content: { text: messageText },
+          content: {
+            text: messageText,
+            ...(attachments.length > 0 ? { attachments, albumImages: attachments.length > 1 } : {}),
+          },
           ownerNickId: nickId,
           isShared: false,
           createdById: user.id,
@@ -120,11 +151,12 @@ export async function broadcastRoutes(app: FastifyInstance) {
       }),
     ]);
 
-    logger.info(`[broadcast-routes] created broadcast=${broadcastId} nick=${nickId} recipients=${validIds.length} skipped_invalid=${contactIds.length - validIds.length}`);
+    logger.info(`[broadcast-routes] created broadcast=${broadcastId} nick=${nickId} recipients=${validIds.length} skipped_invalid=${contactIds.length - validIds.length} attachments=${attachments.length}`);
     return reply.status(201).send({
       id: broadcastId,
       totalRecipients: validIds.length,
       skippedInvalidContactIds: contactIds.length - validIds.length,
+      attachmentCount: attachments.length,
       batchSize,
       intervalSec,
       scheduledAt,
@@ -141,12 +173,22 @@ export async function broadcastRoutes(app: FastifyInstance) {
     const delayMs = broadcast.scheduledAt
       ? Math.max(0, broadcast.scheduledAt.getTime() - Date.now())
       : 0;
+    // FIX (phát hiện lúc rà soát 2026-10-01): trước đây set state='running'
+    // ngay cả khi còn phải chờ tới giờ hẹn — giao diện hiện "Đang gửi" dù
+    // chưa gửi tin nào, startedAt cũng ghi sai thời điểm (lúc bấm, không phải
+    // lúc thật sự bắt đầu). Nay dùng đúng trạng thái 'scheduled' khi delayMs>0;
+    // worker (processBroadcastTick) tự chuyển sang 'running' ở tick đầu tiên
+    // khi BullMQ job thật sự chạy (xem broadcast-worker.ts).
+    const initialState = delayMs > 0 ? 'scheduled' : 'running';
     await prisma.automationBroadcast.update({
       where: { id: broadcast.id },
-      data: { state: 'running', startedAt: broadcast.startedAt ?? new Date() },
+      data: {
+        state: initialState,
+        startedAt: initialState === 'running' ? (broadcast.startedAt ?? new Date()) : broadcast.startedAt,
+      },
     });
     await enqueueBroadcastTick(broadcast.id, delayMs);
-    return { success: true, state: 'running', delayMs };
+    return { success: true, state: initialState, delayMs };
   });
 
   app.post<{ Params: { id: string } }>(`${BASE}/:id/pause`, { preHandler: requireGrant('broadcast', 'edit') }, async (request, reply) => {

@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sendCampaignMessageMock = vi.fn();
+const sendCampaignImageMock = vi.fn();
 
 class FakeZaloOpError extends Error {
   code: string;
@@ -23,7 +24,7 @@ class FakeZaloOpError extends Error {
 }
 
 vi.mock('../src/shared/zalo-operations.js', () => ({
-  zaloOps: { sendCampaignMessage: sendCampaignMessageMock },
+  zaloOps: { sendCampaignMessage: sendCampaignMessageMock, sendCampaignImage: sendCampaignImageMock },
   ZaloOpError: FakeZaloOpError,
 }));
 
@@ -32,13 +33,34 @@ vi.mock('../src/modules/zalo/zalo-pool.js', () => ({
   zaloPool: { getStatus: getStatusMock },
 }));
 
+// downloadMediaToTemp thật đụng network/storage — mock trả path giả định, cleanup
+// no-op, và ghi lại url đã gọi để assert (test ảnh/album Phase 3a).
+const downloadMediaToTempMock = vi.fn(async ({ url }: { url: string }) => ({
+  path: `/tmp/fake/${encodeURIComponent(url)}`,
+  cleanup: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../src/modules/chat/chat-media-helpers.js', () => ({
+  downloadMediaToTemp: downloadMediaToTempMock,
+}));
+
 // resolveBlockContent thật (Community, đăng ký ở app.ts boot) không chạy trong
-// unit test — mock tối giản khớp BLOCK fixture bên dưới (1 phần text).
+// unit test — mock tối giản khớp shape thật (text + attachments ảnh/album,
+// xem block-content-resolver.ts) đủ cho BLOCK fixture + test ảnh bên dưới.
 vi.mock('../src/shared/ee-registry/automation.js', () => ({
   resolveBlockContent: (_actionType: string, content: Record<string, unknown>) => {
-    const text = typeof content?.text === 'string' ? content.text : '';
-    return text
-      ? { ok: true, resolved: [{ messageType: 'text', payload: { text, styles: null } }] }
+    const resolved: any[] = [];
+    const text = typeof content?.text === 'string' ? content.text.trim() : '';
+    if (text) resolved.push({ messageType: 'text', payload: { text, styles: null } });
+    const attachments = Array.isArray(content?.attachments) ? content.attachments : [];
+    const images = attachments.filter((a: any) => a?.kind === 'image' && typeof a.url === 'string');
+    if (images.length > 0 && content?.albumImages) {
+      resolved.push({ messageType: 'album', payload: { items: images.map((a: any) => ({ url: a.url, caption: a.caption })) } });
+    } else {
+      for (const a of images) resolved.push({ messageType: 'image', payload: { url: a.url, caption: a.caption } });
+    }
+    if (content?.unsupported) resolved.push({ messageType: 'video', payload: { url: 'x' } });
+    return resolved.length > 0
+      ? { ok: true, resolved }
       : { ok: false, error: 'BLOCK_EMPTY', resolved: [] };
   },
 }));
@@ -230,6 +252,122 @@ describe('processBroadcastTick — cổng an toàn', () => {
     );
     expect(prismaMock.automationBroadcast.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'bc-1', state: 'running' } }),
+    );
+  });
+
+  // FIX 2026-10-01 (phát hiện lúc rà soát): /start trước đây set state='running'
+  // ngay cả khi còn phải chờ tới scheduledAt — UI hiện "Đang gửi" sai sự thật.
+  it('tick đầu tiên từ state=scheduled (đã tới giờ hẹn) → chuyển sang running và gửi bình thường', async () => {
+    const past = new Date(Date.now() - 1000);
+    prismaMock.automationBroadcast.findUnique.mockResolvedValue(
+      baseBroadcast({ state: 'scheduled', scheduledAt: past, segmentSpec: { contactIds: ['c1'] } }),
+    );
+    prismaMock.contact.findUnique.mockResolvedValue({ id: 'c1', consentStatus: 'implicit' });
+    prismaMock.friend.findFirst.mockResolvedValue({ zaloUidInNick: 'uid-1' });
+    sendCampaignMessageMock.mockResolvedValue({ success: true });
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(sendCampaignMessageMock).toHaveBeenCalledWith('nick-1', 'uid-1', 0, { msg: 'Xin chào KH' });
+    expect(result.state).toBe('completed');
+    // Chuyển scheduled→running phải ghi startedAt trước khi xử lý chunk.
+    expect(prismaMock.automationBroadcast.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'bc-1' }, data: expect.objectContaining({ state: 'running' }) }),
+    );
+  });
+
+  it('tick nổ sớm hơn giờ hẹn (lệch giờ hệ thống) → không gửi, giữ scheduled, trả lại đúng delay còn thiếu', async () => {
+    const future = new Date(Date.now() + 5 * 60_000);
+    prismaMock.automationBroadcast.findUnique.mockResolvedValue(
+      baseBroadcast({ state: 'scheduled', scheduledAt: future }),
+    );
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(sendCampaignMessageMock).not.toHaveBeenCalled();
+    expect(result.state).toBe('scheduled');
+    expect(result.nextDelayMs).toBeGreaterThan(0);
+    expect(result.nextDelayMs).toBeLessThanOrEqual(5 * 60_000);
+  });
+
+  // Mục C Phase 3a (2026-10-01): broadcast gửi ảnh/album.
+  it('Block có 1 ảnh (không text) → gửi qua sendCampaignImage, KHÔNG gọi sendCampaignMessage', async () => {
+    prismaMock.block.findUnique.mockResolvedValue({
+      id: 'block-1', ownerNickId: 'nick-1',
+      content: { text: '', attachments: [{ kind: 'image', url: 'https://x/img1.jpg' }] },
+    });
+    prismaMock.automationBroadcast.findUnique.mockResolvedValue(baseBroadcast({ segmentSpec: { contactIds: ['c1'] } }));
+    prismaMock.contact.findUnique.mockResolvedValue({ id: 'c1', consentStatus: 'implicit' });
+    prismaMock.friend.findFirst.mockResolvedValue({ zaloUidInNick: 'uid-1' });
+    sendCampaignImageMock.mockResolvedValue({ success: true });
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(downloadMediaToTempMock).toHaveBeenCalledWith({ url: 'https://x/img1.jpg' }, 'image');
+    expect(sendCampaignImageMock).toHaveBeenCalledWith(
+      'nick-1', 'uid-1', 0, [expect.stringContaining('img1.jpg')], undefined, '',
+    );
+    expect(sendCampaignMessageMock).not.toHaveBeenCalled();
+    expect(result.state).toBe('completed');
+    const updateData = lastBroadcastUpdateData();
+    expect(updateData.sentCount).toEqual({ increment: 1 });
+  });
+
+  it('Block có text + album 2 ảnh → gửi 1 tin ảnh với caption = text (1 lần reserve, không tách 2 tin)', async () => {
+    prismaMock.block.findUnique.mockResolvedValue({
+      id: 'block-1', ownerNickId: 'nick-1',
+      content: {
+        text: 'Khuyến mãi tháng 10',
+        attachments: [{ kind: 'image', url: 'https://x/a.jpg' }, { kind: 'image', url: 'https://x/b.jpg' }],
+        albumImages: true,
+      },
+    });
+    prismaMock.automationBroadcast.findUnique.mockResolvedValue(baseBroadcast({ segmentSpec: { contactIds: ['c1'] } }));
+    prismaMock.contact.findUnique.mockResolvedValue({ id: 'c1', consentStatus: 'implicit' });
+    prismaMock.friend.findFirst.mockResolvedValue({ zaloUidInNick: 'uid-1' });
+    sendCampaignImageMock.mockResolvedValue({ success: true });
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(sendCampaignImageMock).toHaveBeenCalledTimes(1);
+    const callArgs = sendCampaignImageMock.mock.calls[0];
+    expect(callArgs[2]).toBe(0); // threadType (1-1)
+    expect(callArgs[3]).toHaveLength(2); // 2 đường dẫn tạm (album)
+    expect(callArgs[5]).toBe('Khuyến mãi tháng 10'); // caption = text
+    expect(result.state).toBe('completed');
+  });
+
+  it('Block có thành phần chưa hỗ trợ (video) → pause rõ ràng, không gửi gì', async () => {
+    prismaMock.block.findUnique.mockResolvedValue({
+      id: 'block-1', ownerNickId: 'nick-1',
+      content: { text: 'abc', unsupported: true },
+    });
+    prismaMock.automationBroadcast.findUnique.mockResolvedValue(baseBroadcast());
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(result.state).toBe('paused');
+    expect(sendCampaignMessageMock).not.toHaveBeenCalled();
+    expect(sendCampaignImageMock).not.toHaveBeenCalled();
+    expect(prismaMock.automationBroadcast.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ workerStats: expect.objectContaining({ lastError: 'block_content_empty_or_unsupported' }) }) }),
+    );
+  });
+
+  it('tải ảnh thất bại → pause rõ ràng, dọn file tạm đã tải trước đó', async () => {
+    prismaMock.block.findUnique.mockResolvedValue({
+      id: 'block-1', ownerNickId: 'nick-1',
+      content: { attachments: [{ kind: 'image', url: 'https://x/bad.jpg' }] },
+    });
+    prismaMock.automationBroadcast.findUnique.mockResolvedValue(baseBroadcast());
+    downloadMediaToTempMock.mockRejectedValueOnce(new Error('network down'));
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(result.state).toBe('paused');
+    expect(sendCampaignImageMock).not.toHaveBeenCalled();
+    expect(prismaMock.automationBroadcast.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ workerStats: expect.objectContaining({ lastError: 'attachment_download_failed' }) }) }),
     );
   });
 });

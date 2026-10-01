@@ -84,8 +84,10 @@ export function startBroadcastWorker(): Worker<BroadcastJobData> {
     BROADCAST_QUEUE,
     async (job: Job<BroadcastJobData>) => {
       const result = await processBroadcastTick(job.data.broadcastId);
-      if (result.state === 'running') {
-        // Vẫn còn contact chưa xử lý → tự enqueue tick kế tiếp, có giãn cách.
+      if (result.state === 'running' || result.state === 'scheduled') {
+        // 'running' = vẫn còn contact chưa xử lý; 'scheduled' = job BullMQ nổ
+        // sớm hơn giờ hẹn (lệch giờ hệ thống) → re-enqueue đúng phần delay còn
+        // thiếu (processBroadcastTick đã tính sẵn ở nextDelayMs).
         await enqueueBroadcastTick(job.data.broadcastId, result.nextDelayMs ?? TICK_DELAY_MS);
       }
       return result;

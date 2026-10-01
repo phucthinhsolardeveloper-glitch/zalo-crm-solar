@@ -24,15 +24,17 @@
  *
  * Nội dung Block đọc qua resolveBlockContent() (ee-registry seam) — Community
  * đã đăng ký bản thật (xem shared/block-content-resolver.ts, app.ts boot).
- * Phase 1 chỉ hỗ trợ Block loại text đơn giản (1 phần text) — Block nhiều
- * thành phần (ảnh/video/file) chưa gửi được từ broadcast, pause + báo lỗi rõ
- * thay vì gửi thiếu.
+ * Phase 3a (2026-10-01): hỗ trợ tối đa 1 phần text + 1 phần ảnh/album (ghép
+ * thành 1 tin ảnh có caption — 1 lần reserve quota/người nhận, không phải 2).
+ * Block nhiều thành phần khác (video/file/>1 phần text hoặc media) CHƯA hỗ
+ * trợ gửi hàng loạt — pause + báo lỗi rõ thay vì gửi thiếu.
  */
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { zaloOps, ZaloOpError } from '../../shared/zalo-operations.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { resolveBlockContent } from '../../shared/ee-registry/automation.js';
+import { downloadMediaToTemp } from '../chat/chat-media-helpers.js';
 
 export const BROADCAST_CHUNK_SIZE = 10;
 
@@ -49,17 +51,40 @@ interface WorkerStats {
   lastTickAt?: string;
 }
 
-/** Phase 1: chỉ hỗ trợ Block có ĐÚNG 1 phần text. Trả null nếu Block rỗng,
- * không resolve được, hoặc có thành phần media (chưa hỗ trợ gửi hàng loạt). */
-function extractPlainText(content: unknown): string | null {
+interface BroadcastContent {
+  text: string | null;
+  imageUrls: string[] | null; // từ 1 phần 'image' (1 url) hoặc 'album' (N url)
+}
+
+/** Resolve Block → {text?, imageUrls?}. Trả null nếu Block rỗng/không resolve
+ * được, hoặc có thành phần KHÔNG hỗ trợ (video/file/nhiều hơn 1 phần text
+ * hoặc media) — broadcast dừng rõ ràng thay vì gửi thiếu nội dung. */
+function extractBroadcastContent(content: unknown): BroadcastContent | null {
   const result = resolveBlockContent('send_message', (content as Record<string, unknown>) ?? {});
-  if (!result.ok || result.resolved.length !== 1) return null;
-  const only = result.resolved[0];
-  return only.messageType === 'text' ? only.payload.text : null;
+  if (!result.ok || result.resolved.length === 0) return null;
+
+  let text: string | null = null;
+  let imageUrls: string[] | null = null;
+  for (const m of result.resolved) {
+    if (m.messageType === 'text') {
+      if (text !== null) return null; // >1 phần text — chưa hỗ trợ
+      text = m.payload.text;
+    } else if (m.messageType === 'image') {
+      if (imageUrls !== null) return null; // >1 phần media — chưa hỗ trợ
+      imageUrls = [m.payload.url];
+    } else if (m.messageType === 'album') {
+      if (imageUrls !== null) return null;
+      imageUrls = m.payload.items.map((it) => it.url);
+    } else {
+      return null; // video/file/friend_request/update_status — chưa hỗ trợ ở broadcast
+    }
+  }
+  if (!text && !imageUrls) return null;
+  return { text, imageUrls };
 }
 
 export interface TickResult {
-  state: 'running' | 'paused' | 'completed';
+  state: 'running' | 'paused' | 'completed' | 'scheduled';
   processed: number;
   nextDelayMs?: number;
 }
@@ -83,9 +108,24 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
     logger.warn(`[broadcast-worker] broadcast ${broadcastId} not found — skip`);
     return { state: 'completed', processed: 0 };
   }
-  if (broadcast.state !== 'running') {
+  // 'scheduled' là trạng thái CHỜ hợp lệ — tick đầu tiên tới đây đúng lúc
+  // BullMQ job (đã delay tới scheduledAt) thật sự chạy, và sẽ tự chuyển sang
+  // 'running' bên dưới. Mọi trạng thái khác (paused/completed/cancelled) đều
+  // dừng, không xử lý tiếp.
+  if (broadcast.state !== 'running' && broadcast.state !== 'scheduled') {
     logger.info(`[broadcast-worker] broadcast ${broadcastId} state=${broadcast.state} — skip tick`);
     return { state: broadcast.state as TickResult['state'], processed: 0 };
+  }
+  // Phòng lệch giờ hệ thống/trigger tay sớm: nếu vẫn chưa tới giờ hẹn, tự
+  // enqueue lại đúng phần delay còn thiếu thay vì gửi sớm.
+  if (broadcast.state === 'scheduled' && broadcast.scheduledAt && broadcast.scheduledAt.getTime() > Date.now()) {
+    return { state: 'scheduled', processed: 0, nextDelayMs: broadcast.scheduledAt.getTime() - Date.now() };
+  }
+  if (broadcast.state === 'scheduled') {
+    await prisma.automationBroadcast.update({
+      where: { id: broadcastId },
+      data: { state: 'running', startedAt: broadcast.startedAt ?? new Date() },
+    });
   }
 
   const block = await prisma.block.findUnique({ where: { id: broadcast.blockId } });
@@ -93,9 +133,9 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
     await pauseWithError(broadcastId, 'block_missing_or_no_owner_nick');
     return { state: 'paused', processed: 0 };
   }
-  const messageText = extractPlainText(block.content);
-  if (!messageText) {
-    await pauseWithError(broadcastId, 'block_content_empty');
+  const broadcastContent = extractBroadcastContent(block.content);
+  if (!broadcastContent) {
+    await pauseWithError(broadcastId, 'block_content_empty_or_unsupported');
     return { state: 'paused', processed: 0 };
   }
   const nickId = block.ownerNickId;
@@ -123,6 +163,26 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
       data: { state: 'completed', completedAt: new Date() },
     });
     return { state: 'completed', processed: 0 };
+  }
+
+  // Tải ảnh/album 1 LẦN cho cả chunk (không tải lại mỗi người nhận) — cùng nội
+  // dung cho mọi contact trong 1 tick. Dọn file tạm ở finally bên dưới.
+  let mediaPaths: string[] | null = null;
+  const mediaCleanups: Array<() => Promise<void>> = [];
+  if (broadcastContent.imageUrls) {
+    try {
+      mediaPaths = [];
+      for (const url of broadcastContent.imageUrls) {
+        const dl = await downloadMediaToTemp({ url }, 'image');
+        mediaCleanups.push(dl.cleanup);
+        mediaPaths.push(dl.path);
+      }
+    } catch (err) {
+      for (const c of mediaCleanups) await c().catch(() => {});
+      logger.warn(`[broadcast-worker:${broadcastId}] tải ảnh thất bại:`, err);
+      await pauseWithError(broadcastId, 'attachment_download_failed');
+      return { state: 'paused', processed: 0 };
+    }
   }
 
   const chunk = contactIds.slice(startIdx, startIdx + pacing.batchSize);
@@ -172,7 +232,13 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
     const threadId = friend.zaloUidInNick;
 
     try {
-      await zaloOps.sendCampaignMessage(nickId, threadId, 0, { msg: messageText });
+      if (mediaPaths) {
+        // Ảnh/album → 1 tin ảnh có caption (= phần text nếu có) — 1 lần reserve
+        // quota/người nhận, không tách thành 2 tin (text + ảnh riêng).
+        await zaloOps.sendCampaignImage(nickId, threadId, 0, mediaPaths, undefined, broadcastContent.text ?? '');
+      } else {
+        await zaloOps.sendCampaignMessage(nickId, threadId, 0, { msg: broadcastContent.text });
+      }
       sentDelta++;
     } catch (err) {
       if (err instanceof ZaloOpError && err.code === 'RATE_LIMITED') {
@@ -198,6 +264,8 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
     lastCursor = contactId;
     processed++;
   }
+
+  for (const c of mediaCleanups) await c().catch(() => {});
 
   const nextState = pausedReason ? 'paused' : (startIdx + processed >= contactIds.length ? 'completed' : 'running');
   const progressData = {

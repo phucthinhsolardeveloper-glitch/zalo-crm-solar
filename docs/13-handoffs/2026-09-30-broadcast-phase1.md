@@ -23,12 +23,16 @@ Plan đầy đủ: `/home/admin01/.claude/plans/generic-bouncing-thimble.md`.
   từng liên hệ (`none`/`ghost`) — giữ đúng 1 rủi ro cao nhất bị chặn, không
   máy móc chặn luôn use-case thật.
 - Category quota mới `campaign_message` (50/ngày, burst 5/60s — tách hẳn khỏi
-  `message` 300/ngày tổ chức trả lời khách), hàm `sendCampaignMessage()` riêng
-  trong `zalo-operations.ts` (KHÔNG dùng chung `sendMessage()`).
+  `message` 5000/ngày tổ chức trả lời khách — con số organic được nâng từ
+  200→5000 ở một thay đổi riêng, không liên quan trực tiếp mục C), hàm
+  `sendCampaignMessage()` riêng trong `zalo-operations.ts` (KHÔNG dùng chung
+  `sendMessage()`).
 - `backend/src/modules/broadcast/`: `broadcast-routes.ts` (CRUD + start/pause/
   cancel, gate `requireGrant('broadcast', ...)` — RBAC resource + grants đã có
-  sẵn từ trước, đã verify DB thật: Marketing/Trưởng phòng/Admin/CEO full,
-  Sale chỉ `access`), `broadcast-queue.ts` (BullMQ, copy convention
+  sẵn từ trước, đã verify DB thật: Marketing/Trưởng phòng/Admin/CEO full. **Cập
+  nhật 2026-10-01:** Sale ban đầu chỉ `access`, nay mở rộng thêm `create+edit`
+  (quyết định user, chuẩn bị cho phòng kinh doanh dùng thử — xem policy doc),
+  `broadcast-queue.ts` (BullMQ, copy convention
   `group-scan-queue.ts`), `broadcast-worker.ts` (xử lý theo chunk 10 contact/
   tick, tự enqueue tick kế tiếp cách nhau 30s).
 - Cổng an toàn đã code + có test riêng cho từng cái:
@@ -82,15 +86,91 @@ Plan đầy đủ: `/home/admin01/.claude/plans/generic-bouncing-thimble.md`.
   `docs/09-decisions/20260929-zalo-safe-operating-model.md` — mục 1, Tranche 1,
   Tranche 2, checklist vận hành (2026-10-01).
 
+## ĐÃ NGHIỆM THU THẬT trên Full Docker (2026-10-01) — đóng mục còn thiếu lớn nhất
+
+Codex audit (2026-10-01, commit `087d0a30`) xác nhận 72/72 file backend,
+522/522 test pass, nhưng đúng chỉ ra "chưa có nghiệm thu gửi thật trên Full
+Docker". Đã làm ngay sau đó, bằng API thật (không phải mock):
+
+- Nick dùng test: **"Thy It"** (`8c1bc141-63fc-469e-b6df-51ce1bbb6486`,
+  `status=connected` thật tại thời điểm test).
+- Người nhận: contact **"Truyền File"** (`5fffcb4f-...`,
+  `relationshipKind='chatting_stranger'`) — đây là tiện ích "gửi file cho
+  chính mình" có sẵn của Zalo (Cloud/Lưu trữ tạm thời), KHÔNG phải khách hàng
+  thật — chọn cố ý để test an toàn tuyệt đối, không làm phiền ai.
+- `POST /api/v1/broadcasts` tạo thật → `POST .../start` → worker chạy →
+  **`state=completed, sent_count=1, failed_count=0`** trong `automation_broadcasts`.
+- Xác nhận bằng chứng cuối cùng: query trực tiếp bảng `messages` —
+  `content="[TEST tự động] Nghiệm thu broadcast Phase 1 — không cần trả lời."`,
+  `sender_type='self'`, `sent_via='user_native'` (đi qua đúng SDK Zalo thật,
+  không phải stub) — tin nằm đúng trong lịch sử hội thoại.
+- **Kết luận: broadcast Phase 1 gửi THẬT hoạt động đúng trên Full Docker đang
+  chạy production thật của user.**
+
+## Bug phát hiện qua audit Codex + ĐÃ SỬA cùng phiên (2026-10-01)
+
+- **Trạng thái `scheduled` bị bỏ qua:** `/start` trước đây luôn set
+  `state='running'` ngay cả khi `scheduledAt` còn ở tương lai — giao diện hiện
+  "Đang gửi" sai sự thật trong lúc chờ, `startedAt` cũng ghi sai thời điểm
+  (lúc bấm, không phải lúc gửi thật). Đã sửa: `/start` giờ set đúng
+  `state='scheduled'` khi còn phải chờ; `processBroadcastTick` chấp nhận tick
+  từ `scheduled`, tự chuyển sang `running` đúng lúc BullMQ job thật sự chạy,
+  có thêm guard phòng lệch giờ hệ thống (tick nổ sớm → tự enqueue lại phần
+  delay còn thiếu thay vì gửi sớm). Thêm 2 test mới cho đúng 2 nhánh này
+  (12/12 test `broadcast-worker.test.ts` pass).
+- **⚠️ Fix này CHƯA có trong container đang chạy** — chỉ nằm trong source code,
+  cần rebuild để áp dụng (khác với phần nghiệm thu gửi thật ở trên, vốn đã
+  chạy trên code CŨ trước khi có fix này — gửi ngay `scheduledAt=null` nên
+  không gặp bug, chưa test lại nhánh `scheduled` trên container thật).
+
+## Phase 3a — gửi ảnh/album qua broadcast (2026-10-01)
+
+Yêu cầu gốc từ đầu dự án ("gửi ảnh cho nhiều khách hàng") — nay đã làm, CHƯA
+deploy (chỉ có trong source, xem phần rebuild bên dưới):
+
+- **Backend:** `POST /api/v1/broadcasts` nhận thêm `attachmentAssetIds: string[]`
+  (ID ảnh từ Kho media `/api/v1/media` của CHÍNH org — server tự tra lại
+  `publicUrl` thật từ `MediaAsset`, KHÔNG nhận URL trực tiếp từ client, chặn
+  SSRF/IDOR). Tối đa 12 ảnh/chiến dịch. `messageText` giờ TUỲ CHỌN nếu có ít
+  nhất 1 ảnh (trước đây bắt buộc).
+- **`zalo-operations.ts`:** thêm `sendCampaignImage()` — sibling tách khỏi
+  `sendImage()` (category `message`), dùng đúng quota `campaign_message` giống
+  `sendCampaignMessage()`.
+- **Worker (`broadcast-worker.ts`):** resolve Block → tối đa 1 phần text + 1
+  phần ảnh/album (nhiều ảnh = gửi gộp album). Ảnh + text gộp thành **1 tin ảnh
+  có caption** (KHÔNG tách 2 tin riêng) → chỉ 1 lần reserve quota/người nhận.
+  Tải ảnh 1 LẦN/tick (không tải lại mỗi người nhận), dọn file tạm sau mỗi
+  chunk. Block có thành phần chưa hỗ trợ (video/file/nhiều hơn 1 phần
+  text-hoặc-media) → pause rõ ràng (`block_content_empty_or_unsupported`),
+  không gửi thiếu. Tải ảnh lỗi → pause (`attachment_download_failed`), không
+  tính failedCount sai.
+- **Frontend (`BroadcastsView.vue`):** thêm "Ảnh đính kèm" trong dialog tạo —
+  tải ảnh mới (multipart lên Kho media) hoặc chọn ảnh có sẵn (picker lưới,
+  multi-select, đánh dấu đã chọn). Verify bằng Playwright thật trên dev server
+  proxy backend thật: mở picker, Kho trả đúng ảnh thật từ DB, chọn/bỏ chọn,
+  thumbnail + đếm "1/12" hiện đúng trong form sau khi đóng picker.
+- Test mới `broadcast-worker.test.ts`: ảnh-không-text, text+album 2 ảnh (gộp 1
+  tin, caption=text), thành phần chưa hỗ trợ → pause, tải ảnh lỗi → pause +
+  dọn file tạm (16/16 test file này pass; toàn bộ **72 file/528 test** pass).
+- **ĐÃ NGHIỆM THU GỬI ẢNH THẬT (2026-10-01, sau khi rebuild):** cùng kịch bản an
+  toàn như lần nghiệm thu text — nick "Thy It" → contact "Truyền File". Tạo
+  broadcast thật qua `POST /api/v1/broadcasts` với `attachmentAssetIds=[1 ảnh
+  có sẵn trong Kho]` → `start` → `state=completed, sent_count=1, failed_count=0`.
+  Xác nhận bằng query trực tiếp bảng `messages`: `content_type='image'`,
+  `sent_via='user_native'`, caption đúng nội dung đã nhập, nằm đúng trong hội
+  thoại. **Kết luận: Phase 3a gửi ảnh hoạt động thật trên Full Docker, không
+  còn là rủi ro mở.**
+- **Chưa làm (ngoài phạm vi Phase 3a):** video/file qua broadcast.
+
 ## REMAINING
 
 - **Segment chỉ nhận contactIds cố định** — chưa có bộ lọc động theo tag/status.
 - **Multi-nick 1 broadcast** — chưa hỗ trợ, phải tạo nhiều broadcast riêng.
-- **Chỉ gửi text** — chưa hỗ trợ ảnh/album/video/file qua broadcast.
-- **Chưa test tay bằng dữ liệu thật trên Full Docker** — mới có unit test
-  (mock) + browser-verify ở dev server cô lập (trước khi deploy). Theo đúng
-  plan mục 5 Verification: PHẢI tự test bằng 1 nick + vài contact thật của
-  chính user TRƯỚC khi dùng cho khách hàng thật — chưa làm bước này.
+- **Video/file qua broadcast** — chưa hỗ trợ (chỉ text + ảnh/album, xem Phase 3a).
+- **Thiếu API/E2E test cho create/start/schedule** (chỉ có worker unit test) —
+  theo đúng Codex nêu, chưa làm.
+- **Rebuild container để áp dụng fix `scheduled` + toàn bộ Phase 3a** — chưa
+  làm, chờ user xác nhận (xem NEXT).
 
 ## RELEVANT FILES
 
@@ -102,7 +182,10 @@ Plan đầy đủ: `/home/admin01/.claude/plans/generic-bouncing-thimble.md`.
 
 ## NEXT
 
-1. **Đã deploy** — bước còn lại: user tự test tay bằng contact/nick thật của
-   chính mình trên Full Docker thật (`:3080`) TRƯỚC khi dùng cho khách thật.
-2. Khi cần: Phase 3 — gửi ảnh/media, multi-nick, bộ lọc động (xem mục
-   "Tính năng dự kiến" trong policy doc).
+1. **Đã nghiệm thu gửi thật thành công cả text VÀ ảnh** (2026-10-01) — không
+   còn là rủi ro mở.
+2. **Đã rebuild + deploy** (2026-10-01) — fix `scheduled` và Phase 3a đều đã
+   chạy trên container thật.
+3. Khi cần: API/E2E test cho route create/start/schedule (Codex đã nêu).
+4. Khi cần: Phase 3b — video/file qua broadcast, multi-nick, bộ lọc động (xem
+   mục "Tính năng dự kiến" trong policy doc).
