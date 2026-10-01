@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // @vitest-environment jsdom
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import AddCustomerQuickDialog from './AddCustomerQuickDialog.vue';
@@ -44,10 +44,11 @@ describe('AddCustomerQuickDialog prefill', () => {
     expect((wrapper.get('#acqd-phone').element as HTMLInputElement).value).toBe('0912434667');
   });
 
-  it('loads address suggestions when mounted already open', async () => {
+  it('loads the official province list only after opening details', async () => {
     const { api } = await import('@/api/index');
+    localStorage.clear();
     vi.mocked(api.get).mockClear();
-    mount(AddCustomerQuickDialog, {
+    const wrapper = mount(AddCustomerQuickDialog, {
       props: { modelValue: true },
       global: {
         stubs: {
@@ -57,6 +58,10 @@ describe('AddCustomerQuickDialog prefill', () => {
       },
     });
     await nextTick();
-    expect(api.get).toHaveBeenCalledWith('/contacts/address-suggestions');
+    expect(api.get).not.toHaveBeenCalled();
+
+    await wrapper.get('.acqd-more-toggle').trigger('click');
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledWith('/address/provinces');
   });
 });
