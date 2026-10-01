@@ -15,6 +15,7 @@ import { prisma, tenantTransaction } from '../../shared/database/prisma-client.j
 import { logger } from '../../shared/utils/logger.js';
 import { handleIncomingMessage } from '../chat/message-handler.js';
 import { detectContentType, extractAlbumInfo } from './zalo-message-helpers.js';
+import { extractGroupHistoryMessages, isGroupHistoryUnavailableError } from './zalo-message-sync.js';
 
 const MAX_GROUPS = 50;
 const MESSAGES_PER_GROUP = 50;
@@ -50,7 +51,6 @@ function pickNextCursors(messages: any[]): string[] {
 
 // ThreadType from zca-js: 0 = User (DM), 1 = Group
 const THREAD_TYPE_USER = 0;
-const THREAD_TYPE_GROUP = 1;
 
 export interface BackfillResult {
   friendsSynced: number;
@@ -242,14 +242,68 @@ export async function backfillAccountHistory(api: any, accountId: string): Promi
   const groupSubset = groups.slice(0, MAX_GROUPS);
   result.groupsSynced = groupSubset.filter((group) => group?.groupId || group?.id).length;
 
-  // zca-js HTTP /api/group/history hiện trả 404 ở provider. Dùng WebSocket
-  // old_messages group (cmd 511) — cùng kênh listener realtime, có phân trang.
-  if (api?.listener?.requestOldMessages) {
-    const stats = await pumpOldMessages(api, THREAD_TYPE_GROUP, accountId);
-    result.groupPagesRequested = stats.pagesRequested;
-    result.messagesBackfilled += stats.messagesReceived;
-  } else {
-    logger.warn(`[backfill:${accountId}] api.listener.requestOldMessages unavailable — skipping group backfill`);
+  // Không dùng requestOldMessages(1, null) ở đây: SDK trả về trang nhóm toàn
+  // cục, không có groupId, nên manual sync cũng có thể đẩy nhầm tin sang nhóm.
+  // Lịch sử nhóm chỉ được lấy khi endpoint có thể lọc theo groupId.
+  for (const group of groupSubset) {
+    const groupId = String(group?.groupId || group?.id || '').trim();
+    if (!groupId) continue;
+
+    try {
+      const history = await api.getGroupChatHistory(groupId, MESSAGES_PER_GROUP);
+      const messages = extractGroupHistoryMessages(history);
+      const groupName = group?.name || group?.groupName || 'Nhóm';
+      const groupAvatar = group?.avt || group?.avatar || null;
+      const membersCount = group?.totalMember ?? group?.memberCount ?? null;
+
+      result.groupPagesRequested++;
+      for (const msg of messages) {
+        try {
+          const zaloMsgId = String(msg?.data?.msgId || msg?.data?.cliMsgId || '');
+          if (!zaloMsgId) continue;
+
+          const rawContent = msg?.data?.content;
+          const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
+          const contentType = detectContentType(msg?.data?.msgType, rawContent);
+          const album = extractAlbumInfo(contentType, rawContent);
+          const inserted = await handleIncomingMessage({
+            accountId,
+            senderUid: String(msg?.data?.uidFrom || ''),
+            senderName: msg?.data?.dName || '',
+            content,
+            contentType,
+            msgId: zaloMsgId,
+            timestamp: parseInt(msg?.data?.ts || String(Date.now()), 10),
+            isSelf: Boolean(msg?.isSelf),
+            threadId: groupId,
+            threadType: 'group',
+            groupName,
+            groupAvatarUrl: groupAvatar || undefined,
+            groupMembersCount: typeof membersCount === 'number' ? membersCount : undefined,
+            attachments: [],
+            quote: msg?.data?.quote,
+            albumKey: album.albumKey,
+            albumIndex: album.albumIndex,
+            albumTotal: album.albumTotal,
+            isBackfill: true,
+          });
+          if (inserted) result.messagesBackfilled++;
+        } catch (err) {
+          result.errors++;
+          logger.warn(`[backfill:${accountId}] Group ${groupId} message insert failed:`, err);
+        }
+      }
+    } catch (err) {
+      if (isGroupHistoryUnavailableError(err)) {
+        logger.warn(
+          `[backfill:${accountId}] Provider không hỗ trợ getGroupChatHistory (404); ` +
+          'bỏ qua lịch sử nhóm, không dùng fallback WebSocket toàn cục.',
+        );
+        break;
+      }
+      result.errors++;
+      logger.warn(`[backfill:${accountId}] Group ${groupId} history fetch failed:`, err);
+    }
   }
 
   // ── 3. DM history via requestOldMessages pagination ────────────────────
