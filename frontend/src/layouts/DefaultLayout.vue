@@ -2,13 +2,11 @@
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-app class="smax-app">
-    <!-- ════════ TOP NAV — Phúc Thịnh Solar teal-navy shell (redesign 2026-06-05, đảo lock Variant A) ════════ -->
-    <!-- Gradient teal-navy + monogram HS + wordmark · 7 tab + Báo cáo + Cài đặt · MDI line icon · active HS -->
+    <!-- ════════ TOP NAV — compact shell using Phúc Thịnh Solar navy/gold identity ════════ -->
     <header class="smax-topnav">
-      <!-- Brand — logo + tên lấy theo hồ sơ tổ chức (đồng bộ /login, /setup-password) -->
+      <!-- Brand — wordmark chính thức, không lặp tên công ty bằng text (đồng bộ /login). -->
       <RouterLink to="/" class="hs-brand" :title="`${brandName} CRM`">
-        <span class="hs-bbox"><img :src="brandLogo" :alt="brandName" @error="onLogoError" /></span>
-        <span class="hs-bwm"><span class="hs-b1">{{ brandName }}</span><span class="hs-b2">CRM</span></span>
+        <img class="hs-wordmark" src="/brand/phuc-thinh-solar-wordmark.png" :alt="brandName" />
       </RouterLink>
 
       <!-- Primary nav tabs -->
@@ -246,13 +244,8 @@ function dismissInternalContactBanner() {
   localStorage.setItem(IC_BANNER_DISMISS_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
 }
 
-// Brand lockup trên menu — logo + tên tổ chức (đồng bộ /login, /setup-password).
-const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
-const brandLogo = ref(DEFAULT_LOGO);
+// Wordmark trên menu là tài sản thương hiệu cố định; brandName chỉ dùng cho title/accessibility.
 const brandName = ref('Phúc Thịnh Solar');
-function onLogoError() {
-  if (brandLogo.value !== DEFAULT_LOGO) brandLogo.value = DEFAULT_LOGO;
-}
 
 onMounted(() => {
   // 2026-06-13 (anh chốt): app LUÔN theme sáng 'hsLight', bỏ chọn theme tối. Ép cứng +
@@ -265,7 +258,6 @@ onMounted(() => {
   fetchPublicBranding()
     .then((b) => {
       if (!b) return;
-      brandLogo.value = b.logoUrl || DEFAULT_LOGO;
       brandName.value = b.name || 'Phúc Thịnh Solar';
     })
     .catch(() => {});
@@ -391,34 +383,34 @@ function logout() {
 }
 .ic-banner-dismiss:hover { color: #78350F; }
 
-/* Phúc Thịnh Solar shell — teal-navy gradient nav (redesign 2026-06-05, đảo lock Variant A sáng) */
+/* Phúc Thịnh Solar shell. Chỉ đổi app chrome; không ghi đè primary/status
+   token của các module CRM. Màu bám canonical website design-tokens.css. */
 .smax-topnav {
-  background: linear-gradient(180deg, var(--nav-grad-a, #0e445a) 0%, var(--nav-grad-b, #06222f) 100%);
-  color: rgba(255, 255, 255, 0.85);
+  background: linear-gradient(180deg, var(--nav-navy, #0a2251) 0%, var(--nav-surface, #061537) 100%);
+  color: #e6eef8;
   height: 48px;
   display: flex; align-items: center;
   padding: 0 14px; gap: 4px;
   flex-shrink: 0;
   position: sticky; top: 0; z-index: 100;
-  box-shadow: 0 1px 0 rgba(255,255,255,.06), 0 2px 8px rgba(0,0,0,.18);
+  border-top: 2px solid var(--nav-gold, #c9962e);
+  border-bottom: 1px solid var(--nav-line, rgba(255,255,255,.14));
+  box-shadow: 0 2px 8px rgba(6, 21, 55, .24);
 }
 
-/* Brand lockup — monogram HS + wordmark "Phúc Thịnh Solar / CRM" */
+/* Brand lockup — wordmark chính thức của Phúc Thịnh Solar. */
 .hs-brand {
-  display: flex; align-items: center; gap: 10px;
-  margin-right: 14px; flex: none; text-decoration: none;
-}
-.hs-bbox {
-  width: 34px; height: 34px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #1786be 0%, #0b5880 100%);
-  box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 1px 2px rgba(0,0,0,.25);
-  flex: none;
+  margin-right: 14px; flex: none; text-decoration: none;
+  width: 150px; height: 36px;
 }
-.hs-bbox img { width: 24px; height: auto; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.3)); }
-.hs-bwm { display: flex; flex-direction: column; line-height: 1.08; white-space: nowrap; }
-.hs-b1 { font-size: 13.5px; font-weight: 800; color: #fff; letter-spacing: .01em; }
-.hs-b2 { font-size: 9.5px; font-weight: 700; letter-spacing: .26em; color: var(--nav-accent, #5bb8e5); text-transform: uppercase; }
+.hs-wordmark {
+  display: block;
+  width: 148px;
+  max-height: 27px;
+  height: auto;
+  object-fit: contain;
+}
 
 .nav-tabs {
   display: flex; align-items: center; gap: 2px;
@@ -429,7 +421,7 @@ function logout() {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 0 12px; border-radius: var(--r-sm, 8px);
   cursor: pointer;
-  color: var(--shell-ink, #cfe2ec);
+  color: #cbd9e8;
   font-size: 13px; font-weight: 600;
   background: transparent; border: none;
   white-space: nowrap;
@@ -438,17 +430,17 @@ function logout() {
   line-height: 1.2;
   position: relative;
 }
-.nav-tab .ic-svg { color: var(--shell-ink-2, #7fa6b8); transition: color .14s; }
+.nav-tab .ic-svg { color: #8fa8c2; transition: color .14s; }
 .nav-tab .caret { font-size: 9px; opacity: 0.55; margin-left: -2px; }
-.nav-tab:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-.nav-tab:hover .ic-svg { color: var(--shell-ink, #cfe2ec); }
+.nav-tab:hover { background: var(--nav-surface-hover, rgba(255,255,255,.08)); color: #fff; }
+.nav-tab:hover .ic-svg { color: var(--nav-gold-light, #e0b654); }
 .nav-tab.active {
-  background: rgba(91, 184, 229, 0.16);
+  background: rgba(201, 150, 46, .18);
   color: #fff;
   font-weight: 700;
-  box-shadow: inset 0 -2px 0 var(--nav-accent, #5bb8e5);
+  box-shadow: inset 0 -2px 0 var(--nav-gold, #c9962e);
 }
-.nav-tab.active .ic-svg { color: var(--nav-accent, #5bb8e5); }
+.nav-tab.active .ic-svg { color: var(--nav-gold-light, #e0b654); }
 
 /* HD compact — chỉ kick in khi viewport < 1280 (rất hiếm với HD-first target) */
 @media (max-width: 1280px) {
@@ -512,12 +504,15 @@ function logout() {
   .topnav-search { display: none; }
 }
 .topnav-search :deep(.v-field) {
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: white;
-  border-radius: 7px !important;
+  background: rgba(255, 255, 255, .10) !important;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 4px !important;
+  box-shadow: none !important;
 }
-.topnav-search :deep(input) { color: white !important; }
-.topnav-search :deep(input::placeholder) { color: rgba(255, 255, 255, 0.5) !important; }
+.topnav-search :deep(.v-field__prepend-inner) { color: #c4d4e6; }
+.topnav-search :deep(input) { color: #fff !important; }
+.topnav-search :deep(input::placeholder) { color: #b4c5d8 !important; opacity: .85; }
 
 .icon-btn,
 :deep(.icon-btn-wrap) > * {
@@ -525,7 +520,7 @@ function logout() {
   border-radius: 7px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  color: rgba(255, 255, 255, 0.85);
+  color: #e6eef8;
   position: relative;
   font-size: 16px;
   text-decoration: none;
@@ -534,9 +529,21 @@ function logout() {
 }
 .icon-btn:hover,
 :deep(.icon-btn-wrap) > *:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: white;
+  background: var(--nav-surface-hover, rgba(255,255,255,.08));
+  color: var(--nav-gold-light, #e0b654);
 }
+
+/* Telephony owns its button styling; normalize only its compact nav trigger. */
+.smax-topnav :deep(.phone-trigger) {
+  border-radius: 7px;
+  background: rgba(255,255,255,.10);
+  color: #e6eef8;
+}
+.smax-topnav :deep(.phone-trigger:hover) {
+  background: rgba(201, 150, 46, .18);
+  color: var(--nav-gold-light, #e0b654);
+}
+.smax-topnav :deep(.phone-trigger.live) { color: #fff; }
 
 .user-avatar {
   width: 32px; height: 32px;
@@ -548,7 +555,7 @@ function logout() {
   margin-left: 6px;
   display: flex; align-items: center; justify-content: center;
 }
-.user-avatar :deep(.smax-av) { box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
+.user-avatar :deep(.smax-av) { box-shadow: 0 0 0 2px rgba(201,150,46,.38); }
 
 .smax-main {
   background: var(--smax-grey-100);

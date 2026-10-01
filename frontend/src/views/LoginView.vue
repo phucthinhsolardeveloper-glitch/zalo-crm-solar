@@ -97,7 +97,7 @@ const authStore = useAuthStore();
 // ── Branding hiển thị (mặc định = giá trị hardcode Phúc Thịnh Solar) ────────────────
 // Login chạy pre-auth: render mặc định NGAY, fetch org-branding xong mới thay vào
 // (D4-A). Nếu endpoint lỗi/chậm/chưa có org → giữ mặc định, login không bị chặn.
-const DEFAULT_LOGO = '/brand/phuc-thinh-solar-logo.png';
+const DEFAULT_LOGO = '/brand/phuc-thinh-solar-wordmark.png';
 const DEFAULT_PLACEHOLDER = `admin@hs.com hoặc ${SAMPLE_PHONE}`;
 const brandLogo = ref(DEFAULT_LOGO);
 const brandName = ref('Phúc Thịnh Solar');
@@ -178,14 +178,19 @@ async function handleLogin() {
 }
 .form-inner { width: 100%; max-width: 340px; }
 .form-title {
-  font-size: 24px; font-weight: 700; color: #0e445a;
+  font-size: 24px; font-weight: 800; color: var(--nav-navy, #0a2251);
   margin: 0 0 4px;
 }
 .form-sub {
   font-size: 13.5px; color: #6b7884;
   margin: 0 0 26px;
 }
-.login-btn { font-weight: 600; letter-spacing: 0.3px; margin-top: 2px; }
+.login-btn {
+  font-weight: 700; letter-spacing: 0.3px; margin-top: 2px;
+  background: var(--nav-gold, #c9962e) !important;
+  color: var(--nav-navy-deep, #061537) !important;
+}
+.login-btn:hover { background: var(--nav-gold-light, #e0b654) !important; }
 
 /* ══ Responsive: ≤900px xếp dọc (banner tự thu gọn trong component) ══ */
 @media (max-width: 900px) {
@@ -205,6 +210,7 @@ async function handleLogin() {
 /* Phòng hờ: ép màu chữ input đọc được trên card trắng, kể cả khi thiết bị dark-mode
    (đi cùng color-scheme:light ở style.css). */
 .login-card :deep(.v-field__input),
-.login-card :deep(input) { color: #0e445a; }
+.login-card :deep(input) { color: var(--nav-navy, #0a2251); }
 .login-card :deep(.v-field__input::placeholder) { color: #94a3b0; opacity: 1; }
+.login-card :deep(.v-field--focused .v-field__outline) { color: var(--nav-gold, #c9962e) !important; }
 </style>

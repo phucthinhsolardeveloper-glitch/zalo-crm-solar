@@ -38,7 +38,7 @@
           hide-details
           class="mb-5"
         />
-        <v-btn color="primary" block size="large" rounded="lg">
+        <v-btn color="primary" block size="large" rounded="lg" class="login-btn">
           <v-icon start>mdi-login</v-icon>
           Đăng nhập
         </v-btn>
@@ -82,6 +82,12 @@ defineProps<{
   padding: 44px 40px;
 }
 .form-inner { width: 100%; max-width: 340px; }
-.form-title { font-size: 24px; font-weight: 700; color: #0e445a; margin: 0 0 4px; }
+.form-title { font-size: 24px; font-weight: 800; color: var(--nav-navy, #0a2251); margin: 0 0 4px; }
 .form-sub { font-size: 13.5px; color: #6b7884; margin: 0 0 26px; }
+.login-btn {
+  font-weight: 700;
+  background: var(--nav-gold, #c9962e) !important;
+  color: var(--nav-navy-deep, #061537) !important;
+}
+.login-card :deep(.v-field--focused .v-field__outline) { color: var(--nav-gold, #c9962e) !important; }
 </style>

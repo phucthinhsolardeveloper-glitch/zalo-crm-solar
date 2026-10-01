@@ -87,10 +87,18 @@
   --font: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Phúc Thịnh Solar teal-navy nav gradient */
-  --nav-grad-a: #0e445a;
-  --nav-grad-b: #06222f;
-  --nav-accent: #5bb8e5;
+  /* Phúc Thịnh Solar shell — mirror canonical website brand tokens.
+     Giữ riêng khỏi --brand để không đổi màu nghiệp vụ trong các module CRM. */
+  --nav-navy: #0a2251;
+  --nav-navy-deep: #061537;
+  --nav-gold: #c9962e;
+  --nav-gold-light: #e0b654;
+  --nav-gold-dark: #9c7420;
+  --nav-surface: #061537;
+  --nav-surface-hover: rgba(255,255,255,.08);
+  --nav-line: rgba(255,255,255,.14);
+  --nav-muted: #9db3cb;
+  --nav-accent: var(--nav-gold);
 
   /* Layout */
   --nav-h: 48px;

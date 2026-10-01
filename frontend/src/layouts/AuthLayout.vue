@@ -11,8 +11,10 @@
 </template>
 
 <style scoped>
-/* Nền tổng teal-navy nhạt — đồng bộ thương hiệu Phúc Thịnh Solar */
+/* Nền sáng trung tính để navy/gold ở banner login làm điểm nhận diện chính. */
 .auth-shell {
-  background: linear-gradient(135deg, #e8eef1 0%, #d3dde2 100%);
+  background:
+    radial-gradient(circle at 15% 10%, rgba(201, 150, 46, .08), transparent 34%),
+    #f7f9fc;
 }
 </style>
