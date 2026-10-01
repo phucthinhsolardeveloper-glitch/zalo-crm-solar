@@ -162,15 +162,22 @@ deploy (chỉ có trong source, xem phần rebuild bên dưới):
   còn là rủi ro mở.**
 - **Chưa làm (ngoài phạm vi Phase 3a):** video/file qua broadcast.
 
+## API/E2E test cho route create/start/schedule (2026-10-01)
+
+Codex nêu thiếu — đã làm: `backend/tests/broadcast-routes.test.ts` (mới, 21
+test), dựng Fastify app thật + `inject()` (mirror `group-scan-routes.test.ts`),
+mock ở biên prisma/RBAC/queue. Cover: RBAC 403, validate body (name/message-
+hoặc-attachment/contactIds/batchSize), IDOR guard (nick khác org, contact khác
+org, attachment khác org/kind), giới hạn 12 ảnh, và đặc biệt **2 nhánh
+scheduled-state** (start ngay → running; start với scheduledAt tương lai →
+scheduled, không phải running — đúng bug Codex phát hiện). Toàn bộ backend nay
+**73 file / 549 test** pass.
+
 ## REMAINING
 
 - **Segment chỉ nhận contactIds cố định** — chưa có bộ lọc động theo tag/status.
 - **Multi-nick 1 broadcast** — chưa hỗ trợ, phải tạo nhiều broadcast riêng.
 - **Video/file qua broadcast** — chưa hỗ trợ (chỉ text + ảnh/album, xem Phase 3a).
-- **Thiếu API/E2E test cho create/start/schedule** (chỉ có worker unit test) —
-  theo đúng Codex nêu, chưa làm.
-- **Rebuild container để áp dụng fix `scheduled` + toàn bộ Phase 3a** — chưa
-  làm, chờ user xác nhận (xem NEXT).
 
 ## RELEVANT FILES
 
@@ -186,6 +193,6 @@ deploy (chỉ có trong source, xem phần rebuild bên dưới):
    còn là rủi ro mở.
 2. **Đã rebuild + deploy** (2026-10-01) — fix `scheduled` và Phase 3a đều đã
    chạy trên container thật.
-3. Khi cần: API/E2E test cho route create/start/schedule (Codex đã nêu).
+3. **Đã có API/E2E test cho route create/start/schedule** (2026-10-01).
 4. Khi cần: Phase 3b — video/file qua broadcast, multi-nick, bộ lọc động (xem
    mục "Tính năng dự kiến" trong policy doc).
