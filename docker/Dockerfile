@@ -3,6 +3,10 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
+# npm ci đôi khi bỏ qua optional native package của rolldown trên Alpine/musl
+# (npm/cli optional-dependency bug), khiến vite build không tìm thấy binding.
+# Cài lại đúng binding theo package-lock để build Docker deterministic.
+RUN npm install --no-save --legacy-peer-deps --include=optional @rolldown/binding-linux-x64-musl@1.2.5
 COPY frontend/ ./
 RUN npm run build
 
