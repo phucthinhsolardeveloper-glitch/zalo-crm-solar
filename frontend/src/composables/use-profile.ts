@@ -160,7 +160,7 @@ export function useProfile(accountId: string) {
 
   async function exportCredentials(): Promise<void> {
     try {
-      const res = await api.get(`/zalo-accounts/${accountId}/credentials/export`, {
+      const res = await api.post(`/zalo-accounts/${accountId}/credentials/export`, {}, {
         responseType: 'blob',
       });
       const url = URL.createObjectURL(res.data as Blob);

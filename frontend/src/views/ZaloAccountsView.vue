@@ -96,6 +96,8 @@
         @reconnect="onCardReconnect"
         @delete="onConfirmDelete"
         @disconnect="onCardDisconnect"
+        @pause-sending="onCardPauseSending"
+        @resume-sending="onCardResumeSending"
         @open-detail="openDrawer"
         @add="openAddDialog"
       />
@@ -147,6 +149,8 @@
       @open-detail="openDrawer"
       @action="onTableAction"
       @reassign-owner="onOpenReassign"
+      @pause-sending="onCardPauseSending"
+      @resume-sending="onCardResumeSending"
     />
     </template>
     <!-- /viewMode advanced -->
@@ -305,6 +309,7 @@ const {
   deleting,
   addAccount, loginAccount, deleteAccount,
   cancelQR, setupSocket,
+  pauseSending, resumeSending,
 } = dash;
 
 // 2026-06-06 — Trần SDK: load org default + nick override để vẽ thanh quota X/cap.
@@ -353,7 +358,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const toast = useToast();
-const { confirm } = useConfirm();
+const { confirm, confirmWithReason } = useConfirm();
 const reconnectingIds = ref<Set<string>>(new Set());
 // RBAC 2026-06-08 — quản lý nick + sửa liên lạc nội bộ của sale theo grants 'zalo_account.edit'
 // (owner/admin tự bypass). Thay cho check legacy role.
@@ -674,6 +679,43 @@ async function onCardDisconnect(account: any) {
   }
 }
 
+// Kill switch (Tranche 2): tạm dừng gửi mà không disconnect — vẫn nhận tin để điều tra.
+async function onCardPauseSending(account: any) {
+  const { ok, reason } = await confirmWithReason({
+    title: `Tạm dừng gửi qua "${account.displayName || 'nick'}"?`,
+    message: 'Nick vẫn ONLINE và nhận tin bình thường — chỉ chặn gửi đi (tin nhắn, kết bạn...) cho tới khi bấm "Mở lại". Dùng khi nghi ngờ nick có dấu hiệu bất thường (429, bị từ chối tăng).',
+    tone: 'danger',
+    confirmText: 'Tạm dừng gửi',
+    cancelText: 'Hủy',
+    requireReason: true,
+    reasonLabel: 'Lý do tạm dừng',
+    reasonPlaceholder: 'VD: nghi ngờ bị Zalo đánh dấu spam, cần kiểm tra trước khi gửi tiếp',
+  });
+  if (!ok) return;
+  const res = await pauseSending(account.id, reason || 'Không rõ lý do');
+  if (res.ok) {
+    toast.push('Đã tạm dừng gửi qua nick này', 'success');
+  } else {
+    toast.push(res.message || 'Tạm dừng thất bại', 'error');
+  }
+}
+
+async function onCardResumeSending(account: any) {
+  if (!(await confirm({
+    title: `Mở lại gửi cho "${account.displayName || 'nick'}"?`,
+    message: 'Nick sẽ gửi được bình thường trở lại.',
+    tone: 'primary',
+    confirmText: 'Mở lại',
+    cancelText: 'Hủy',
+  }))) return;
+  const res = await resumeSending(account.id);
+  if (res.ok) {
+    toast.push('Đã mở lại gửi cho nick này', 'success');
+  } else {
+    toast.push(res.message || 'Mở lại thất bại', 'error');
+  }
+}
+
 function onTableAction(payload: { account: any; action: 'reconnect' | 'sync' }) {
   if (payload.action === 'reconnect') {
     if (payload.account.liveStatus === 'connected') {
@@ -700,8 +742,17 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
         toast.push('Đồng bộ danh bạ thành công', 'success');
         break;
       case 'sync-history':
-        await api.post(`/zalo-accounts/${id}/sync-history`);
-        toast.push('Đồng bộ lịch sử chat thành công', 'success');
+        {
+          const { data } = await api.post(`/zalo-accounts/${id}/sync-history`);
+          await refreshAll();
+          const messages = Number(data?.messagesBackfilled ?? 0);
+          toast.push(
+            messages > 0
+              ? `Đã đồng bộ ${messages} tin nhắn lịch sử`
+              : 'Sync đã chạy nhưng Zalo không trả thêm lịch sử chat',
+            messages > 0 ? 'success' : 'warning',
+          );
+        }
         break;
       case 'reconnect': {
         // 2026-06-21: "Kết nối lại" = quét QR mới (không reconnect ngầm báo ảo).
@@ -747,7 +798,8 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
         break;
     }
   } catch (e: any) {
-    toast.push('Lỗi: ' + (e.response?.data?.error || e.message), 'error');
+    const message = e.response?.data?.error || e.message;
+    toast.push(/cooldown|tần suất|đang đồng bộ/i.test(message) ? message : 'Lỗi: ' + message, 'warning');
   }
 }
 

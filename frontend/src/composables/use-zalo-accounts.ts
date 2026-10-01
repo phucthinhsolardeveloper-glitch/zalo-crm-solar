@@ -25,6 +25,10 @@ export interface ZaloAccount {
   createdAt: string;
   proxyUrl?: string | null; // masked by backend
   hasProxy?: boolean;
+  // Kill switch (Tranche 2) — tạm dừng gửi mà không disconnect.
+  sendingPausedAt?: string | null;
+  sendingPausedReason?: string | null;
+  canPauseSending?: boolean;
 }
 
 // onStatusChange: callback gọi khi nick đổi trạng thái qua socket (connected/disconnected/
@@ -173,6 +177,38 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
     }
   }
 
+  // Kill switch (Tranche 2 gate) — tạm dừng/mở lại gửi qua nick mà không cần
+  // disconnect (vẫn nhận tin để điều tra). Admin/owner hoặc access permission='admin'.
+  const pausingSending = ref(false);
+
+  async function pauseSending(accountId: string, reason: string) {
+    pausingSending.value = true;
+    try {
+      await api.post(`/zalo-accounts/${accountId}/pause-sending`, { reason });
+      await fetchAccounts();
+      return { ok: true };
+    } catch (err: any) {
+      console.error('Pause sending failed:', err);
+      return { ok: false, message: err?.response?.data?.error || 'Không tạm dừng được.' };
+    } finally {
+      pausingSending.value = false;
+    }
+  }
+
+  async function resumeSending(accountId: string) {
+    pausingSending.value = true;
+    try {
+      await api.post(`/zalo-accounts/${accountId}/resume-sending`, {});
+      await fetchAccounts();
+      return { ok: true };
+    } catch (err: any) {
+      console.error('Resume sending failed:', err);
+      return { ok: false, message: err?.response?.data?.error || 'Không mở lại được.' };
+    } finally {
+      pausingSending.value = false;
+    }
+  }
+
   function cancelQR() {
     showQRDialog.value = false;
     if (currentLoginAccountId.value) {
@@ -244,7 +280,14 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
       }
     });
 
-    socket.on('zalo:reconnect-failed', (_data: { accountId: string }) => { fetchAccounts(); opts?.onStatusChange?.(); });
+    socket.on('zalo:reconnect-failed', (data: { accountId: string; code?: string; error?: string }) => {
+      if (data.accountId === currentLoginAccountId.value) {
+        qrImage.value = '';
+        qrError.value = data.error || 'Không thể kết nối lại Zalo. Hãy quét QR mới.';
+      }
+      fetchAccounts();
+      opts?.onStatusChange?.();
+    });
 
     // fix ②: nick quét trúng zaloUid đã tồn tại (record rác đã bị BE xoá) → báo tử tế,
     // đóng QR. Khác zalo:error ở chỗ đây là tình huống nghiệp vụ (nick trùng), không phải lỗi kỹ thuật.
@@ -276,5 +319,6 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
     statusColor, statusText,
     fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
     updateProxy, cancelQR, setupSocket,
+    pausingSending, pauseSending, resumeSending,
   };
 }

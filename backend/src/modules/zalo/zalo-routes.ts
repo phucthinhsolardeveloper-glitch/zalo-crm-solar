@@ -10,6 +10,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from './zalo-pool.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { getZaloScope, canManageAccount, requireAccountManagement, requireAccountVisible } from './zalo-scope.js';
+import { decryptZaloSession } from './zalo-session-crypto.js';
 
 export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // All routes in this plugin require auth
@@ -43,10 +44,25 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         lastConnectedAt: true,
         archivedAt: true,
         createdAt: true,
+        sendingPausedAt: true,
+        sendingPausedReason: true,
         owner: { select: { id: true, fullName: true, email: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    // Kill switch (pause/resume gửi) dùng luật hẹp hơn canManage: chỉ
+    // owner/admin org hoặc access.permission='admin' — không tự động cho phép
+    // vì "đây là nick của chính tôi" (khớp requireAccountAdmin ở kill-switch-routes).
+    const isOrgAdmin = ['owner', 'admin'].includes(user.role);
+    const adminAccessIds = isOrgAdmin
+      ? new Set<string>()
+      : new Set(
+        (await prisma.zaloAccountAccess.findMany({
+          where: { userId, zaloAccountId: { in: scope.accessibleIds }, permission: 'admin' },
+          select: { zaloAccountId: true },
+        })).map((r) => r.zaloAccountId),
+      );
 
     // Merge live status from pool; mask proxy credentials; thêm canManage flag
     return accounts.map((a) => ({
@@ -56,6 +72,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       liveStatus: zaloPool.getStatus(a.id),
       canManage: canManageAccount(a.ownerUserId, userId, user.role),
       isOwnedByMe: a.ownerUserId === userId,
+      canPauseSending: isOrgAdmin || adminAccessIds.has(a.id),
     }));
   });
 
@@ -222,11 +239,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const session = account.sessionData as {
-        cookie: any;
-        imei: string;
-        userAgent: string;
-      } | null;
+      const session = decryptZaloSession(account.sessionData);
 
       if (!session?.imei) {
         return reply.status(400).send({ error: 'No saved session — please login with QR first' });

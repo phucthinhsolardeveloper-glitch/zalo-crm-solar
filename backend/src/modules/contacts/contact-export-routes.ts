@@ -122,16 +122,27 @@ export async function contactExportRoutes(app: FastifyInstance): Promise<void> {
         ];
       }
 
-      const contacts: ExportableContact[] = await prisma.contact.findMany({
+      const rawContacts = await prisma.contact.findMany({
         where,
         orderBy: { lastActivity: { sort: 'desc', nulls: 'last' } },
         take: MAX_EXPORT_ROWS,
         select: {
           fullName: true, phone: true, email: true, industry: true, storeName: true,
-          customerType: true, importanceLevel: true, province: true, district: true, ward: true, addressLine: true,
+          customerType: true, importanceLevel: true,
+          // Mục E (2026-09-30): field 2 cấp mới ưu tiên; province/district/ward legacy
+          // chỉ còn dùng làm fallback cho contact cũ chưa backfill.
+          province: true, district: true, ward: true, addressLine: true,
+          addressProvinceName: true, addressWardName: true, addressStreet: true,
           birthDate: true, source: true, status: true,
         },
       });
+      const contacts: ExportableContact[] = rawContacts.map((c) => ({
+        ...c,
+        province: c.addressProvinceName ?? c.province,
+        district: null, // mô hình 2 cấp không còn Quận/Huyện
+        ward: c.addressWardName ?? c.ward,
+        addressLine: c.addressStreet ?? c.addressLine,
+      }));
 
       const stamp = new Date().toISOString().slice(0, 10);
       if (format === 'xlsx') {

@@ -14,6 +14,13 @@ import { randomUUID } from 'node:crypto';
 import { backfillAccountHistory } from './zalo-history-backfill.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
 
+// History sync calls several provider endpoints and drives two pagination
+// requests. A short cooldown prevents repeated clicks from becoming a Zalo
+// burst and makes the retry window explicit to the UI.
+const HISTORY_SYNC_COOLDOWN_MS = 60_000;
+const historySyncLastRun = new Map<string, number>();
+const historySyncInFlight = new Map<string, Promise<any>>();
+
 export async function zaloSyncRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
@@ -86,12 +93,43 @@ export async function zaloSyncRoutes(app: FastifyInstance) {
       const instance = zaloPool.getInstance(id);
       if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });
 
-      try {
+      const now = Date.now();
+      if (historySyncInFlight.has(id)) {
+        return reply.status(409).send({
+          error: 'Nick này đang đồng bộ lịch sử. Vui lòng chờ lần chạy hiện tại hoàn tất.',
+          code: 'HISTORY_SYNC_IN_PROGRESS',
+        });
+      }
+      const lastRun = historySyncLastRun.get(id) ?? 0;
+      if (now - lastRun < HISTORY_SYNC_COOLDOWN_MS) {
+        const retryAfterSec = Math.ceil((HISTORY_SYNC_COOLDOWN_MS - (now - lastRun)) / 1000);
+        return reply.status(429).send({
+          error: `Vừa đồng bộ nick này. Vui lòng thử lại sau khoảng ${retryAfterSec} giây để tránh Zalo giới hạn tần suất.`,
+          code: 'HISTORY_SYNC_COOLDOWN',
+          retryAfterSec,
+        });
+      }
+
+      const job = (async () => {
+        logger.info(`[sync] Starting Zalo history sync account=${id}`);
         const result = await backfillAccountHistory(instance.api, id);
+        logger.info(
+          `[sync] Zalo history sync completed account=${id} friends=${result.friendsSynced} ` +
+          `groups=${result.groupsSynced} messages=${result.messagesBackfilled} ` +
+          `dmPages=${result.dmPagesRequested} groupPages=${result.groupPagesRequested} errors=${result.errors}`,
+        );
         return { success: true, ...result };
+      })();
+      historySyncLastRun.set(id, now);
+      historySyncInFlight.set(id, job);
+
+      try {
+        return await job;
       } catch (err) {
         logger.error('[sync] Zalo history sync error:', err);
         return reply.status(500).send({ error: 'Sync history failed: ' + String(err) });
+      } finally {
+        historySyncInFlight.delete(id);
       }
     }
   );

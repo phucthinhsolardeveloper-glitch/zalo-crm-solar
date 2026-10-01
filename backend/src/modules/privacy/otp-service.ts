@@ -140,18 +140,21 @@ Thời gian mở khoá đã chọn: **${durationText}**
   const formatted = formatMessage(markup);
   const styles = toZaloStyles(formatted.styles);
 
-  const limits = await zaloRateLimiter.checkLimits(args.senderId, 'message');
+  const limits = await zaloRateLimiter.reserve(args.senderId, 'message');
   if (!limits.allowed) {
     throw new Error(`Nick hệ thống đang rate-limit: ${limits.reason}`);
   }
-  await zaloRateLimiter.recordSend(args.senderId, 'message');
-
   const api = zaloPool.getApi(args.senderId);
   if (!api) throw new Error('Nick hệ thống chưa connected trong pool');
 
   const payload: Record<string, unknown> = { msg: formatted.text };
   if (styles.length > 0) payload.styles = styles;
-  await api.sendMessage(payload, args.targetUid, 0);
+  try {
+    await api.sendMessage(payload, args.targetUid, 0);
+  } catch (err) {
+    await zaloRateLimiter.release(args.senderId, 'message', limits.reservationId);
+    throw err;
+  }
 }
 
 async function sendUnlockConfirmation(args: {
@@ -178,12 +181,11 @@ async function sendUnlockConfirmation(args: {
   const formatted = formatMessage(markup);
   const styles = toZaloStyles(formatted.styles);
 
-  const limits = await zaloRateLimiter.checkLimits(args.senderId, 'message');
+  const limits = await zaloRateLimiter.reserve(args.senderId, 'message');
   if (!limits.allowed) {
     logger.warn(`[privacy-otp] confirm message rate-limited: ${limits.reason}`);
     return;
   }
-  await zaloRateLimiter.recordSend(args.senderId, 'message');
   const api = zaloPool.getApi(args.senderId);
   if (!api) return;
 
@@ -192,6 +194,7 @@ async function sendUnlockConfirmation(args: {
   try {
     await api.sendMessage(payload, args.targetUid, 0);
   } catch (err) {
+    await zaloRateLimiter.release(args.senderId, 'message', limits.reservationId);
     // Không throw — confirm message fail KHÔNG block unlock (admin có thể check qua audit log)
     logger.warn(`[privacy-otp] confirm message send fail: ${String(err)}`);
   }

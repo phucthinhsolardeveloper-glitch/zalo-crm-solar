@@ -140,16 +140,15 @@
                     <span class="k">Tên cửa hàng</span>
                     <span class="v"><input v-model="form.storeName" class="cpd-in" /></span>
                   </div>
-                  <div class="kv kv-address">
-                    <span class="k">Tỉnh/Thành phố <span class="cpd-req" title="Bắt buộc">*</span></span>
+                  <div class="kv kv-address kv-address-picker">
+                    <span class="k">Tỉnh/Thành phố <span class="cpd-req" title="Bắt buộc">*</span> / Phường/Xã</span>
                     <span class="v">
-                      <AddressAutocomplete v-model="form.province" input-class="cpd-in" placeholder="Nhập để tìm tỉnh/thành phố" :suggestions="addressSuggestions.provinces" @select="form.ward = ''" />
-                    </span>
-                  </div>
-                  <div class="kv kv-address">
-                    <span class="k">Phường/Xã</span>
-                    <span class="v">
-                      <AddressAutocomplete v-model="form.ward" input-class="cpd-in" :placeholder="form.province ? 'Nhập để tìm phường/xã' : 'Chọn tỉnh/thành phố trước'" :disabled="!wardSuggestions.length" :suggestions="wardSuggestions" />
+                      <ProvinceWardPicker
+                        :province-code="form.addressProvinceCode"
+                        :ward-code="form.addressWardCode"
+                        @update:province="onPickProvince"
+                        @update:ward="onPickWard"
+                      />
                     </span>
                   </div>
                   <div class="kv kv-address kv-address-detail">
@@ -490,7 +489,7 @@ import CallButton from '@/components/telephony/CallButton.vue';
 import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import type { Contact } from '@/composables/use-contacts';
 import AddressAutocomplete from './AddressAutocomplete.vue';
-import { wardsForProvince } from './address-suggestion-utils';
+import ProvinceWardPicker from './ProvinceWardPicker.vue';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
 
 const props = withDefaults(defineProps<{
@@ -561,8 +560,10 @@ const form = ref({
   customerType: null as string | null,
   importanceLevel: null as string | null,
   status: 'new' as string | null,
-  province: '' as string | null,
-  ward: '' as string | null,
+  addressProvinceCode: null as string | null,
+  addressProvinceName: '' as string | null,
+  addressWardCode: null as string | null,
+  addressWardName: '' as string | null,
   addressLine: '' as string | null,
   source: '' as string | null,
   assignedUserId: null as string | null,
@@ -583,9 +584,12 @@ function hydrateForm(ct: Contact) {
     customerType: (ct as any).customerType ?? null,
     importanceLevel: ct.importanceLevel ?? null,
     status: ct.status || 'new',
-    province: ct.province || '',
-    ward: ct.ward || '',
-    addressLine: ct.addressLine || '',
+    // Mục E: field mới ưu tiên; contact cũ chưa backfill fallback về legacy để không hiện trống.
+    addressProvinceCode: ct.addressProvinceCode ?? null,
+    addressProvinceName: ct.addressProvinceName || ct.province || '',
+    addressWardCode: ct.addressWardCode ?? null,
+    addressWardName: ct.addressWardName || ct.ward || '',
+    addressLine: ct.addressStreet || ct.addressLine || '',
     source: ct.source || '',
     assignedUserId: ct.assignedUserId ?? ct.assignedUser?.id ?? null,
     tags: [...(ct.tags || [])],
@@ -596,34 +600,19 @@ function emptyForm() {
   form.value = {
     fullName: '', gender: null, birthDate: '', phone: '', extraPhones: [],
     email: '', industry: '', storeName: '', customerType: null, importanceLevel: null, status: 'new',
-    province: '', ward: '', addressLine: '', source: '', assignedUserId: null, tags: [],
+    addressProvinceCode: null, addressProvinceName: '', addressWardCode: null, addressWardName: '',
+    addressLine: '', source: '', assignedUserId: null, tags: [],
   };
 }
 
-// Tỉnh/thành có seed hiện hành; huyện/xã bổ sung từ dữ liệu thực tế của org.
-const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wardsByProvince: Record<string, string[]> }>({
-  provinces: [], districts: [], wardsByProvince: {},
-});
-let addressSuggestionsLoaded = false;
-async function loadAddressSuggestions() {
-  if (addressSuggestionsLoaded) return;
-  addressSuggestionsLoaded = true;
-  try {
-    const { data } = await api.get('/contacts/address-suggestions');
-    addressSuggestions.value = data;
-  } catch {
-    // Gợi ý chỉ là tiện ích — field vẫn free text nếu load lỗi.
-  }
+function onPickProvince(p: { code: string | null; name: string | null }) {
+  form.value.addressProvinceCode = p.code;
+  form.value.addressProvinceName = p.name ?? '';
 }
-// FIX 2026-08-22 (data 34 tỉnh/TP + 3.321 phường/xã sau sáp nhập 2025) — Phường/Xã gợi ý
-// theo ĐÚNG tỉnh/thành đã chọn. Chưa xác định được tỉnh thì không gộp xã toàn quốc.
-const wardSuggestions = computed(() => {
-  return wardsForProvince(
-    form.value.province,
-    addressSuggestions.value.provinces,
-    addressSuggestions.value.wardsByProvince || {},
-  );
-});
+function onPickWard(w: { code: string | null; name: string | null }) {
+  form.value.addressWardCode = w.code;
+  form.value.addressWardName = w.name ?? '';
+}
 
 // Nguồn khách — combobox chọn nhanh (SOURCE_OPTIONS) nhưng vẫn cho gõ tự do (dữ liệu cũ
 // trước khi có danh sách chuẩn hoá vẫn hiển thị đúng dù không khớp danh sách).
@@ -773,7 +762,7 @@ async function loadNotes() {
 // nếu modelValue đã true sẵn; caller khác (modelValue bắt đầu false) không bị ảnh hưởng vì
 // if (open) vẫn chặn đúng.
 watch(() => props.modelValue, (open) => {
-  if (open) { loadDetail(); void loadAddressSuggestions(); }
+  if (open) { loadDetail(); }
 }, { immediate: true });
 watch(activeTab, (t) => {
   if (t === 'timeline') loadTimeline();
@@ -789,7 +778,7 @@ function addTag() {
 async function save() {
   if (saving.value) return;
   // Họp 25/08/2026 (anh chốt): hồ sơ KH bắt buộc Tỉnh/Thành phố, Phường/Xã vẫn optional.
-  if (!form.value.province || !String(form.value.province).trim()) {
+  if (!form.value.addressProvinceName || !String(form.value.addressProvinceName).trim()) {
     toast.warning('Vui lòng chọn Tỉnh/Thành phố');
     return;
   }
@@ -807,8 +796,10 @@ async function save() {
     customerType: form.value.customerType,
     importanceLevel: form.value.importanceLevel,
     status: form.value.status,
-    province: form.value.province || null,
-    ward: form.value.ward || null,
+    // Backend (contact-routes.ts) nhận tên tự do rồi tự resolve mã address-kit,
+    // ghi vào field 2 cấp mới — không cần frontend gửi thẳng code.
+    province: form.value.addressProvinceName || null,
+    ward: form.value.addressWardName || null,
     addressLine: form.value.addressLine,
     source: form.value.source,
     assignedUserId: form.value.assignedUserId,
@@ -871,7 +862,10 @@ function goChat() {
 // ── Computed display ──
 const displayName = computed(() => c.value?.fullName || c.value?.crmName || '(chưa đặt tên)');
 const primaryPhone = computed(() => c.value?.phone || null);
-const locationLine = computed(() => [c.value?.ward, c.value?.province].filter(Boolean).join(' / '));
+const locationLine = computed(() => [
+  c.value?.addressWardName || c.value?.ward,
+  c.value?.addressProvinceName || c.value?.province,
+].filter(Boolean).join(' / '));
 const ageOf = computed(() => {
   if (!c.value) return null;
   const cy = new Date().getFullYear();
@@ -1006,9 +1000,9 @@ const attrValues = computed<Record<string, string>>(() => {
     tiktok: ct.socialTiktok ?? '',
     age,
     industry: ct.industry ?? '',
-    province: ct.province ?? '',
-    ward: ct.ward ?? '',
-    address: ct.addressLine ?? '',
+    province: ct.addressProvinceName || ct.province || '',
+    ward: ct.addressWardName || ct.ward || '',
+    address: ct.addressStreet || ct.addressLine || '',
     income: ct.incomeRange ?? '',
     status: ct.statusRef?.name ?? ct.displayStatus?.name ?? '',
     nick_status: f?.statusRef?.name ?? '',

@@ -24,6 +24,7 @@ import { revokeAllSessions } from '../privacy/session-service.js';
 import { getNickDayMetricsBatch, type NickDayMetrics } from './nick-metrics-service.js';
 import { ALL_CATEGORIES, DEFAULT_SDK_LIMITS, invalidateLimitCache } from './sdk-limit-service.js';
 import { zaloRateLimiter } from './zalo-rate-limiter.js';
+import { decryptZaloSession } from './zalo-session-crypto.js';
 
 const DAILY_QUOTA = 500; // per-nick soft cap shown in UI (msg today X / 500)
 
@@ -177,6 +178,8 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
         disconnectedAt: true,      // 2026-06-16: mốc mất kết nối (FE đếm/hiển thị)
         disconnectReason: true,    // 'manual' | 'passive' | null
         createdAt: true,
+        sendingPausedAt: true,     // Kill switch Tranche 2 (2026-09-30)
+        sendingPausedReason: true,
         // 2026-06-06 — cap tin gửi người lạ (Msg today so với cap này, KHÔNG phải 500 cũ).
         dailyStrangerMessageCap: true,
         // Phase 4 redesign 2026-05-22: include owner's department để FE hiển thị
@@ -277,6 +280,12 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
         // RBAC 2026-05-22: gate Action buttons trên frontend
         canManage: canManageAccount(a.ownerUserId, userId, user.role),
         isOwnedByMe: a.ownerUserId === userId,
+        // Kill switch (Tranche 2): luật hẹp hơn canManage — chỉ owner/admin org
+        // hoặc access.permission='admin' (khớp requireAccountAdmin ở kill-switch-routes).
+        sendingPausedAt: a.sendingPausedAt,
+        sendingPausedReason: a.sendingPausedReason,
+        canPauseSending: ['owner', 'admin'].includes(user.role)
+          || a.access.some((ac) => ac.user.id === userId && ac.permission === 'admin'),
         // Multi-sale crew with role mapping → UI badges (admin=Owner, chat=Editor, read=Viewer)
         crew: a.access.map((ac) => ({
           accessId: ac.id,
@@ -491,7 +500,7 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
       for (const a of accounts) {
         try {
           if (action === 'reconnect') {
-            const session = a.sessionData as { cookie: any; imei: string; userAgent: string } | null;
+            const session = decryptZaloSession(a.sessionData);
             if (!session?.imei) {
               results.push({ id: a.id, ok: false, error: 'no saved session' });
               continue;

@@ -31,6 +31,9 @@
         Xuất và nhập thông tin xác thực Zalo (cookie, IMEI, User-Agent).
         File JSON này cho phép khôi phục phiên đăng nhập mà không cần quét mã QR lại.
       </div>
+      <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
+        Chỉ quản trị viên của nick này mới được thao tác. File xuất ra chứa cookie đăng nhập, được ghi audit; hãy lưu ở nơi an toàn.
+      </v-alert>
 
       <v-divider class="mb-4" />
 
@@ -84,6 +87,7 @@
         </v-btn>
       </div>
     </v-card-text>
+
   </v-card>
 </template>
 
@@ -110,7 +114,6 @@ const isDragging = ref(false);
 const pendingFileName = ref('');
 const pendingContent = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
-
 function onExport() {
   emit('export');
 }

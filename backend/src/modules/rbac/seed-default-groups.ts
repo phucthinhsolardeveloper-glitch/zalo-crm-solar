@@ -26,8 +26,12 @@ export async function seedDefaultPermissionGroups(orgId: string): Promise<SeedRe
       select: { id: true, name: true, isSystem: true },
     });
     if (existing) {
+      // Existing groups are never mutated here. This endpoint is a seed for
+      // missing groups, not a policy reset: an admin may intentionally deny
+      // telephony (or any future resource) and that choice must survive a
+      // restart or a later seed call.
       result.existing++;
-      result.groups.push(existing);
+      result.groups.push({ id: existing.id, name: existing.name, isSystem: existing.isSystem });
       continue;
     }
 

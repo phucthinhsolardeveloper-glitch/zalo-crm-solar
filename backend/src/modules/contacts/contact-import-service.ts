@@ -13,6 +13,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { logger } from '../../shared/utils/logger.js';
 import { resolveAddressMigration } from '../../shared/data/address-migration-map.js';
+import { resolveProvinceCode, resolveWardCode } from '../../shared/address-kit-client.js';
 import type {
   ContactImportRow,
   ContactImportPreviewRow,
@@ -198,6 +199,51 @@ export async function previewContactImport(
  * Mỗi row insert riêng (không 1 transaction chung) — 1 row lỗi không chặn cả file,
  * lỗi được gom vào errors[] thay vì rollback toàn bộ.
  */
+interface ResolvedAddress2Tier {
+  provinceCode: string | null;
+  provinceName: string | null;
+  wardCode: string | null;
+  wardName: string | null;
+}
+
+/**
+ * Mục E (2026-09-30): resolve địa chỉ 2 cấp cho 1 row import.
+ * - Nếu đã map từ địa chỉ cũ (addressMigration.status='applied'): CSV sáp nhập
+ *   đã cho sẵn wardCode chính thức — dùng luôn, không gọi address-kit cho xã.
+ * - Nếu nhập trực tiếp địa chỉ mới (không qua migration): resolve wardCode
+ *   bằng cách khớp tên trong danh sách xã chính thức theo tỉnh.
+ * Không đoán khi không khớp — để wardCode null, vẫn giữ tên xã user nhập
+ * (ward không bắt buộc, khác province).
+ */
+async function resolveAddress2Tier(row: ContactImportPreviewRow): Promise<ResolvedAddress2Tier> {
+  const migration = row.addressMigration;
+  const provinceName = migration.status === 'applied' ? migration.new!.province : row.province?.trim() || null;
+  const wardNameInput = migration.status === 'applied' ? migration.new!.ward : row.ward?.trim() || null;
+
+  if (!provinceName) return { provinceCode: null, provinceName: null, wardCode: null, wardName: null };
+
+  let provinceCode: string | null = null;
+  try {
+    provinceCode = await resolveProvinceCode(provinceName);
+  } catch (err) {
+    logger.warn(`[contact-import] resolveProvinceCode failed for "${provinceName}":`, err);
+  }
+
+  if (migration.status === 'applied') {
+    return { provinceCode, provinceName, wardCode: migration.new!.wardCode || null, wardName: wardNameInput };
+  }
+  if (!wardNameInput || !provinceCode) {
+    return { provinceCode, provinceName, wardCode: null, wardName: wardNameInput };
+  }
+  try {
+    const wardCode = await resolveWardCode(provinceCode, wardNameInput);
+    return { provinceCode, provinceName, wardCode, wardName: wardNameInput };
+  } catch (err) {
+    logger.warn(`[contact-import] resolveWardCode failed for province=${provinceCode}:`, err);
+    return { provinceCode, provinceName, wardCode: null, wardName: wardNameInput };
+  }
+}
+
 export async function commitContactImport(
   rows: ContactImportRow[],
   orgId: string,
@@ -213,6 +259,7 @@ export async function commitContactImport(
     }
     try {
       const contactId = randomUUID();
+      const addr2 = await resolveAddress2Tier(row);
       await prisma.$transaction([
         prisma.contact.create({
           data: {
@@ -226,10 +273,13 @@ export async function commitContactImport(
             storeName: row.storeName?.trim() || null,
             customerType: mapLabelToSlug(row.customerType, CUSTOMER_TYPE_LABEL_TO_SLUG, VALID_CUSTOMER_TYPE_SLUGS),
             importanceLevel: mapLabelToSlug(row.importanceLevel, IMPORTANCE_LABEL_TO_SLUG, VALID_IMPORTANCE_SLUGS),
-            province: row.province?.trim() || null,
-            district: row.district?.trim() || null,
-            ward: row.ward?.trim() || null,
-            addressLine: row.addressLine?.trim() || null,
+            // Mục E (2026-09-30): địa chỉ ghi vào field 2 cấp mới, KHÔNG ghi
+            // province/district/ward legacy nữa (giữ đọc lịch sử, không ghi mới).
+            addressProvinceCode: addr2.provinceCode,
+            addressProvinceName: addr2.provinceName,
+            addressWardCode: addr2.wardCode,
+            addressWardName: addr2.wardName,
+            addressStreet: row.addressLine?.trim() || null,
             birthDate: parseImportBirthDate(row.birthDate),
             source: row.source?.trim() || 'import',
             status: mapLabelToSlug(row.contactStatus, STATUS_LABEL_TO_SLUG, VALID_STATUS_SLUGS) || 'new',

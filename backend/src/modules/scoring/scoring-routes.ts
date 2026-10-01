@@ -550,19 +550,23 @@ export async function scoringRoutes(app: FastifyInstance): Promise<void> {
       const instance = zaloPool.getInstance(friend.zaloAccountId);
       if (!instance?.api) return reply.status(400).send({ error: 'nick_disconnected' });
 
-      const limits = await zaloRateLimiter.checkLimits(friend.zaloAccountId);
+      const limits = await zaloRateLimiter.reserve(friend.zaloAccountId, 'message');
       if (!limits.allowed) return reply.status(429).send({ error: 'rate_limited', message: limits.reason });
 
       // Format markdown → Zalo styles (bold/italic/color/etc)
       const formatted = formatMessage(rendered);
-      zaloRateLimiter.recordSend(friend.zaloAccountId);
-
       const threadType = conv.threadType === 'group' ? 1 : 0;
       const sendPayload: Record<string, unknown> = { msg: formatted.text };
       if (formatted.styles?.length) sendPayload.styles = formatted.styles;
       if (formatted.mentions?.length) sendPayload.mentions = formatted.mentions;
 
-      const sendResult = await instance.api.sendMessage(sendPayload, conv.externalThreadId, threadType);
+      let sendResult: unknown;
+      try {
+        sendResult = await instance.api.sendMessage(sendPayload, conv.externalThreadId, threadType);
+      } catch (sendErr) {
+        await zaloRateLimiter.release(friend.zaloAccountId, 'message', limits.reservationId);
+        throw sendErr;
+      }
       const sr = sendResult as unknown as { message?: { msgId?: number | string } | null };
       const zaloMsgId = String(sr?.message?.msgId ?? '');
 

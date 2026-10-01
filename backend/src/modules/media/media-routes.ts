@@ -629,8 +629,6 @@ export async function mediaRoutes(app: FastifyInstance) {
         // nhìn thấy từ basename temp; thiếu đuôi → "file lỗi". (anh báo 2026-06-12.)
         const sendName = asset.kind === 'file' ? buildSendFileName(asset, blob) : undefined;
         tmp = await downloadMediaToTemp({ url: blob.publicUrl, filename: sendName }, asset.kind);
-        zaloRateLimiter.recordSend(conversation.zaloAccountId);
-
         // Guard nick connected ở trên. Gửi qua zaloOps (check status + reconnect).
         let zaloMsgId = '';
         let content = '';
@@ -659,6 +657,8 @@ export async function mediaRoutes(app: FastifyInstance) {
           }
           try {
             if (!instance?.api) throw new Error('nick api null');
+            const reservation = await zaloRateLimiter.reserve(conversation.zaloAccountId, 'message');
+            if (!reservation.allowed) throw new Error(reservation.reason || 'Đã vượt giới hạn gửi Zalo');
             const sendResult: any = await sendNativeVideo({
               api: instance.api as any, videoPath: tmp.path, thumbnailPath: thumbPath,
               threadId, threadType: threadType as 0 | 1, message: caption,
@@ -1318,7 +1318,6 @@ export async function mediaRoutes(app: FastifyInstance) {
           const tmp = await downloadMediaToTemp({ url: blob.publicUrl }, 'image');
           tmps.push(tmp);
         }
-        zaloRateLimiter.recordSend(conversation.zaloAccountId);
         // sendImage (KHÔNG sendFile) → album ảnh inline, không thành file.
         const sendResult: any = await zaloOps.sendImage(
           conversation.zaloAccountId, threadId, threadType as 0 | 1, tmps.map((t) => t.path), io, body.caption ?? '',

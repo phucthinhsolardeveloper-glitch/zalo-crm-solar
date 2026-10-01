@@ -12,6 +12,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { zaloOps, ZaloOpError } from '../../shared/zalo-operations.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
+import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { eventBuffer } from '../../shared/event-buffer.js';
 import { logger } from '../../shared/utils/logger.js';
 import { sendNativeVideo } from '../../shared/video-processor.js';
@@ -556,6 +557,8 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
                 sendResult = await zaloOps.sendFile(targetAccountId, threadId, threadType, [downloaded.path], io);
               } else if (refs.contentType === 'video' && instance?.api) {
                 try {
+                  const reservation = await zaloRateLimiter.reserve(targetAccountId, 'message');
+                  if (!reservation.allowed) throw new Error(reservation.reason || 'Đã vượt giới hạn gửi Zalo');
                   sendResult = await sendNativeVideo({
                     api: instance.api as any,
                     threadId,

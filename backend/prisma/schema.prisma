@@ -483,6 +483,13 @@ model ZaloAccount {
   dailyStrangerMessageCap Int       @default(300) @map("daily_stranger_message_cap")
   lastStrangerMessageAt   DateTime? @map("last_stranger_message_at")
 
+  // Tranche 2 kill switch (2026-09-30): tạm dừng MỌI outbound qua nick này
+  // (message/friend_action/...) mà không cần disconnect (vẫn nhận tin bình
+  // thường). Dùng khi có dấu hiệu bất thường (429/rejected tăng) cần chặn gấp.
+  sendingPausedAt     DateTime? @map("sending_paused_at")
+  sendingPausedReason String?   @map("sending_paused_reason")
+  sendingPausedById   String?   @map("sending_paused_by_id")
+
   // Phase ZaloAccounts redesign 2026-05-22: status log để tính uptime thật.
   // Xem design doc: ~/.gstack/projects/zalocrm/EVO-THANH-private-hs-design-20260522-184345.md
   statusLogs                       ZaloAccountStatusLog[]
@@ -658,10 +665,20 @@ model Contact {
   phonesExtra Json    @default("[]") @map("phones_extra") // [{phone,label},...]
 
   // ── Demographic / BĐS profile ──────────────────────────────────────────────
+  // LEGACY (mô hình 3 cấp) — không ghi mới từ 2026-09-30, chỉ giữ đọc lịch sử.
+  // Field mới dùng địa chỉ 2 cấp (tỉnh + xã) bên dưới, khớp crm-custom.
   province       String?
   district       String?
   ward           String?
   addressLine    String?   @map("address_line")
+  // Mô hình 2 cấp (2026-09-30, mục E) — nguồn: address-kit (production.cas.so),
+  // qua backend/src/modules/contacts/address-kit-routes.ts. Lưu cả code (để
+  // lọc/join chính xác) lẫn name (snapshot hiển thị, tránh vỡ nếu API đổi tên).
+  addressProvinceCode String? @map("address_province_code")
+  addressProvinceName String? @map("address_province_name")
+  addressWardCode     String? @map("address_ward_code")
+  addressWardName     String? @map("address_ward_name")
+  addressStreet       String? @map("address_street")
   gender         String? // male/female/other/unknown
   // 2026-06-18: true khi sale chỉnh giới tính TAY → sync SDK (zinstant/cron) KHÔNG đè ngược.
   genderLocked   Boolean   @default(false) @map("gender_locked")
@@ -801,7 +818,8 @@ model Contact {
   @@index([orgId, friendInviteSentCount]) // #3: lọc "SĐT đã gửi kết bạn ≥ N" nhanh
   @@index([orgId, importBatchId])
   @@index([orgId, consentStatus])
-  @@index([orgId, province, district])
+  @@index([orgId, province, district]) // LEGACY — giữ cho query cũ, không dùng cho code mới
+  @@index([orgId, addressProvinceCode])
   @@index([orgId, lastInboundAt])
   @@index([orgId, lastOutboundAt])
   @@index([orgId, status, lastInboundAt])

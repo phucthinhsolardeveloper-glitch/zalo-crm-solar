@@ -15,12 +15,14 @@ import { zaloPool } from '../modules/zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../modules/zalo/zalo-rate-limiter.js';
 import { logger } from './utils/logger.js';
 import { prisma } from './database/prisma-client.js';
+import { decryptZaloSession } from '../modules/zalo/zalo-session-crypto.js';
+import { isSendingPaused } from '../modules/zalo/zalo-kill-switch.js';
 
 // ── Error types ─────────────────────────────────────────────────────────────
 export class ZaloOpError extends Error {
   constructor(
     message: string,
-    public readonly code: 'NOT_CONNECTED' | 'RATE_LIMITED' | 'SESSION_EXPIRED' | 'API_ERROR' | 'INVALID_PARAMS',
+    public readonly code: 'NOT_CONNECTED' | 'RATE_LIMITED' | 'SESSION_EXPIRED' | 'API_ERROR' | 'INVALID_PARAMS' | 'SENDING_PAUSED',
     public readonly statusCode: number = 400,
   ) {
     super(message);
@@ -41,7 +43,12 @@ export type OpCategory =
   | 'contact_sync'  // getAllFriends (đọc/đồng bộ danh bạ — chạy nền khi reconnect)
   | 'friend_read'   // còn lại: online, recommendations, sent requests, alias list
   | 'profile'       // update name, avatar, status
-  | 'query';        // getUserInfo, getGroupInfo — read-only
+  | 'query'         // getUserInfo, getGroupInfo — read-only
+  // Mục C (2026-09-30) — gửi hàng loạt (AutomationBroadcast) từ nick cá nhân.
+  // TÁCH RIÊNG khỏi 'message' 300/ngày (tin trả lời khách thật) — 1 đợt chiến
+  // dịch không được phép ăn hết quota khiến sale không trả lời khách trong
+  // ngày. Trần mặc định thấp hơn hẳn organic (xem sdk-limit-service.ts).
+  | 'campaign_message';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 interface ExecOptions {
@@ -74,7 +81,7 @@ async function attemptReconnect(accountId: string): Promise<void> {
       where: { id: accountId },
       select: { sessionData: true },
     });
-    const session = account?.sessionData as ZaloCredentials | null;
+    const session = decryptZaloSession(account?.sessionData) as ZaloCredentials | null;
     if (!session?.imei) {
       throw new ZaloOpError('No saved session for reconnect', 'SESSION_EXPIRED', 401);
     }
@@ -180,11 +187,33 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
     );
   }
 
-  // 2. Rate limit check
-  const limit = await zaloRateLimiter.checkLimits(accountId, category);
+  // 1.5. Manual kill switch (Tranche 2 gate) — an admin paused this nick's
+  // outbound without disconnecting it; still block before spending quota.
+  const pause = await isSendingPaused(accountId);
+  if (pause.paused) {
+    throw new ZaloOpError(
+      `Nick đang bị tạm dừng gửi: ${pause.reason || 'không rõ lý do'}`,
+      'SENDING_PAUSED',
+      423,
+    );
+  }
+
+  // 2. Reserve quota atomically before calling the provider. A separate
+  // check→send→record sequence lets concurrent CRM users exceed a nick quota.
+  const limit = await zaloRateLimiter.reserve(accountId, category);
   if (!limit.allowed) {
     throw new ZaloOpError(limit.reason || 'Rate limited', 'RATE_LIMITED', 429);
   }
+
+  // Reservation is a concurrency guard, not a charge for an operation that
+  // Zalo definitely rejected. Keep a network-timeout reservation because the
+  // provider may have accepted the message even though CRM did not receive a
+  // response; releasing that case could create duplicates and a spam burst.
+  const releaseDefinitiveFailure = async (error: unknown) => {
+    if (!isTransientNetworkError(error)) {
+      await zaloRateLimiter.release(accountId, category, limit.reservationId);
+    }
+  };
 
   // 3. Execute with retry on session expiry + transient network blip.
   //    MAX_ATTEMPTS=3 để lỗi socket tạm thời (album nhiều ảnh) có cơ hội thử lại.
@@ -193,10 +222,6 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       const result = await fn(instance.api);
-
-      // Record successful operation. (getAllFriends giờ là category 'contact_sync'
-      // nên đã tự đếm vào rl:daily:nick:contact_sync — không cần recordOperation riêng.)
-      zaloRateLimiter.recordSend(accountId, category);
 
       // 4. Emit Socket.IO event if configured
       if (opts.io && opts.socketEvent) {
@@ -223,12 +248,16 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
           const freshInstance = zaloPool.getInstance(accountId);
           if (freshInstance?.api && freshInstance.status === 'connected') {
             // Use fresh API directly — don't mutate the captured reference
-            const retryResult = await fn(freshInstance.api);
-            zaloRateLimiter.recordSend(accountId, category);
-            return retryResult;
+            try {
+              const retryResult = await fn(freshInstance.api);
+              return retryResult;
+            } catch (retryErr) {
+              lastError = retryErr;
+            }
           }
         } catch (reconnectErr) {
           logger.error(`[zalo-ops:${accountId}] Reconnect failed:`, reconnectErr);
+          await releaseDefinitiveFailure(reconnectErr);
           throw new ZaloOpError(
             'Session expired and reconnect failed. QR re-login required.',
             'SESSION_EXPIRED',
@@ -249,6 +278,8 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
       break;
     }
   }
+
+  await releaseDefinitiveFailure(lastError);
 
   // Wrap unknown errors — preserve Zalo error code in message for diagnostics
   if (lastError instanceof ZaloOpError) throw lastError;
@@ -281,6 +312,14 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
 // ─── Messaging ──────────────────────────────────────────────────────────────
 async function sendMessage(accountId: string, threadId: string, threadType: 0 | 1, msg: any, io?: Server | null) {
   return exec({ accountId, category: 'message', operation: 'sendMessage', io, socketEvent: 'chat:message' },
+    (api) => api.sendMessage(msg, threadId, threadType));
+}
+
+// Mục C (2026-09-30) — sibling CỐ Ý tách khỏi sendMessage(): broadcast worker
+// PHẢI đi qua đây, không dùng sendMessage(), để quota gửi hàng loạt không đè
+// lên quota 'message' (tin trả lời khách thật, xem OpCategory ở trên).
+async function sendCampaignMessage(accountId: string, threadId: string, threadType: 0 | 1, msg: any, io?: Server | null) {
+  return exec({ accountId, category: 'campaign_message', operation: 'sendCampaignMessage', io, socketEvent: 'chat:message' },
     (api) => api.sendMessage(msg, threadId, threadType));
 }
 
@@ -768,6 +807,7 @@ export const zaloOps = {
 
   // Messaging
   sendMessage,
+  sendCampaignMessage,
   sendImage,
   sendSticker,
   sendLink,

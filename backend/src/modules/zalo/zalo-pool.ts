@@ -22,6 +22,8 @@ import { readFile } from 'fs/promises';
 import { imageSize } from 'image-size';
 import { withProxy } from './proxy-util.js';
 import { writeTransition, type ZaloStatus, type StatusReason } from './status-log-service.js';
+import { decryptZaloSession, encryptZaloSession, type ZaloSessionCredentials } from './zalo-session-crypto.js';
+import { classifyZaloConnectionError, type ZaloConnectionIssueCode } from './zalo-connection-error.js';
 
 // zca-js has no reliable ESM type exports — load via CJS interop
 const require = createRequire(import.meta.url);
@@ -35,11 +37,7 @@ async function imageMetadataGetter(filePath: string) {
   return { width: info.width, height: info.height, size: data.length };
 }
 
-interface ZaloCredentials {
-  cookie: any;
-  imei: string;
-  userAgent: string;
-}
+type ZaloCredentials = ZaloSessionCredentials;
 
 interface ZaloInstance {
   zalo: any;
@@ -393,9 +391,11 @@ class ZaloAccountPool {
         logger.error(`[zalo:${accountId}] reconnect uid LỆCH: session đăng nhập ra ${ownId} ≠ uid cũ ${eligibility.zaloUid} → từ chối ghi đè`);
         this.teardownExisting(accountId);
         if (instance) instance.status = 'disconnected';
-        await this.updateAccountDB(accountId, 'qr_pending', null, 'reconnect_failed'); // uid lệch (chi tiết ở log error trên)
+        await this.updateAccountDB(accountId, 'qr_pending', null, 'reconnect_failed', 'session_expired'); // uid lệch (chi tiết ở log error trên)
         void this.emitAccountEventToOrg(accountId, 'zalo:reconnect-failed', {
-          accountId, error: 'Phiên đăng nhập không khớp nick này — cần quét QR lại.',
+          accountId,
+          code: 'session_expired',
+          error: 'Phiên đăng nhập không khớp nick này — cần quét QR lại.',
         });
         this.reconnecting.delete(accountId);
         return;
@@ -443,8 +443,14 @@ class ZaloAccountPool {
     } catch (err) {
       const instance = this.instances.get(accountId);
       if (instance) instance.status = 'disconnected';
-      await this.updateAccountDB(accountId, 'qr_pending', null, 'reconnect_failed');
-      void this.emitAccountEventToOrg(accountId, 'zalo:reconnect-failed', { accountId, error: String(err) });
+      const issue = classifyZaloConnectionError(err);
+      logger.warn(`[zalo:${accountId}] reconnect failed (${issue.code}): ${issue.safeLogMessage}`);
+      await this.updateAccountDB(accountId, 'qr_pending', null, 'reconnect_failed', issue.code);
+      void this.emitAccountEventToOrg(accountId, 'zalo:reconnect-failed', {
+        accountId,
+        code: issue.code,
+        error: issue.userMessage,
+      });
     } finally {
       // Fix flap 2026-06-06: luôn nhả in-flight guard dù thành công hay lỗi.
       this.reconnecting.delete(accountId);
@@ -549,7 +555,7 @@ class ZaloAccountPool {
   private saveCredentials(accountId: string, credentials: ZaloCredentials): void {
     // 2026-06-11: system-context — pool ghi nền (không tenant ctx), tránh RLS chặn.
     runSystemQuery(() => prisma.zaloAccount
-      .update({ where: { id: accountId }, data: { sessionData: credentials as any } }))
+      .update({ where: { id: accountId }, data: { sessionData: encryptZaloSession(credentials) as any } }))
       .catch((err) => logger.error(`[zalo:${accountId}] saveCredentials error:`, err));
   }
 
@@ -562,6 +568,7 @@ class ZaloAccountPool {
     status: string,
     zaloUid: string | null,
     reason?: StatusReason,
+    connectionIssue?: ZaloConnectionIssueCode,
   ): Promise<void> {
     try {
       // 2026-06-11 FIX (gốc rễ DB status kẹt 'qr_pending' → offline sai khắp nơi: chat
@@ -596,6 +603,9 @@ class ZaloAccountPool {
             // status='connected' (nick THẬT đã login WS thành công, api!=null). Nick-ma không
             // bao giờ tới 'connected' (api=null) nên không bị clear nhầm.
             ...(status === 'connected' ? { lastConnectedAt: new Date(), disconnectReason: null, disconnectedAt: null, archivedAt: null } : {}),
+            ...(status !== 'connected' && connectionIssue
+              ? { disconnectReason: connectionIssue, disconnectedAt: new Date() }
+              : {}),
           },
           select: { orgId: true, ownerUserId: true },
         });
@@ -753,7 +763,7 @@ class ZaloAccountPool {
         logger.info(`[zalo:${accountId}] autoReconnect skipped — sale đã NGẮT THỦ CÔNG (manual)`);
         return;
       }
-      const session = account?.sessionData as ZaloCredentials | null;
+      const session = decryptZaloSession(account?.sessionData);
       if (session?.imei) {
         logger.info(`[zalo:${accountId}] Auto-reconnecting...`);
         await this.reconnect(accountId, session, account?.proxyUrl);

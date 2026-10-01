@@ -17,6 +17,7 @@ import { isPrivateRecordingReference, readPrivateRecording } from './recording-s
 import { getContactScope } from '../contacts/contact-scope.js';
 import { callNotePhoneKey } from './call-note-scope.js';
 import { callContactNumberVariants } from './call-contact-link.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 
 const DIRECTIONS = new Set(['inbound', 'outbound']);
 const STATUSES = new Set(['initiated', 'ringing', 'answered', 'completed', 'rejected', 'missed', 'failed']);
@@ -51,6 +52,9 @@ function ensureConfigured(reply: FastifyReply): boolean {
 export async function telephonyRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
   app.addHook('preHandler', requireActiveUser);
+  // Every authenticated telephony endpoint needs an explicit module grant;
+  // owner/admin legacy roles still pass through the RBAC compatibility path.
+  app.addHook('preHandler', requireGrant('telephony', 'access'));
 
   app.get('/api/v1/telephony/omicall/connect-config', async (request, reply) => {
     if (!ensureConfigured(reply)) return;
@@ -87,7 +91,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
   // Lists extensions already provisioned on the OmiCall dashboard but not yet
   // linked to any user in this org — lets admin ASSIGN by picking instead of
   // typing sip_user/password by hand. Does not create extensions (no such API).
-  app.get('/api/v1/telephony/omicall/available-extensions', async (request, reply) => {
+  app.get('/api/v1/telephony/omicall/available-extensions', { preHandler: requireGrant('telephony', 'edit') }, async (request, reply) => {
     const current = request.user!;
     if (!['owner', 'admin'].includes(current.role)) {
       return reply.status(403).send({ error: 'Không có quyền' });
@@ -585,7 +589,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post('/api/v1/telephony/omicall/sync', async (request, reply) => {
+  app.post('/api/v1/telephony/omicall/sync', { preHandler: requireGrant('telephony', 'edit') }, async (request, reply) => {
     if (!ensureConfigured(reply)) return;
     if (!config.omicallApiKey) {
       return reply.status(503).send({
@@ -632,7 +636,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post('/api/v1/telephony/calls', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/telephony/calls', { preHandler: requireGrant('telephony', 'create') }, async (request: FastifyRequest, reply: FastifyReply) => {
     if (!ensureConfigured(reply)) return;
     const current = request.user!;
     const body = request.body as {
@@ -747,7 +751,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
     return reply.status(201).send(call);
   });
 
-  app.patch('/api/v1/telephony/calls/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.patch('/api/v1/telephony/calls/:id', { preHandler: requireGrant('telephony', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const current = request.user!;
     const { id } = request.params as { id: string };
     const body = request.body as {
@@ -860,7 +864,7 @@ export async function telephonyRoutes(app: FastifyInstance) {
     return { notes, scope: phoneKey ? 'phone' : 'call', phoneKey };
   });
 
-  app.post('/api/v1/telephony/calls/:id/notes', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/telephony/calls/:id/notes', { preHandler: requireGrant('telephony', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const current = request.user!;
     const { id } = request.params as { id: string };
     const body = request.body as { body?: string };

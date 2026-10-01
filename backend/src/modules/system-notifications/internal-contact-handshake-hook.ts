@@ -20,6 +20,7 @@ import { createHash, randomInt } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
+import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 
 const VERIFY_CODE_TTL_MS = 30 * 60 * 1000;
 
@@ -67,6 +68,11 @@ export async function onFriendAcceptedForInternalContact(args: {
     return;
   }
   try {
+    const reservation = await zaloRateLimiter.reserve(args.zaloAccountId, 'message');
+    if (!reservation.allowed) {
+      logger.warn(`[internal-contact-hook] verify send rate-limited: ${reservation.reason}`);
+      return;
+    }
     await api.sendMessage({ msg: buildVerifyMessage(code) }, args.zaloUidInNick, 0);
   } catch (err: any) {
     logger.warn(`[internal-contact-hook] sendVerifyCode failed: ${err?.message || err}`);

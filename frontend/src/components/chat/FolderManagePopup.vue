@@ -328,6 +328,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: boolean];
   'view-applied': [payload: { folderId: string | null; accountId: string | null }];
+  'history-synced': [accountId: string];
 }>();
 
 const { accounts, fetchAccounts } = useZaloAccounts();
@@ -345,10 +346,19 @@ async function onSyncContacts(id: string) {
 }
 async function onSyncHistory(id: string) {
   try {
-    await api.post(`/zalo-accounts/${id}/sync-history`);
-    toast.push('Đồng bộ lịch sử chat thành công', 'success');
+    const { data } = await api.post(`/zalo-accounts/${id}/sync-history`);
+    emit('history-synced', id);
+    const messages = Number(data?.messagesBackfilled ?? 0);
+    const dmPages = Number(data?.dmPagesRequested ?? 0);
+    const groupPages = Number(data?.groupPagesRequested ?? 0);
+    if (messages > 0) {
+      toast.push(`Đã đồng bộ ${messages} tin nhắn (${dmPages} trang chat riêng, ${groupPages} trang nhóm)`, 'success');
+    } else {
+      toast.push('Sync đã chạy nhưng Zalo không trả thêm lịch sử. Chat 1-1 cũ có thể không được Zalo/zca-js cấp API; hãy thử tin nhắn mới hoặc kiểm tra đúng nick.', 'warning');
+    }
   } catch (e: any) {
-    toast.push('Đồng bộ lịch sử chat thất bại: ' + (e.response?.data?.error || e.message), 'error');
+    const message = e.response?.data?.error || e.message;
+    toast.push(/cooldown|tần suất|đang đồng bộ/i.test(message) ? message : 'Đồng bộ lịch sử chat thất bại: ' + message, 'warning');
   }
 }
 async function onReconnect(id: string) {

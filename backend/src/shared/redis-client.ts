@@ -12,6 +12,11 @@ export type RedisClient = Redis;
 let redisInstance: Redis | null = null;
 let initialized = false;
 
+/** A configured Redis that failed is different from intentionally absent Redis. */
+export function isRedisConfigured(): boolean {
+  return Boolean(process.env.REDIS_URL?.trim());
+}
+
 export async function getRedis(): Promise<Redis | null> {
   if (initialized) return redisInstance;
   initialized = true;

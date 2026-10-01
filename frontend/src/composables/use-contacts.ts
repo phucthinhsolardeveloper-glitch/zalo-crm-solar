@@ -81,11 +81,17 @@ export interface Contact {
   socialTiktok?: string | null;
   preferredLang?: string | null;
 
-  // Address
+  // Address — LEGACY 3 cấp, giữ đọc lịch sử. Field mới bên dưới ưu tiên hiển thị.
   province?: string | null;
   district?: string | null;
   ward?: string | null;
   addressLine?: string | null;
+  // Address 2 cấp (mục E 2026-09-30) — chuẩn theo address-kit.
+  addressProvinceCode?: string | null;
+  addressProvinceName?: string | null;
+  addressWardCode?: string | null;
+  addressWardName?: string | null;
+  addressStreet?: string | null;
 
   // Discovery / Zalo (read-only)
   hasZalo?: boolean | null;

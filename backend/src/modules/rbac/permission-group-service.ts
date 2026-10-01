@@ -268,7 +268,7 @@ export async function userHasGrant(
     where: { id: userId },
     select: {
       permissionGroupId: true,
-      permissionGroup: { select: { grants: true, archivedAt: true } },
+      permissionGroup: { select: { name: true, isSystem: true, grants: true, archivedAt: true } },
       role: true, // legacy fallback
     },
   });
@@ -278,6 +278,10 @@ export async function userHasGrant(
   if (user.permissionGroup && !user.permissionGroup.archivedAt) {
     const grants = (user.permissionGroup.grants ?? {}) as GrantsJson;
     if (hasGrant(grants, resource, action)) return true;
+
+    // No implicit resource fallback here. A missing or false grant is a real
+    // admin choice (including telephony); runtime permission checks must not
+    // silently re-enable a module because a group was created from a template.
   }
 
   // Fallback: legacy role='owner' hoặc 'admin' → bypass mọi quyền.

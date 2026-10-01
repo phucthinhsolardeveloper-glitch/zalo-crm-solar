@@ -14,6 +14,7 @@ const zaloPoolMock = {
 
 const zaloRateLimiterMock = {
   checkLimits: vi.fn(),
+  reserve: vi.fn(),
   recordSend: vi.fn(),
 };
 
@@ -64,6 +65,7 @@ beforeEach(() => {
     },
   });
   zaloRateLimiterMock.checkLimits.mockResolvedValue({ allowed: true });
+  zaloRateLimiterMock.reserve.mockResolvedValue({ allowed: true });
   zaloRateLimiterMock.recordSend.mockReturnValue(undefined);
 });
 

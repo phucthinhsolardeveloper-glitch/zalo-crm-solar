@@ -464,10 +464,13 @@ async function sendWelcomeAndFallback(p: SendLoginParams): Promise<CreateUserRes
   let messageSent = false;
   let deliveryChannel: 'inbox' | 'strangers' | 'failed' = 'failed';
   let sendError: string | null = null;
+  let reservationId: string | undefined;
   try {
     const api = zaloPool.getApi(senderId);
     if (!api) throw new Error('Nick gửi hệ thống chưa connected trong pool');
-    await zaloRateLimiter.recordSend(senderId, 'message');
+    const reservation = await zaloRateLimiter.reserve(senderId, 'message');
+    if (!reservation.allowed) throw new Error(reservation.reason || 'Đã vượt giới hạn gửi Zalo');
+    reservationId = reservation.reservationId;
     const payload: Record<string, unknown> = { msg: welcome.formatted.text };
     // FIX 2026-05-27 bug "tin login plain text": convert text-formatter format → zca-js Style
     const zaloStyles = toZaloStyles(welcome.formatted.styles);
@@ -477,6 +480,7 @@ async function sendWelcomeAndFallback(p: SendLoginParams): Promise<CreateUserRes
     messageSent = true;
     deliveryChannel = p.finalRelation === 'friend' ? 'inbox' : 'strangers';
   } catch (err) {
+    await zaloRateLimiter.release(senderId, 'message', reservationId);
     sendError = (err as Error)?.message || String(err);
     logger.warn(`[user-create-with-zalo] send to sale fail: ${sendError}`);
   }
@@ -495,10 +499,16 @@ async function sendWelcomeAndFallback(p: SendLoginParams): Promise<CreateUserRes
             failureReason: sendError || 'Tin gửi sale thất bại',
             credentials: { email: p.user.email, phone: p.user.phone, password: p.tempPassword, loginUrl },
           });
-          await zaloRateLimiter.recordSend(senderId, 'message');
           const api = zaloPool.getApi(senderId);
           if (api) {
-            await api.sendMessage({ msg: fallbackText }, adminUid, 0);
+            const reservation = await zaloRateLimiter.reserve(senderId, 'message');
+            if (!reservation.allowed) throw new Error(reservation.reason || 'Đã vượt giới hạn gửi Zalo');
+            try {
+              await api.sendMessage({ msg: fallbackText }, adminUid, 0);
+            } catch (fallbackSendErr) {
+              await zaloRateLimiter.release(senderId, 'message', reservation.reservationId);
+              throw fallbackSendErr;
+            }
             fallbackSentToAdmin = true;
           }
         }

@@ -48,6 +48,13 @@
             <div class="ngc-name">{{ a.displayName || 'Chưa đặt tên' }}</div>
             <div class="ngc-phone">{{ a.phone || '— chưa có SĐT' }}</div>
           </div>
+          <!-- Kill switch (Tranche 2): admin/owner có thể tạm dừng gửi mà không disconnect. -->
+          <button
+            v-if="a.canPauseSending && !a.sendingPausedAt"
+            class="ngc-x"
+            title="Tạm dừng gửi qua nick này (vẫn nhận tin)"
+            @click.stop="$emit('pause-sending', a)"
+          ><v-icon size="15">mdi-pause-circle-outline</v-icon></button>
           <!-- Xóa nick: CHỈ owner/admin + nick ĐÃ NGẮT (không cho xóa nick đang online — chống tai nạn) -->
           <button
             v-if="a.canManage && !isOnline(a)"
@@ -55,6 +62,17 @@
             title="Xóa nick này khỏi CRM"
             @click.stop="$emit('delete', a)"
           ><v-icon size="15">mdi-trash-can-outline</v-icon></button>
+        </div>
+
+        <!-- Kill switch: nick đang bị tạm dừng gửi (vẫn có thể online/nhận tin bình thường) -->
+        <div v-if="a.sendingPausedAt" class="ngc-paused">
+          <v-icon size="13">mdi-pause-circle</v-icon>
+          <span>Tạm dừng gửi{{ a.sendingPausedReason ? `: ${a.sendingPausedReason}` : '' }}</span>
+          <button
+            v-if="a.canPauseSending"
+            class="ngc-paused-resume"
+            @click.stop="$emit('resume-sending', a)"
+          >Mở lại</button>
         </div>
 
         <!-- Hàng 2: phụ trách (online) HOẶC trạng thái mất kết nối (offline) -->
@@ -65,7 +83,7 @@
         >
           <v-icon size="13">{{ a.disconnectReason === 'manual' ? 'mdi-link-off' : 'mdi-alert-circle-outline' }}</v-icon>
           <span v-if="a.disconnectReason === 'manual'">Đã ngắt lúc {{ fmtDiscTime(a.disconnectedAt) }}</span>
-          <span v-else>Mất kết nối {{ discElapsed(a.disconnectedAt) }}</span>
+          <span v-else>{{ disconnectMessage(a) }}</span>
         </div>
         <div v-else class="ngc-sub">Phụ trách: <b>{{ a.owner?.fullName || '—' }}</b></div>
 
@@ -141,6 +159,8 @@ defineEmits<{
   reconnect: [account: any];
   disconnect: [account: any];
   delete: [account: any];
+  'pause-sending': [account: any];
+  'resume-sending': [account: any];
   'open-detail': [accountId: string];
   add: [];
 }>();
@@ -172,6 +192,17 @@ function reconnectLabel(a: any): string {
 }
 function reconnectIcon(a: any): string {
   return liveOf(a) === 'qr_pending' ? 'mdi-qrcode-scan' : 'mdi-refresh';
+}
+function disconnectMessage(a: any): string {
+  const elapsed = discElapsed(a.disconnectedAt);
+  switch (a.disconnectReason) {
+    case 'session_conflict': return 'Bị Zalo Web/Desktop thay phiên — cần quét QR lại';
+    case 'session_expired': return 'Phiên Zalo hết hạn — cần quét QR lại';
+    case 'proxy_error': return 'Lỗi proxy — kiểm tra cấu hình proxy';
+    case 'network_error': return 'Lỗi mạng khi kết nối Zalo — hãy thử lại';
+    case 'reconnect_failed': return 'Kết nối lại thất bại — cần quét QR lại';
+    default: return `Mất kết nối${elapsed ? ` ${elapsed}` : ''}`;
+  }
 }
 // (Mẫu A 2026-06-16 bỏ dòng "Hỗ trợ" cho gọn → helper crewOf không còn dùng.)
 
@@ -301,6 +332,18 @@ function initials(name?: string | null): string {
 .ngc-disc { display: flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; }
 .ngc-disc.manual { background: #f3f4f6; color: #6b7280; }
 .ngc-disc.passive { background: #fef2f2; color: #dc2626; font-variant-numeric: tabular-nums; }
+
+/* Kill switch: nick tạm dừng gửi (khác disconnect — vẫn online/nhận tin) */
+.ngc-paused {
+  display: flex; align-items: center; gap: 5px; font-size: 11.5px;
+  padding: 3px 8px; border-radius: 6px; background: #fff7ed; color: #c2410c;
+}
+.ngc-paused span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.ngc-paused-resume {
+  border: none; background: #ffedd5; color: #9a3412; font-weight: 600;
+  font-size: 11px; padding: 2px 8px; border-radius: 6px; cursor: pointer; flex-shrink: 0;
+}
+.ngc-paused-resume:hover { background: #fdba74; }
 
 /* Hàng 3: 1 nút trạng thái — online xanh (hover→đỏ Ngắt) / offline xanh-nhạt Kết nối lại */
 .ngc-statebtn {

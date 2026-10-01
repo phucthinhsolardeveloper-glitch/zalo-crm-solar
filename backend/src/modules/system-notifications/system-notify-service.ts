@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
+import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { getBullMQRedis } from '../../shared/queue/redis-connection.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
@@ -107,12 +108,10 @@ export async function resolveUidBySenderFindUser(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// T8 2026-06-07 (eng-review D7): tin nội bộ KHÔNG bị rate-limit của Zalo.
-// Anh chốt: gửi tới nick ĐÃ KẾT BẠN + nhóm → Zalo KHÔNG bóp (300/ngày chỉ áp
-// gửi NGƯỜI LẠ). Code cũ áp nhầm checkLimits('message') cap 200/ngày → nick hệ
-// thống chạm trần ngừng báo. Bỏ rate-limit, thay bằng CAP CHỐNG-SPAM: chặn burst
-// LỖI (vd loop lỗi 15-20 tin/vài giây tới cùng đích) — bảo vệ nick khỏi spam tự
-// gây, KHÔNG phải giới hạn nghiệp vụ.
+// T8 2026-06-07 (eng-review D7): tin nội bộ tới nick đã kết bạn/nhóm không bị
+// coi là chiến dịch gửi người lạ. Tuy vậy CRM vẫn reserve một quota an toàn
+// trước provider call, kết hợp antiSpam theo từng đích, để loop lỗi không thể
+// bắn vô hạn qua nick hệ thống.
 // ════════════════════════════════════════════════════════════════════════
 const ANTISPAM_WINDOW_MS = 10_000; // 10s
 const ANTISPAM_MAX_IN_WINDOW = 15; // >15 tin/10s tới cùng đích = nghi spam lỗi
@@ -320,9 +319,8 @@ export async function sendSystemNotificationToUser(input: SendToUserInput) {
     });
   }
 
-  // T8 2026-06-07 (D7): tin nội bộ tới nick ĐÃ KẾT BẠN/nhóm KHÔNG bị Zalo bóp →
-  // BỎ checkLimits('message') (cap 200/ngày sai bản chất). Thay bằng anti-spam gate
-  // chống loop lỗi (burst >15 tin/10s cùng đích).
+  // T8 2026-06-07 (D7): anti-spam theo từng đích + quota reserve trước provider
+  // để bảo vệ nick hệ thống khỏi loop lỗi.
   const spamOk = await antiSpamAllow(resolved.senderZaloAccountId, resolved.threadIdInSenderView);
   if (!spamOk) {
     return prisma.systemNotification.update({
@@ -334,6 +332,8 @@ export async function sendSystemNotificationToUser(input: SendToUserInput) {
   try {
     const api = zaloPool.getApi(resolved.senderZaloAccountId);
     if (!api) throw new Error('Nick gửi hệ thống chưa connected trong Zalo pool');
+    const reservation = await zaloRateLimiter.reserve(resolved.senderZaloAccountId, 'message');
+    if (!reservation.allowed) throw new Error(reservation.reason || 'Đã vượt giới hạn gửi Zalo');
 
     const hasStyles = Array.isArray(input.styles) && input.styles.length > 0;
     const msg = buildMessage(input.title, input.content, priority, hasStyles);

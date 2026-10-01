@@ -159,13 +159,14 @@
             </div>
           </div>
           <div class="acqd-row2">
-            <div class="acqd-field">
-              <label class="acqd-label">Tỉnh/Thành phố</label>
-              <AddressAutocomplete v-model="form.province" input-class="acqd-input" placeholder="Nhập để tìm tỉnh/thành phố" :suggestions="addressSuggestions.provinces" @select="form.ward = ''" />
-            </div>
-            <div class="acqd-field">
-              <label class="acqd-label">Phường/Xã</label>
-              <AddressAutocomplete v-model="form.ward" input-class="acqd-input" :placeholder="form.province ? 'Nhập để tìm phường/xã' : 'Chọn tỉnh/thành phố trước'" :disabled="!wardSuggestions.length" :suggestions="wardSuggestions" />
+            <div class="acqd-field acqd-field-address">
+              <label class="acqd-label">Tỉnh/Thành phố / Phường/Xã</label>
+              <ProvinceWardPicker
+                :province-code="form.addressProvinceCode"
+                :ward-code="form.addressWardCode"
+                @update:province="onPickProvince"
+                @update:ward="onPickWard"
+              />
             </div>
           </div>
           <div class="acqd-field">
@@ -224,7 +225,7 @@ import { useToast } from '@/composables/use-toast';
 import { api } from '@/api/index';
 import { STATUS_OPTIONS, CUSTOMER_TYPE_OPTIONS, IMPORTANCE_LEVEL_OPTIONS, INDUSTRY_OPTIONS } from '@/composables/use-contacts';
 import AddressAutocomplete from './AddressAutocomplete.vue';
-import { wardsForProvince } from './address-suggestion-utils';
+import ProvinceWardPicker from './ProvinceWardPicker.vue';
 
 interface Props {
   modelValue: boolean;
@@ -257,33 +258,19 @@ const form = ref({
   fullName: '', phone: props.defaultPhone || '',
   gender: null as string | null, birthDate: '', email: '',
   industry: '', storeName: '', customerType: null as string | null, importanceLevel: null as string | null, status: 'new',
-  province: '', ward: '', addressLine: '',
+  addressProvinceCode: null as string | null, addressProvinceName: '',
+  addressWardCode: null as string | null, addressWardName: '',
+  addressLine: '',
 });
 const showMore = ref(false);
-const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wardsByProvince: Record<string, string[]> }>({
-  provinces: [], districts: [], wardsByProvince: {},
-});
-let addressSuggestionsLoaded = false;
-async function loadAddressSuggestions() {
-  if (addressSuggestionsLoaded) return;
-  try {
-    const { data } = await api.get('/contacts/address-suggestions');
-    addressSuggestions.value = data;
-    addressSuggestionsLoaded = true;
-  } catch {
-    // Không khóa retry: popup có thể mở đúng lúc app/container vừa reconnect.
-  }
+function onPickProvince(p: { code: string | null; name: string | null }) {
+  form.value.addressProvinceCode = p.code;
+  form.value.addressProvinceName = p.name ?? '';
 }
-// FIX 2026-08-22 (data 34 tỉnh/TP + 3.321 phường/xã sau sáp nhập 2025) — Phường/Xã gợi ý
-// theo ĐÚNG tỉnh/thành đã chọn (cascading), tránh lẫn phường/xã tỉnh khác trùng tên.
-// Chưa xác định được tỉnh thì chưa gợi ý xã, tuyệt đối không gộp toàn quốc.
-const wardSuggestions = computed(() => {
-  return wardsForProvince(
-    form.value.province,
-    addressSuggestions.value.provinces,
-    addressSuggestions.value.wardsByProvince || {},
-  );
-});
+function onPickWard(w: { code: string | null; name: string | null }) {
+  form.value.addressWardCode = w.code;
+  form.value.addressWardName = w.name ?? '';
+}
 const loading = ref(false);
 const phoneError = ref<string | null>(null);
 const duplicateContact = ref<null | {
@@ -321,12 +308,12 @@ watch(() => props.modelValue, async (open) => {
       fullName: '', phone: props.defaultPhone || form.value.phone || '',
       gender: null, birthDate: '', email: '',
       industry: '', storeName: '', customerType: null, importanceLevel: null, status: 'new',
-      province: '', ward: '', addressLine: '',
+      addressProvinceCode: null, addressProvinceName: '', addressWardCode: null, addressWardName: '',
+      addressLine: '',
     };
     showMore.value = false;
     phoneError.value = null;
     duplicateContact.value = null;
-    void loadAddressSuggestions();
     await nextTick();
     // Luôn focus Họ tên — sale gõ tên trước, Enter xuống SĐT (đã pre-fill thì Enter lần 2 = Lưu)
     nameInputRef.value?.focus();
@@ -420,8 +407,9 @@ async function onSubmit() {
       customerType: form.value.customerType || undefined,
       importanceLevel: form.value.importanceLevel || undefined,
       status: form.value.status || undefined,
-      province: form.value.province.trim() || undefined,
-      ward: form.value.ward.trim() || undefined,
+      // Backend tự resolve mã address-kit từ tên — xem contact-routes.ts (mục E).
+      province: form.value.addressProvinceName.trim() || undefined,
+      ward: form.value.addressWardName.trim() || undefined,
       addressLine: form.value.addressLine.trim() || undefined,
     });
 

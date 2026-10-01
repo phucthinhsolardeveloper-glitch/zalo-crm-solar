@@ -1639,8 +1639,9 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
-    // Rate limit check — prevent account blocking
-    const limits = await zaloRateLimiter.checkLimits(conversation.zaloAccountId);
+    // This legacy text path calls the SDK directly, so it must use the same
+    // atomic outbound reservation as zaloOps before sending.
+    const limits = await zaloRateLimiter.reserve(conversation.zaloAccountId, 'message');
     if (!limits.allowed) {
       return reply.status(429).send({ error: limits.reason });
     }
@@ -1682,7 +1683,6 @@ export async function chatRoutes(app: FastifyInstance) {
         }
       }
 
-      zaloRateLimiter.recordSend(conversation.zaloAccountId);
       // 2026-05-21 RTF: nếu có styles từ FE rich-text-editor → pass vào zca-js MessageContent.
       // zca-js sendMessage signature: { msg, styles?, quote?, ... } → Zalo server encode + broadcast format.
       const sendPayload: Record<string, unknown> = { msg: content };
@@ -1724,6 +1724,9 @@ export async function chatRoutes(app: FastifyInstance) {
           raw.replace(/^sendMessage failed:\s*/i, '').replace(/\s*\[zalo:\d+\]\s*$/i, '').trim() ||
           'Zalo từ chối gửi tin này';
         sendFail = { reason, code: codeMatch ? codeMatch[1] : null };
+        // Zalo đã trả lỗi nghiệp vụ rõ ràng (không phải timeout mơ hồ), nên
+        // hoàn reservation để lỗi từ chối không làm sale hết quota oan.
+        await zaloRateLimiter.release(conversation.zaloAccountId, 'message', limits.reservationId);
         logger.warn(`[chat] send rejected → lưu tin failed: reason="${reason}" code=${sendFail.code ?? '-'}`);
       }
 
@@ -2040,6 +2043,8 @@ export async function chatRoutes(app: FastifyInstance) {
           cleanups.push(dl.cleanup);
           let sdkResult: unknown;
           try {
+            const reservation = await zaloRateLimiter.reserve(zaloAccountId, 'message');
+            if (!reservation.allowed) throw new Error(reservation.reason || 'Đã vượt giới hạn gửi Zalo');
             sdkResult = await sendNativeVideo({ api: instance.api as any, threadId, threadType, videoPath: dl.path });
           } catch (vErr) {
             logger.warn('[send-block] native video lỗi, fallback sendFile:', vErr);
@@ -2220,7 +2225,8 @@ export async function chatRoutes(app: FastifyInstance) {
       if (!tmpFiles.length) return reply.status(400).send({ error: 'No files uploaded' });
 
       const threadType = conversation.threadType === 'group' ? 1 : 0;
-      zaloRateLimiter.recordSend(conversation.zaloAccountId);
+      const reservation = await zaloRateLimiter.reserve(conversation.zaloAccountId, 'message');
+      if (!reservation.allowed) return reply.status(429).send({ error: reservation.reason });
 
       // Bước 1: upload lên Zalo CDN trước để lấy URLs thật (hdUrl/normalUrl/thumbUrl)
       // Phải làm trước vì sendMessage chỉ trả {msgId}, không lộ URLs.
@@ -2449,11 +2455,10 @@ export async function chatRoutes(app: FastifyInstance) {
     }
 
     // Rate-limit gating
-    const limits = await zaloRateLimiter.checkLimits(senderNick.id);
+    const limits = await zaloRateLimiter.reserve(senderNick.id, 'message');
     if (!limits.allowed) return reply.status(429).send({ error: limits.reason });
 
     try {
-      zaloRateLimiter.recordSend(senderNick.id);
       const sendResult = await instance.api.sendMessage({ msg: body.content }, threadId, 0);
       const sr = sendResult as unknown as { message?: { msgId?: number | string } | null };
       const zaloMsgId = String(sr?.message?.msgId ?? '');
@@ -2466,6 +2471,7 @@ export async function chatRoutes(app: FastifyInstance) {
         lookupVia,
       };
     } catch (err: unknown) {
+      await zaloRateLimiter.release(senderNick.id, 'message', limits.reservationId);
       const msg = err instanceof Error ? err.message : String(err);
       logger.error(`[chat/send-handoff] failed: ${msg}`);
       return reply.status(500).send({ error: 'Gửi tin nội bộ thất bại — ' + msg });

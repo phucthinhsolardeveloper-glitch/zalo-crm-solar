@@ -5,10 +5,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
+import bcrypt from 'bcryptjs';
 import { mockUser } from './test-helpers.js';
 
 // ── Prisma mock ───────────────────────────────────────────────────────────────
 const prismaMock = {
+  activityLog: {
+    create: vi.fn(),
+  },
+  user: {
+    findFirst: vi.fn(),
+  },
   zaloAccount: {
     findFirst: vi.fn(),
     update: vi.fn(),
@@ -33,7 +40,13 @@ vi.mock('../src/modules/zalo/zalo-route-helpers.js', () => ({
   }),
 }));
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(async () => {
+  vi.clearAllMocks();
+  prismaMock.activityLog.create.mockResolvedValue({ id: 'audit-1' });
+  prismaMock.user.findFirst.mockResolvedValue({
+    passwordHash: await bcrypt.hash('correct-password', 4),
+  });
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // video-processor.ts unit tests (pure logic — no mocks needed)
@@ -132,10 +145,12 @@ function buildCredApp(): FastifyInstance {
 
 const BASE_CRED = '/api/v1/zalo-accounts/za-1/credentials';
 
-describe('GET /credentials/export', () => {
+describe('POST /credentials/export', () => {
   it('returns 404 when account not found', async () => {
     prismaMock.zaloAccount.findFirst.mockResolvedValue(null);
-    const res = await buildCredApp().inject({ method: 'GET', url: `${BASE_CRED}/export` });
+    const res = await buildCredApp().inject({
+      method: 'POST', url: `${BASE_CRED}/export`, payload: {},
+    });
     expect(res.statusCode).toBe(404);
   });
 
@@ -143,7 +158,9 @@ describe('GET /credentials/export', () => {
     prismaMock.zaloAccount.findFirst.mockResolvedValue({
       id: 'za-1', sessionData: null, displayName: 'Test',
     });
-    const res = await buildCredApp().inject({ method: 'GET', url: `${BASE_CRED}/export` });
+    const res = await buildCredApp().inject({
+      method: 'POST', url: `${BASE_CRED}/export`, payload: {},
+    });
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body)).toMatchObject({ error: expect.stringContaining('No credentials') });
   });
@@ -153,12 +170,29 @@ describe('GET /credentials/export', () => {
     prismaMock.zaloAccount.findFirst.mockResolvedValue({
       id: 'za-1', sessionData: creds, displayName: 'Test',
     });
-    const res = await buildCredApp().inject({ method: 'GET', url: `${BASE_CRED}/export` });
+    const res = await buildCredApp().inject({
+      method: 'POST', url: `${BASE_CRED}/export`, payload: {},
+    });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('application/json');
     expect(res.headers['content-disposition']).toContain('attachment');
     const body = JSON.parse(res.body);
     expect(body.imei).toBe('imei-123');
+  });
+
+  it('exports without an extra CRM password prompt for an authorized admin', async () => {
+    prismaMock.zaloAccount.findFirst.mockResolvedValue({
+      id: 'za-1', sessionData: { cookie: { z: '1' }, imei: 'i', userAgent: 'ua' }, displayName: 'Test',
+    });
+    const res = await buildCredApp().inject({
+      method: 'POST', url: `${BASE_CRED}/export`, payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('does not keep the legacy GET export path', async () => {
+    const res = await buildCredApp().inject({ method: 'GET', url: `${BASE_CRED}/export` });
+    expect(res.statusCode).toBe(405);
   });
 });
 

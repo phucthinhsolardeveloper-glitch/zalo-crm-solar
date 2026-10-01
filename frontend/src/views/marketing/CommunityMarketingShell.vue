@@ -38,9 +38,11 @@ import { useRoute } from 'vue-router';
 const route = useRoute();
 
 // Chỉ chức năng core. Phase 2 thêm Tệp khách hàng (/marketing/lists) khi Lists move ra core.
+// Mục C (2026-09-30) — Gửi hàng loạt cá nhân, Phase 1 backend/worker đã xong.
 const navItems = [
   { to: '/marketing/group-scan', label: 'Quét nhóm', icon: 'mdi-account-group-outline' },
   { to: '/marketing/lists', label: 'Tệp khách hàng', icon: 'mdi-format-list-bulleted' },
+  { to: '/marketing/broadcasts', label: 'Gửi hàng loạt', icon: 'mdi-send-circle-outline' },
 ];
 
 function isActive(to: string): boolean {

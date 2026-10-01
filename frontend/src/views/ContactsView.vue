@@ -355,8 +355,8 @@
                 </div>
               </td>
               <td>
-                <template v-if="contact.province || contact.ward">
-                  {{ [contact.province, contact.ward].filter(Boolean).join(' / ') }}
+                <template v-if="contact.addressProvinceName || contact.province || contact.addressWardName || contact.ward">
+                  {{ [contact.addressProvinceName || contact.province, contact.addressWardName || contact.ward].filter(Boolean).join(' / ') }}
                 </template>
                 <span v-else class="empty">—</span>
               </td>

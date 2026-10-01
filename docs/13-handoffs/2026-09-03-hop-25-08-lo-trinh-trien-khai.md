@@ -18,8 +18,8 @@ Tài liệu kiến trúc phần gửi hàng loạt: `docs/13-handoffs/` không c
 | G | Fix: KH có Zalo nhưng báo "chưa kết nối / chưa làm" | zalo-crm-solar | Không liên quan | S–M | ✅ Xong `f7831d7` |
 | H | Audit: 2 nick Zalo / 1 CRM — thấy & tương tác chồng chéo? | zalo-crm-solar | Cần đối chiếu chính sách | M (điều tra) | ✅ Audit + cảnh báo chéo |
 | D | Trạng thái Kết bạn/Chưa KB + nút "Kết bạn" ở màn cuộc gọi | zalo-crm-solar | Giới hạn kết bạn — giữ trần | M | ✅ Đã triển khai 29/09 |
-| E | Import KH: ánh xạ địa chỉ cũ → mới sau sáp nhập | zalo-crm-solar | Không liên quan | M | ✅ Tự động map + review trường hợp mơ hồ |
-| C | Queue chia lô gửi tin nhắn hàng loạt | zalo-crm-solar | **Rủi ro khoá nick** | L | **TẠM HOÃN — chờ sếp duyệt** |
+| E | Import KH: ánh xạ địa chỉ cũ → mới sau sáp nhập + chuyển Contact sang mô hình 2 cấp | zalo-crm-solar | Không liên quan | M | ✅ Xong 2026-09-30 — xem `docs/13-handoffs/2026-09-30-address-2tier.md` |
+| C | Queue chia lô gửi tin nhắn hàng loạt | zalo-crm-solar | **Rủi ro khoá nick** | L | ✅ Đã duyệt 2026-09-30 — Phase 1 (backend+worker) xong, xem `docs/13-handoffs/2026-09-30-broadcast-phase1.md`. Phase 2 (FE) chưa làm |
 | A | Gửi ảnh chung: chọn nhiều ảnh + gửi nhiều người | zalo-crm-solar | Rủi ro (đi qua C) | M | **TẠM HOÃN — phụ thuộc C** |
 | I | Gửi thông báo chung qua Zalo OA + ZNS | zalo-crm-solar (module mới) | Kênh hợp pháp — cần OA | L | **TẠM HOÃN — chờ quyết định OA** |
 | J | Tra tồn kho khi KH hỏi "còn hàng không" | crm-custom (module mới) | Không liên quan | L | Sau cùng |
@@ -199,7 +199,7 @@ Giữ nguyên tài liệu kiến trúc đã trình. Khi được duyệt sẽ n�
 |---|----------|---------------|
 | 1 | Xác nhận triệu chứng lỗi "chưa kết nối" (màn hình + trường hợp cụ thể) | G, D |
 | 2 | Xác nhận các dòng địa chỉ mơ hồ trong Preview import | E |
-| 3 | Quyết định: giữ địa chỉ 3 cấp hay chuyển 2 cấp cho zalo-crm-solar | E |
+| 3 | ✅ Đã chốt 2026-09-30: chuyển sang 2 cấp (tỉnh + xã), bỏ district | E |
 | 4 | Duyệt kiến trúc gửi hàng loạt + trần rủi ro Kênh A | C, A |
 | 5 | Quyết định có làm Zalo OA + ngân sách ZNS | I |
 | 6 | Ưu tiên J (tồn kho) so với các việc khác | J |

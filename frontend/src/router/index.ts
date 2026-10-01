@@ -228,6 +228,8 @@ const routes: RouteRecordRaw[] = [
           // Tệp khách hàng (Customer Lists) — open-core, dùng được ở Community.
           { path: 'lists', name: 'CE.Lists', component: () => import('@/views/marketing/ListsView.vue'), meta: { requiresAuth: true } },
           { path: 'lists/:id', name: 'CE.ListDetail', component: () => import('@/views/marketing/ListDetailView.vue'), meta: { requiresAuth: true } },
+          // Mục C (2026-09-30) — Gửi hàng loạt cá nhân, trong giới hạn chống khoá nick.
+          { path: 'broadcasts', name: 'CE.Broadcasts', component: () => import('@/views/marketing/BroadcastsView.vue'), meta: { requiresAuth: true } },
         ],
       } as RouteRecordRaw]
     : []),

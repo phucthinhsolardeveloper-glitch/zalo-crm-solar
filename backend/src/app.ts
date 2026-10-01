@@ -29,6 +29,8 @@ import { fileURLToPath } from 'node:url';
 import { Prisma } from '@prisma/client';
 import { config } from './config/index.js';
 import { prisma } from './shared/database/prisma-client.js';
+import { runSystemQuery } from './shared/tenant/tenant-context.js';
+import { decryptZaloSession, encryptZaloSession, isLegacyZaloSession } from './modules/zalo/zalo-session-crypto.js';
 import { logger } from './shared/utils/logger.js';
 import { authRoutes } from './modules/auth/auth-routes.js';
 import { brandingRoutes } from './modules/branding/branding-routes.js';
@@ -45,6 +47,7 @@ import { configRoutes } from './modules/config/config-routes.js';
 import { mediaRoutes } from './modules/media/media-routes.js';
 import { contactRoutes } from './modules/contacts/contact-routes.js';
 import { contactImportRoutes } from './modules/contacts/contact-import-routes.js';
+import { addressKitRoutes } from './modules/contacts/address-kit-routes.js';
 import { contactExportRoutes } from './modules/contacts/contact-export-routes.js';
 import { statusRoutes } from './modules/contacts/status-routes.js';
 import { contactSubResourceRoutes } from './modules/contacts/contact-sub-resource-routes.js';
@@ -96,10 +99,14 @@ import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat
 import { groupRoutes } from './modules/zalo/group-routes.js';
 import { groupScanRoutes } from './modules/zalo/group-scan-routes.js';
 import { startGroupScanWorker, stopGroupScanWorker } from './modules/zalo/group-scan-queue.js';
+import { startBroadcastWorker, stopBroadcastWorker } from './modules/broadcast/broadcast-queue.js';
+import { broadcastRoutes } from './modules/broadcast/broadcast-routes.js';
+import { registerAutomationHooks } from './shared/ee-registry/automation.js';
 import { groupModerationRoutes } from './modules/zalo/group-moderation-routes.js';
 import { friendRoutes } from './modules/zalo/friend-routes.js';
 import { profileRoutes } from './modules/zalo/profile-routes.js';
 import { credentialRoutes } from './modules/zalo/credential-routes.js';
+import { zaloKillSwitchRoutes } from './modules/zalo/zalo-kill-switch-routes.js';
 import { eventBuffer } from './shared/event-buffer.js';
 import { systemNotifyRoutes } from './modules/system-notifications/system-notify-routes.js';
 import { userCreateWithZaloRoutes } from './modules/system-notifications/user-create-with-zalo-routes.js';
@@ -263,6 +270,14 @@ async function bootstrap() {
   // Đăng ký TRƯỚC routes để áp cho mọi route đăng ký sau.
   registerPrivacyLeakGuard(app);
 
+  // Community baseline cho hook resolveBlockContent (2026-09-30) — trước đây
+  // mặc định luôn {ok:false}, khiến /send-block (chat-routes.ts) và broadcast
+  // worker (mục C) không gửi được gì. Đăng ký TRƯỚC loadExtension() — nếu có
+  // Extension bundle thật, hook của Extension sẽ ghi đè (registerAutomationHooks
+  // = Object.assign, gọi sau thắng), xem block-content-resolver.ts.
+  const { resolveBlockContentCommunity } = await import('./shared/block-content-resolver.js');
+  registerAutomationHooks({ resolveBlockContent: resolveBlockContentCommunity });
+
   // Open-core: extension early hooks (onSend guards that must precede routes).
   const ee = await loadExtension();
   await ee?.registerExtensionEarly?.(app);
@@ -282,6 +297,8 @@ async function bootstrap() {
   await app.register(mediaRoutes);
   await app.register(contactRoutes);
   await app.register(contactImportRoutes);
+  await app.register(addressKitRoutes);
+  await app.register(broadcastRoutes);
   await app.register(contactExportRoutes);
   await app.register(statusRoutes);
   await app.register(contactSubResourceRoutes);
@@ -350,6 +367,7 @@ async function bootstrap() {
   await app.register(friendRoutes);
   await app.register(profileRoutes);
   await app.register(credentialRoutes);
+  await app.register(zaloKillSwitchRoutes);
 
   // Open-core: extension route registrations (no-op in Community edition).
   await ee?.registerExtensionRoutes?.(app);
@@ -400,6 +418,8 @@ async function bootstrap() {
     startLabelsBackgroundSync(60_000); // realtime-ish 2-way pull every 60s
     // E1 Quét group (🟢 Community) — BullMQ worker xử lý group-scan job.
     if (config.nodeEnv !== 'test') startGroupScanWorker();
+    // Mục C (🟢 Community) — BullMQ worker xử lý gửi hàng loạt (broadcast).
+    if (config.nodeEnv !== 'test') startBroadcastWorker();
     startInteractionCron(); // daily silent_30d detection (02:00 VN)
     // Phase 8 — Engagement heatmap classification (02:30 VN daily)
     const { startEngagementCron } = await import('./modules/engagement/engagement-cron.js');
@@ -487,6 +507,7 @@ async function bootstrap() {
       force.unref();
       try {
         await stopGroupScanWorker().catch((e) => logger.warn('[shutdown] stopGroupScanWorker lỗi:', e));
+        await stopBroadcastWorker().catch((e) => logger.warn('[shutdown] stopBroadcastWorker lỗi:', e));
         await app.close().catch((e) => logger.warn('[shutdown] app.close lỗi:', e));
         logger.info('[shutdown] đóng gọn xong.');
       } finally {
@@ -512,12 +533,14 @@ async function bootstrap() {
     });
     logger.info(`Attempting reconnect for ${accounts.length} Zalo account(s)`);
     for (const account of accounts) {
-      const session = account.sessionData as {
-        cookie: any;
-        imei: string;
-        userAgent: string;
-      } | null;
+      const session = decryptZaloSession(account.sessionData);
       if (session?.imei) {
+        if (isLegacyZaloSession(account.sessionData)) {
+          runSystemQuery(() => prisma.zaloAccount.update({
+            where: { id: account.id },
+            data: { sessionData: encryptZaloSession(session) as any },
+          })).catch((err) => logger.warn(`[zalo:${account.id}] session migration failed:`, err));
+        }
         zaloPool.reconnect(account.id, session).catch((err) => {
           logger.warn(`Auto-reconnect failed for account ${account.id}:`, err);
         });

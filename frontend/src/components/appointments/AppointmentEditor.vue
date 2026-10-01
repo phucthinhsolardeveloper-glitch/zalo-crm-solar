@@ -1074,7 +1074,12 @@ if (typeof window !== 'undefined') {
   position: fixed; inset: 0;
   background: rgba(24, 29, 38, 0.55);
   backdrop-filter: blur(4px);
-  z-index: 100;
+  /* FIX 2026-09-30: mở từ CustomerProfileDialog.vue (z-index 1200) hoặc
+     ContactDetailDialog.vue (Vuetify v-dialog, mặc định ~2400+) thì
+     AppointmentEditor tuy Teleport ra <body> vẫn bị kẹt PHÍA SAU do z-index
+     thấp hơn — bấm "Nhắc hẹn"/"Đặt lịch hẹn" chỉ thấy nền tối thêm, không thấy
+     form. Nâng hẳn lên trên mọi modal host đã biết (kể cả Vuetify). */
+  z-index: 5000;
   display: flex; align-items: center; justify-content: center;
   padding: var(--at-s-md);
 }
@@ -1319,7 +1324,7 @@ if (typeof window !== 'undefined') {
 /* Picker popups — TELEPORTED ra ngoài modal, position fixed.
    Modal KHÔNG bị expand khi popup mở. Popup overlay đè modal. */
 .picker-popup {
-  z-index: 110; /* > modal z-index (100) */
+  z-index: 5010; /* > .editor-backdrop (5000), giữ đúng tỉ lệ +10 cũ */
   background: var(--at-canvas);
   border: 1px solid var(--at-hairline); border-radius: var(--at-r-lg);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);

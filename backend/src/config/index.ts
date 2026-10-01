@@ -44,6 +44,14 @@ export const config = {
   nodeEnv: envValue('NODE_ENV') || 'development',
   jwtSecret: requireSecret('JWT_SECRET', DEV_JWT_FALLBACK, envValue('JWT_SECRET')),
   encryptionKey: requireSecret('ENCRYPTION_KEY', DEV_ENC_FALLBACK, envValue('ENCRYPTION_KEY')),
+  // Zalo sessions get a separate rollover window so rotating them never breaks
+  // OmiCall/recording secrets that still use the shared ENCRYPTION_KEY.
+  zaloSessionEncryptionKey: requireSecret(
+    'ZALO_SESSION_ENCRYPTION_KEY',
+    DEV_ENC_FALLBACK,
+    envValue('ZALO_SESSION_ENCRYPTION_KEY') || envValue('ENCRYPTION_KEY'),
+  ),
+  zaloSessionEncryptionKeyPrevious: envValue('ZALO_SESSION_ENCRYPTION_KEY_PREVIOUS') || '',
   databaseUrl: envValue('DATABASE_URL') || 'postgresql://crmuser:password@localhost:5432/zalocrm',
   uploadDir: envValue('UPLOAD_DIR') || '/var/lib/zalo-crm/files',
   appUrl: envValue('APP_URL') || 'http://localhost:3000',

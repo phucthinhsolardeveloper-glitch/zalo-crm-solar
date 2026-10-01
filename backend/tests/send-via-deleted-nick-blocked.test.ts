@@ -36,6 +36,7 @@ vi.mock('../src/modules/zalo/zalo-pool.js', () => ({
 vi.mock('../src/modules/zalo/zalo-rate-limiter.js', () => ({
   zaloRateLimiter: {
     checkLimits: vi.fn().mockResolvedValue({ allowed: true }),
+    reserve: vi.fn().mockResolvedValue({ allowed: true }),
     recordSend: vi.fn(),
   },
 }));

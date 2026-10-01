@@ -4,7 +4,7 @@ Canonical template là root `.env.example`; `backend/.env.example` là subset de
 
 ## Bắt buộc production
 
-- `JWT_SECRET`, `ENCRYPTION_KEY`: tối thiểu 32 ký tự, khác dev fallback; config fail-fast.
+- `JWT_SECRET`, `ENCRYPTION_KEY`: tối thiểu 32 ký tự, khác dev fallback; config fail-fast. `ZALO_SESSION_ENCRYPTION_KEY` tùy chọn, mặc định fallback về `ENCRYPTION_KEY`; xoay riêng Zalo dùng `ZALO_SESSION_ENCRYPTION_KEY_PREVIOUS`.
 - `DB_PASSWORD`, `DATABASE_URL`/`DB_*`.
 - `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` vì compose hard-fail; S3 key/bucket nếu dùng MinIO/R2.
 - `APP_URL`: origin CORS/Socket.IO/CSP và public link; production phải là HTTPS thực.

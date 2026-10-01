@@ -175,7 +175,8 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
 
         // Send images as one zca-js call (supports multiple paths at once)
         if (imageIndexes.length > 0) {
-          zaloRateLimiter.recordSend(conversation.zaloAccountId);
+          const reservation = await zaloRateLimiter.reserve(conversation.zaloAccountId, 'message');
+          if (!reservation.allowed) return reply.status(429).send({ error: reservation.reason });
           const paths = imageIndexes.map((i) => tmpPaths[i]);
           const sendResult: any = await instance.api.sendMessage(
             { msg: caption, attachments: paths },
@@ -201,7 +202,6 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
 
         // Send videos one-by-one using native sendVideo
         for (const i of videoIndexes) {
-          zaloRateLimiter.recordSend(conversation.zaloAccountId);
           let generatedThumbnail: Awaited<ReturnType<typeof generateThumbnail>> | null = null;
           let thumbnailMirror: UploadResult | null = null;
           try {
@@ -213,6 +213,8 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
             logger.warn('[chat-attachment] Video thumbnail generation failed:', err);
           }
           try {
+            const reservation = await zaloRateLimiter.reserve(conversation.zaloAccountId, 'message');
+            if (!reservation.allowed) throw new Error(reservation.reason || 'Đã vượt giới hạn gửi Zalo');
             const sendResult: any = await sendNativeVideo({
               api: instance.api as any,
               videoPath: tmpPaths[i],
@@ -264,7 +266,6 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
 
         // Send files (generic) one-by-one
         for (const i of fileIndexes) {
-          zaloRateLimiter.recordSend(conversation.zaloAccountId);
           const sendResult: any = await zaloOps.sendFile(
             conversation.zaloAccountId,
             threadId,

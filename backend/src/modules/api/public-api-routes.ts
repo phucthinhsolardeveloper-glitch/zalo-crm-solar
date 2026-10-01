@@ -8,6 +8,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 
 // ── API key auth middleware ────────────────────────────────────────────────────
 
@@ -281,8 +282,16 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
       const api = zaloPool.getApi(body.zaloAccountId);
       if (!api) return reply.status(422).send({ error: 'Zalo account not active in pool' });
 
+      const reservation = await zaloRateLimiter.reserve(body.zaloAccountId, 'message');
+      if (!reservation.allowed) return reply.status(429).send({ error: reservation.reason });
+
       const threadType = body.threadType === 'group' ? 1 : 0;
-      await api.sendMessage(body.content, body.threadId, threadType);
+      try {
+        await api.sendMessage(body.content, body.threadId, threadType);
+      } catch (sendErr) {
+        await zaloRateLimiter.release(body.zaloAccountId, 'message', reservation.reservationId);
+        throw sendErr;
+      }
 
       return { success: true };
     } catch (err) {

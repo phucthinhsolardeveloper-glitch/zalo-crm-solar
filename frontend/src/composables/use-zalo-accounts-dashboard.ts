@@ -42,6 +42,10 @@ export interface EnrichedAccount {
   canManage: boolean;
   /** True nếu user hiện tại là owner của nick (chính chủ) */
   isOwnedByMe: boolean;
+  /** Kill switch: chặn outbound qua nick nhưng vẫn giữ kết nối nhận tin. */
+  sendingPausedAt?: string | null;
+  sendingPausedReason?: string | null;
+  canPauseSending?: boolean;
   /** Privacy mode của nick — 'main' = bật riêng tư, 'sub' = công khai */
   privacyMode?: 'main' | 'sub';
   crew: CrewMember[];

@@ -42,6 +42,7 @@ export const RESOURCES = [
   'zalo_account',       // Nick Zalo           → /settings/channels/zalo
   'media',              // Kho phương tiện     → /media
   'webhook',            // Webhook / API key   → /settings/dev/api
+  'telephony',          // Tổng đài OmiCall    → /calls
   // ── Báo cáo ──
   'engagement_score',   // Engagement + Score  → /reports
 ] as const;
@@ -63,6 +64,7 @@ export const RESOURCE_ACTIONS: Record<Resource, readonly Action[]> = {
   block: ['access', 'create', 'edit', 'delete', 'view_all'],
   zalo_account: ['access', 'create', 'edit', 'delete', 'view_all'],
   webhook: ['access', 'create', 'edit', 'delete'],
+  telephony: ['access', 'create', 'edit', 'view_all'],
   engagement_score: ['access', 'view_all'],
   audit_log: ['access', 'view_all'],
   settings: ['access', 'create', 'edit'],
@@ -167,6 +169,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       audit_log: viewAll('audit_log'),
       settings: { access: true },
       media: viewAll('media'), // xem cả kho org
+      telephony: { access: true, create: true, edit: true, view_all: true },
     } as GrantsJson,
   },
   {
@@ -189,6 +192,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       audit_log: { access: true },
       settings: { access: true },
       media: { access: true, create: true, edit: true, delete: true, view_all: true }, // full trong scope dept
+      telephony: { access: true, create: true, edit: true, view_all: true },
     } as GrantsJson,
   },
   {
@@ -208,6 +212,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       engagement_score: { access: true },
       audit_log: { access: true },
       media: { access: true, create: true, edit: true }, // kho của mình (scope owner)
+      telephony: { access: true, create: true, edit: true },
     } as GrantsJson,
   },
   {
@@ -228,6 +233,7 @@ export const DEFAULT_PERMISSION_GROUPS = [
       zalo_account: { access: true, create: true, delete: true },
       engagement_score: { access: true },
       media: { access: true, create: true, edit: true }, // kho của mình (scope owner) — sale dùng nhiều nhất
+      telephony: { access: true, create: true, edit: true },
     } as GrantsJson,
   },
   {

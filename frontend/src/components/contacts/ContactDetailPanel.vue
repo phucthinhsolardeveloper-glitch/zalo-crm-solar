@@ -375,7 +375,7 @@ const displayName = computed(() => props.contact.fullName || props.contact.crmNa
 const isOwner = computed(() => (props.contact as any).role === 'owner');
 const locationLine = computed(() => {
   const c: any = props.contact;
-  return [c.ward, c.province].filter(Boolean).join(', ');
+  return [c.addressWardName || c.ward, c.addressProvinceName || c.province].filter(Boolean).join(', ');
 });
 const customerStatusLabel = computed(() => {
   const dynamicStatus = props.contact.displayStatus || props.contact.statusRef;

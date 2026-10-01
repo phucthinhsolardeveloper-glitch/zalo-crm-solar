@@ -29,6 +29,7 @@ import { normalizePhone } from '../../shared/utils/phone.js';
 import { logActivity, computeDiff } from '../activity/activity-logger.js';
 import { emitWebhook } from '../api/webhook-service.js';
 import vnWards2025 from '../../shared/data/vn-wards-2025.json' with { type: 'json' };
+import { resolveProvinceCode, resolveWardCode } from '../../shared/address-kit-client.js';
 
 type QueryParams = Record<string, string>;
 const IMPORTANCE_LEVELS = new Set(['low', 'normal', 'high', 'critical']);
@@ -53,6 +54,35 @@ function emitContactChanged(
 // phường/xã chỉ lấy được từ dữ liệu org (rỗng nếu org chưa có KH nào ở tỉnh đó).
 const VIETNAM_PROVINCES_2025: readonly string[] = vnWards2025.provinces;
 const VIETNAM_WARDS_BY_PROVINCE_2025: Record<string, readonly string[]> = vnWards2025.wardsByProvince;
+
+/**
+ * Mục E (2026-09-30): resolve tên tỉnh/xã tự do (form hiện tại vẫn gõ text,
+ * chưa đổi sang picker) → mã chính thức address-kit, để ghi vào field 2 cấp
+ * mới (addressProvinceCode/Name, addressWardCode/Name) thay vì
+ * province/district/ward legacy. Không throw khi không khớp — giữ tên user
+ * nhập, chỉ để mã null (province bắt buộc nhập tên nhưng không bắt buộc khớp
+ * danh sách chính thức, tránh chặn nhầm KH ở địa chỉ chưa cập nhật kịp).
+ */
+async function resolveAddress2TierFreeText(
+  provinceInput: string | null | undefined,
+  wardInput: string | null | undefined,
+): Promise<{ provinceCode: string | null; provinceName: string | null; wardCode: string | null; wardName: string | null }> {
+  const provinceName = provinceInput?.trim() || null;
+  const wardName = wardInput?.trim() || null;
+  if (!provinceName) return { provinceCode: null, provinceName: null, wardCode: null, wardName };
+
+  let provinceCode: string | null = null;
+  try { provinceCode = await resolveProvinceCode(provinceName); } catch (err) {
+    logger.warn(`[contact-routes] resolveProvinceCode failed for "${provinceName}":`, err);
+  }
+  if (!wardName || !provinceCode) return { provinceCode, provinceName, wardCode: null, wardName };
+
+  let wardCode: string | null = null;
+  try { wardCode = await resolveWardCode(provinceCode, wardName); } catch (err) {
+    logger.warn(`[contact-routes] resolveWardCode failed (province=${provinceCode}):`, err);
+  }
+  return { provinceCode, provinceName, wardCode, wardName };
+}
 
 export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -686,6 +716,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           message: 'Vui lòng chọn Tỉnh/Thành phố',
         });
       }
+      const createAddr2 = await resolveAddress2TierFreeText(provinceInput, body.ward);
       const contact = await prisma.contact.create({
         data: {
           orgId: user.orgId,
@@ -716,10 +747,13 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           socialFacebook: body.socialFacebook || undefined,
           socialTiktok: body.socialTiktok || undefined,
           preferredLang: body.preferredLang || undefined,
-          addressLine: body.addressLine || undefined,
-          province: provinceInput,
-          district: body.district || undefined,
-          ward: body.ward || undefined,
+          // Mục E (2026-09-30): ghi field 2 cấp mới, KHÔNG ghi province/district/ward
+          // legacy nữa (giữ đọc lịch sử, không ghi mới).
+          addressStreet: body.addressLine || undefined,
+          addressProvinceCode: createAddr2.provinceCode,
+          addressProvinceName: createAddr2.provinceName,
+          addressWardCode: createAddr2.wardCode,
+          addressWardName: createAddr2.wardName,
           birthYear: createBirthYear,
           birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
           consentStatus: body.consentStatus || undefined,
@@ -898,6 +932,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const leadSource = (body.leadSource ?? 'quick_add').trim() || 'quick_add';
+      const quickAddAddr2 = await resolveAddress2TierFreeText(body.province, body.ward);
       const contact = await prisma.contact.create({
         data: {
           orgId: user.orgId,
@@ -917,10 +952,12 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           storeName: body.storeName || undefined,
           customerType: body.customerType || undefined,
           importanceLevel: body.importanceLevel && IMPORTANCE_LEVELS.has(body.importanceLevel) ? body.importanceLevel : undefined,
-          province: body.province || undefined,
-          district: body.district || undefined,
-          ward: body.ward || undefined,
-          addressLine: body.addressLine || undefined,
+          // Mục E (2026-09-30): field 2 cấp mới thay cho province/district/ward legacy.
+          addressProvinceCode: quickAddAddr2.provinceCode,
+          addressProvinceName: quickAddAddr2.provinceName,
+          addressWardCode: quickAddAddr2.wardCode,
+          addressWardName: quickAddAddr2.wardName,
+          addressStreet: body.addressLine || undefined,
         },
         select: {
           id: true, fullName: true, crmName: true, phone: true,
@@ -1200,6 +1237,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           assignedUserId: true, crmName: true, email: true, gender: true,
           birthDate: true, birthYear: true, leadScore: true,
           phone2: true, phone3: true, addressLine: true, province: true, district: true, ward: true,
+          addressProvinceCode: true, addressProvinceName: true, addressWardCode: true, addressWardName: true,
           industry: true, storeName: true, customerType: true, incomeRange: true,
           socialFacebook: true, socialTiktok: true, preferredLang: true,
           consentStatus: true, consentRevokedAt: true, consentSource: true, firstContactDate: true,
@@ -1299,9 +1337,12 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       if (body.socialFacebook !== undefined) updateData.socialFacebook = body.socialFacebook || null;
       if (body.socialTiktok !== undefined) updateData.socialTiktok = body.socialTiktok || null;
       if (body.preferredLang !== undefined) updateData.preferredLang = body.preferredLang || 'vi';
-      if (body.addressLine !== undefined) updateData.addressLine = body.addressLine || null;
+      if (body.addressLine !== undefined) updateData.addressStreet = body.addressLine || null;
       // Họp 25/08/2026 (anh chốt): Tỉnh/Thành phố bắt buộc — không cho xoá trắng khi
       // sửa hồ sơ. `undefined` = không đụng tới; chuỗi rỗng = từ chối.
+      // Mục E (2026-09-30): province/district/ward legacy KHÔNG ghi mới nữa — resolve
+      // sang field 2 cấp mới. Khi chỉ sửa `ward` mà không gửi `province` trong cùng
+      // request, dùng lại `addressProvinceName` hiện có của contact để tra mã xã.
       if (body.province !== undefined) {
         const p = typeof body.province === 'string' ? body.province.trim() : '';
         if (!p) {
@@ -1310,12 +1351,19 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
             message: 'Không được để trống Tỉnh/Thành phố',
           });
         }
-        updateData.province = p;
+        const wardForResolve = body.ward !== undefined ? body.ward : existing.addressWardName;
+        const addr2 = await resolveAddress2TierFreeText(p, wardForResolve);
+        updateData.addressProvinceCode = addr2.provinceCode;
+        updateData.addressProvinceName = addr2.provinceName;
+        updateData.addressWardCode = addr2.wardCode;
+        updateData.addressWardName = addr2.wardName;
+      } else if (body.ward !== undefined) {
+        // BUG 2026-08-20 (anh báo: sửa Ngày sinh không ăn) — `body.ward` chưa từng được đọc ở đây dù
+        // FE (ContactDetailDialog.vue) đã gửi lên từ lâu — field Phường/Xã bị âm thầm bỏ qua mọi lần lưu.
+        const addr2 = await resolveAddress2TierFreeText(existing.addressProvinceName, body.ward);
+        updateData.addressWardCode = addr2.wardCode;
+        updateData.addressWardName = addr2.wardName;
       }
-      if (body.district !== undefined) updateData.district = body.district || null;
-      // BUG 2026-08-20 (anh báo: sửa Ngày sinh không ăn) — `body.ward` chưa từng được đọc ở đây dù
-      // FE (ContactDetailDialog.vue) đã gửi lên từ lâu — field Phường/Xã bị âm thầm bỏ qua mọi lần lưu.
-      if (body.ward !== undefined) updateData.ward = body.ward || null;
       if (body.birthYear !== undefined) {
         const by = typeof body.birthYear === 'string' ? parseInt(body.birthYear, 10) : body.birthYear;
         updateData.birthYear = Number.isFinite(by) && by > 1900 && by < 2100 ? by : null;
@@ -1485,7 +1533,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         updated as Record<string, unknown>,
         [
           'fullName', 'crmName', 'phone', 'phone2', 'phone3', 'email', 'gender',
-          'birthDate', 'birthYear', 'addressLine', 'province', 'district', 'ward',
+          'birthDate', 'birthYear', 'addressStreet', 'addressProvinceName', 'addressWardName',
           'industry', 'storeName', 'customerType', 'importanceLevel', 'incomeRange', 'socialFacebook',
           'socialTiktok', 'preferredLang', 'consentStatus', 'consentSource',
           'firstContactDate', 'assignedUserId',

@@ -351,6 +351,7 @@ const RESOURCE_LABELS: Record<string, { icon: string; label: string }> = {
   block: { icon: '🧱', label: 'Message Block' },
   zalo_account: { icon: '🟢', label: 'Nick Zalo' },
   webhook: { icon: '🔌', label: 'Webhook' },
+  telephony: { icon: '☎️', label: 'Tổng đài / Gọi điện' },
   engagement_score: { icon: '📊', label: 'Engagement / Score' },
   audit_log: { icon: '📜', label: 'Audit Log' },
   settings: { icon: '⚙', label: 'Cài đặt' },

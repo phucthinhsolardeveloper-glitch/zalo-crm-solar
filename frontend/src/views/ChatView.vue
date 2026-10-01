@@ -112,6 +112,7 @@
       :total-unread="totalUnreadCount"
       :current-account-id="accountFilter"
       @view-applied="onFolderViewApplied"
+      @history-synced="fetchConversations({ bypassCache: true })"
     />
 
     <!-- COL 4: contact info panel (chỉ hiện khi có contact) -->

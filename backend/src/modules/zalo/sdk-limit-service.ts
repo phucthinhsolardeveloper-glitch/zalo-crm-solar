@@ -34,6 +34,10 @@ export const DEFAULT_SDK_LIMITS: Record<OpCategory, CategoryLimit> = {
   // contact_sync THẤP (đồng bộ danh bạ nền chỉ vài lần/ngày khi reconnect).
   friend_lookup: { daily: 1000, burst: 15, burstWindowMs: 30_000 },
   contact_sync:  { daily: 100,  burst: 5,  burstWindowMs: 60_000 },
+  // Mục C (2026-09-30) — gửi hàng loạt cá nhân. Thấp hơn hẳn `message` (200/ngày
+  // organic) và burst chậm hơn nhiều — cùng nội dung gửi nhiều người trong thời
+  // gian ngắn là đúng pattern Zalo dò spam gắt nhất, cần trần riêng chặt hơn.
+  campaign_message: { daily: 50, burst: 5, burstWindowMs: 60_000 },
 };
 
 export const ALL_CATEGORIES = Object.keys(DEFAULT_SDK_LIMITS) as OpCategory[];

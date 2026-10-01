@@ -48,6 +48,20 @@ Could this create duplicate ownership?
 
 Không tuyên bố thành công chỉ dựa vào build. Phân loại failure: `PRE_EXISTING`, `REGRESSION`, `ENVIRONMENT`, `REAL_BUG`, `UNKNOWN`.
 
+## Runtime local chuẩn
+
+- Runtime nghiệm thu local của repository này là Full Docker tại
+  `http://localhost:${APP_PORT:-3080}`. Đây là nguồn bằng chứng browser/runtime
+  mặc định khi user nói đang kiểm tra "local".
+- Vite (`:5173` hoặc port tạm khác) là chế độ Hybrid riêng, không phải bản đang
+  chạy trong container. Không chạy lẫn hai chế độ trong cùng một phiên nghiệm
+  thu và không kết luận lỗi đã sửa chỉ từ Vite, mock API hoặc `frontend/dist`.
+- Docker image là snapshot tại thời điểm build; sửa source không tự cập nhật
+  container. Sau thay đổi UI phải rebuild/sync runtime được user mở, hard-refresh
+  nếu cần, rồi kiểm tra lại chính URL `:3080` trước khi báo hoàn tất.
+- Nếu buộc dùng Vite để chẩn đoán, phải ghi rõ đây là kiểm tra cô lập và vẫn để
+  trạng thái `NEEDS VERIFICATION` cho tới khi Full Docker được verify.
+
 ## Tài liệu là một phần implementation
 
 Thay đổi architecture, schema, API, auth/RBAC, environment, deployment, integration, operational behavior hoặc user-visible behavior phải cập nhật canonical docs tương ứng. Mỗi fact có một canonical home; các file khác link tới đó thay vì copy dài.

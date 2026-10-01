@@ -1,5 +1,7 @@
 # Zalo/ZCA integration
 
+Hướng vận hành và các tranche triển khai theo nghiệp vụ công ty nằm tại [mô hình vận hành Zalo an toàn](../09-decisions/20260929-zalo-safe-operating-model.md). File này giữ chi tiết kỹ thuật provider/session; không tự định nghĩa thêm policy gửi hàng loạt.
+
 ## Ownership và dữ liệu
 
 ZCRM dùng `zca-js` để kết nối tài khoản cá nhân qua QR/session, duy trì listener/reconnect và thực hiện chat/friend/contact actions. Session và trạng thái account được lưu trong DB; Conversation/Message/Friend/Contact là representation nội bộ, không thay thế provider truth tuyệt đối.
@@ -7,7 +9,7 @@ ZCRM dùng `zca-js` để kết nối tài khoản cá nhân qua QR/session, duy
 ## Lifecycle
 
 1. API tạo QR/login flow cho user có quyền.
-2. Sau xác thực, session được lưu theo cơ chế của module và listener được khởi tạo.
+2. Sau xác thực, session được mã hóa at-rest bằng AES-256-GCM (`zalo-session-encrypted-v1`) rồi listener được khởi tạo; legacy raw session chỉ được đọc để migrate.
 3. Event inbound được normalize, deduplicate/persist rồi phát realtime cho UI.
 4. Outbound command gọi provider, ghi kết quả/trạng thái và để history/resync sửa divergence nếu có.
 5. Reconnect xử lý process restart/network/session expiry; manual disconnect được đánh dấu để không tự kết nối lại ngoài ý muốn.
@@ -35,10 +37,18 @@ Provider rate limit, SLA, lịch sử có thể fetch và retention là `UNKNOWN
 **Rủi ro khoá tài khoản do dùng API không chính thống.** `zca-js` giả lập client, không phải API Zalo cấp phép chính thức — tài khoản có thể bị Zalo tạm khoá/hạn chế nếu bị phát hiện gửi tin bất thường (tốc độ cao, gửi hàng loạt giống spam...). Hiện trạng phòng ngừa trong code, đã xác minh:
 - **Có:** proxy riêng theo từng account khi login/reconnect (`zalo-pool.ts:208,376`, field `proxyUrl`) — tách IP giữa các account.
 - **Có:** retry với backoff cho lỗi mạng tạm thời (`shared/zalo-operations.ts:242-244`, `424-436`).
-- **Không có / `UNKNOWN`:** không có rate-limit/throttle/hàng đợi làm chậm tốc độ gửi tin outbound (`sendMessage`/`sendImage`/... trong `shared/zalo-operations.ts` gọi provider trực tiếp, không delay nhân tạo) — gửi hàng loạt (campaign, broadcast) hiện không có "làm chậm giống người thật", đây là bề mặt rủi ro bị đánh dấu spam cao nhất chưa được giảm thiểu.
+- **Có guardrail nội bộ:** outbound reservation atomic theo nick + loại thao tác; Redis lỗi thì chat 1-1 chuyển sang limiter in-process bảo thủ, còn queue/bulk phải pause. Reservation lỗi provider chắc chắn được hoàn; timeout mạng giữ reservation vì trạng thái giao tin không chắc chắn. Đây không phải quota chính thức của Zalo và chưa phải giấy phép broadcast/personal bulk.
+- **Không có / `UNKNOWN`:** quota/SLA thật của Zalo cá nhân và khả năng tài khoản bị flag vẫn chưa biết; campaign/broadcast cá nhân vẫn bị cấm theo policy nội bộ.
 - Không có cơ chế theo dõi/cảnh báo sớm khi account bị Zalo hạn chế (ngoài log lỗi khi gọi API thất bại).
 
-Không có ADR/quyết định nào trong `docs/09-decisions/` ghi nhận rủi ro này hoặc phương án dự phòng (ví dụ: chuyển sang Zalo OA API chính thức cho một số luồng, giới hạn tốc độ gửi, cảnh báo khi account bị flag).
+Quyết định vận hành và phương án chuyển các luồng chiến dịch sang OA được ghi tại [mô hình vận hành Zalo an toàn](../09-decisions/20260929-zalo-safe-operating-model.md). Đây mới là định hướng nội bộ; OA provider, quota và quyền thực tế của công ty vẫn phải được xác minh trước khi triển khai.
+
+## Trạng thái broadcast trong bản Community
+
+- Prisma có model `AutomationBroadcast` và RBAC có resource `broadcast`, nhưng đó chưa phải một luồng gửi hoạt động.
+- Route và worker automation/marketing được đăng ký qua extension bundle; khi không có bundle, registry Community là no-op.
+- Chưa có OA identity/provider, queue OA hay worker gửi chiến dịch được xác minh trong bản Community hiện tại.
+- Vì vậy không được coi model `AutomationBroadcast` (đang có default channel `zalo_user`) là khả năng gửi hàng loạt. Không bật hoặc nối model này vào Zalo cá nhân.
 
 ## Verification
 

@@ -216,6 +216,22 @@
           <td class="td-actions" @click.stop>
             <!-- Actions gate theo canManage (owner-of-nick hoặc org admin) — anh chốt 2026-05-22 -->
             <template v-if="acct.canManage">
+              <button
+                v-if="acct.canPauseSending && !acct.sendingPausedAt"
+                class="icon-btn kill-switch-btn"
+                title="Tạm dừng gửi qua nick này (vẫn nhận tin)"
+                @click="$emit('pause-sending', acct)"
+              >
+                ⏸
+              </button>
+              <button
+                v-else-if="acct.canPauseSending && acct.sendingPausedAt"
+                class="icon-btn kill-switch-btn paused"
+                :title="`Đang tạm dừng gửi${acct.sendingPausedReason ? ': ' + acct.sendingPausedReason : ''}`"
+                @click="$emit('resume-sending', acct)"
+              >
+                ▶
+              </button>
               <button class="icon-btn" :title="acct.liveStatus === 'connected' ? 'Sync' : 'Re-login'" @click="onActionClick(acct, 'reconnect')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
               </button>
@@ -297,6 +313,8 @@ function sdkBar(acct: EnrichedAccount, category: string): { used: number; cap: n
 const emit = defineEmits<{
   (e: 'open-detail', id: string): void;
   (e: 'action', payload: { account: EnrichedAccount; action: 'reconnect' | 'sync' }): void;
+  (e: 'pause-sending', account: EnrichedAccount): void;
+  (e: 'resume-sending', account: EnrichedAccount): void;
   (e: 'reassign-owner', account: EnrichedAccount): void;
   // 2026-06-06 — mở dialog cài đặt trần SDK (org default + nick override).
   (e: 'configLimits'): void;
@@ -474,6 +492,10 @@ tbody tr.alert:hover { background: #FFF5F5 }
 
 .td-chk { width: 32px }
 .td-actions { text-align: right }
+.kill-switch-btn { color: #b45309; font-weight: 700; }
+.kill-switch-btn:hover { background: #fff7ed; color: #c2410c; }
+.kill-switch-btn.paused { color: #047857; }
+.kill-switch-btn.paused:hover { background: #ecfdf5; color: #047857; }
 .chk { width: 14px; height: 14px; accent-color: #6366F1; cursor: pointer }
 
 .name-cell {

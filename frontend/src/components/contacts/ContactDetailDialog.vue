@@ -408,25 +408,13 @@
           <!-- ── TAB: Địa chỉ ───────────────────────────────────────── -->
           <v-tabs-window-item value="address">
             <v-row dense>
-              <v-col cols="12" sm="6">
-                <v-combobox
-                  v-model="form.province"
-                  :items="addressSuggestions.provinces"
-                  label="Tỉnh/Thành phố *"
-                  hint="Nhập tên có dấu hoặc không dấu để tìm"
-                  :rules="[required]"
-                  clearable
-                  @update:model-value="form.ward = ''"
-                />
-              </v-col>
-              <v-col cols="12" sm="6">
-                <v-combobox
-                  v-model="form.ward"
-                  :items="wardSuggestions"
-                  label="Phường/Xã"
-                  :disabled="!wardSuggestions.length"
-                  :hint="form.province ? 'Chỉ hiển thị phường/xã thuộc tỉnh đã chọn' : 'Chọn tỉnh/thành phố trước'"
-                  clearable
+              <v-col cols="12">
+                <div class="cdd-address-label">Tỉnh/Thành phố * / Phường/Xã</div>
+                <ProvinceWardPicker
+                  :province-code="form.addressProvinceCode"
+                  :ward-code="form.addressWardCode"
+                  @update:province="onPickProvince"
+                  @update:ward="onPickWard"
                 />
               </v-col>
               <v-col cols="12">
@@ -752,7 +740,7 @@ import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import type { Contact } from '@/composables/use-contacts';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
-import { wardsForProvince } from './address-suggestion-utils';
+import ProvinceWardPicker from './ProvinceWardPicker.vue';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
 import CallButton from '@/components/telephony/CallButton.vue';
 import {
@@ -841,9 +829,11 @@ interface FormState {
   socialFacebook: string;
   socialTiktok: string;
   preferredLang: string;
-  // address
-  province: string;
-  ward: string;
+  // address — mô hình 2 cấp (mục E 2026-09-30), chuẩn theo address-kit.
+  addressProvinceCode: string | null;
+  addressProvinceName: string;
+  addressWardCode: string | null;
+  addressWardName: string;
   addressLine: string;
   // consent
   consentStatus: string;
@@ -875,8 +865,10 @@ function emptyForm(): FormState {
     socialFacebook: '',
     socialTiktok: '',
     preferredLang: 'vi',
-    province: '',
-    ward: '',
+    addressProvinceCode: null,
+    addressProvinceName: '',
+    addressWardCode: null,
+    addressWardName: '',
     addressLine: '',
     consentStatus: 'implicit',
     consentSource: '',
@@ -885,32 +877,14 @@ function emptyForm(): FormState {
 
 const form = ref<FormState>(emptyForm());
 
-// FIX 2026-08-22: Tỉnh/thành + Phường/Xã giờ dùng dataset hành chính 2025 thật (34 tỉnh/TP,
-// 3.321 phường/xã sau sáp nhập, backend/src/shared/data/vn-wards-2025.json) làm nguồn chính,
-// cộng dữ liệu org đã nhập làm gợi ý phụ. Giao diện dùng mô hình 2 cấp, không còn Quận/Huyện.
-const addressSuggestions = ref<{ provinces: string[]; districts: string[]; wardsByProvince: Record<string, string[]> }>({
-  provinces: [], districts: [], wardsByProvince: {},
-});
-let addressSuggestionsLoaded = false;
-async function loadAddressSuggestions() {
-  if (addressSuggestionsLoaded) return;
-  addressSuggestionsLoaded = true;
-  try {
-    const { data } = await api.get('/contacts/address-suggestions');
-    addressSuggestions.value = data;
-  } catch {
-    // Gợi ý chỉ là tiện ích — field vẫn free text nếu load lỗi.
-  }
+function onPickProvince(p: { code: string | null; name: string | null }) {
+  form.value.addressProvinceCode = p.code;
+  form.value.addressProvinceName = p.name ?? '';
 }
-watch(show, (open) => { if (open) void loadAddressSuggestions(); });
-// Phường/Xã chỉ gợi ý sau khi xác định được đúng tỉnh/thành; không gộp xã toàn quốc.
-const wardSuggestions = computed(() => {
-  return wardsForProvince(
-    form.value.province,
-    addressSuggestions.value.provinces,
-    addressSuggestions.value.wardsByProvince || {},
-  );
-});
+function onPickWard(w: { code: string | null; name: string | null }) {
+  form.value.addressWardCode = w.code;
+  form.value.addressWardName = w.name ?? '';
+}
 
 // Attempts on activity tab
 const attempts = ref<Array<{
@@ -1120,9 +1094,12 @@ watch(() => props.contact, (c) => {
       socialFacebook: c.socialFacebook ?? '',
       socialTiktok: c.socialTiktok ?? '',
       preferredLang: c.preferredLang ?? 'vi',
-      province: c.province ?? '',
-      ward: c.ward ?? '',
-      addressLine: c.addressLine ?? '',
+      // Field mới ưu tiên; contact cũ chưa backfill fallback về legacy.
+      addressProvinceCode: c.addressProvinceCode ?? null,
+      addressProvinceName: c.addressProvinceName || c.province || '',
+      addressWardCode: c.addressWardCode ?? null,
+      addressWardName: c.addressWardName || c.ward || '',
+      addressLine: c.addressStreet || c.addressLine || '',
       consentStatus: c.consentStatus ?? 'implicit',
       consentSource: c.consentSource ?? '',
     };
@@ -1193,10 +1170,7 @@ function required(v: string) {
 
 async function onSave() {
   // Họp 25/08/2026 (anh chốt): hồ sơ KH bắt buộc Tỉnh/Thành phố (Phường/Xã optional).
-  const provinceVal = typeof form.value.province === 'string'
-    ? form.value.province.trim()
-    : (form.value.province ? String((form.value.province as any).title ?? form.value.province).trim() : '');
-  if (!provinceVal) {
+  if (!form.value.addressProvinceName.trim()) {
     toast.warning('Vui lòng chọn Tỉnh/Thành phố');
     return;
   }
@@ -1234,8 +1208,9 @@ async function onSave() {
     socialTiktok: form.value.socialTiktok || null,
     preferredLang: form.value.preferredLang || 'vi',
 
-    province: form.value.province || null,
-    ward: form.value.ward || null,
+    // Backend (contact-routes.ts) tự resolve mã address-kit từ tên (mục E).
+    province: form.value.addressProvinceName || null,
+    ward: form.value.addressWardName || null,
     addressLine: form.value.addressLine || null,
 
     consentStatus: form.value.consentStatus || 'implicit',
@@ -1271,6 +1246,10 @@ function close() {
 <style scoped>
 .font-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.cdd-address-label {
+  font-size: 12px; color: rgba(0, 0, 0, 0.6); margin-bottom: 6px;
 }
 
 /* ──────── Header: avatar + name + chips + progress + action strip ──────── */
