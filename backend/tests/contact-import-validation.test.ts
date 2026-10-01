@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { validateContactImportRow } from '../src/modules/contacts/contact-import-service.js';
+import {
+  resolveImportAddressMigration,
+  validateContactImportRow,
+} from '../src/modules/contacts/contact-import-service.js';
 import { resolveAddressMigration } from '../src/shared/data/address-migration-map.js';
 import type { ContactImportRow } from '../src/modules/contacts/contact-import-types.js';
 
@@ -57,5 +60,24 @@ describe('validateContactImportRow', () => {
       oldDistrict: 'Huyện Thới Lai',
       oldWard: 'Xã Tân Thạnh',
     })).toMatchObject({ status: 'ambiguous' });
+  });
+
+  it('automatically migrates a legacy 3-tier address from ordinary import columns', () => {
+    expect(resolveImportAddressMigration(row({
+      province: 'Thành phố Hồ Chí Minh',
+      district: 'Quận 1',
+      ward: 'Phường Bến Nghé',
+    }))).toMatchObject({
+      status: 'applied',
+      new: { province: 'Thành phố Hồ Chí Minh', ward: 'Phường Sài Gòn', wardCode: '26740' },
+    });
+  });
+
+  it('keeps current 2-tier province and ward input out of legacy migration', () => {
+    expect(resolveImportAddressMigration(row({
+      province: 'Thành phố Hồ Chí Minh',
+      district: null,
+      ward: 'Phường Sài Gòn',
+    }))).toMatchObject({ status: 'not_requested' });
   });
 });

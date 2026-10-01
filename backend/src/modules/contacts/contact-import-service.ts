@@ -38,6 +38,30 @@ export function validateContactImportRow(row: ContactImportRow): {
   return { status: 'valid', invalidReason: null, phoneNormalized };
 }
 
+/**
+ * Chọn nguồn địa chỉ cũ để migration khi import.
+ *
+ * - Nếu user map rõ 3 cột `oldProvince/oldDistrict/oldWard`, ưu tiên bộ đó.
+ * - File legacy phổ biến vẫn dùng tên cột `Tỉnh/Quận/Phường`; khi có district,
+ *   coi đây là địa chỉ 3 cấp cũ và tự đưa qua bảng sáp nhập.
+ * - Dữ liệu mới 2 cấp chỉ có province + ward (district trống) không migration.
+ */
+export function resolveImportAddressMigration(row: ContactImportRow): ContactImportPreviewRow['addressMigration'] {
+  const hasExplicitOldAddress = [row.oldProvince, row.oldDistrict, row.oldWard]
+    .some((value) => Boolean(value?.trim()));
+  if (hasExplicitOldAddress) return resolveAddressMigration(row);
+
+  if (row.district?.trim()) {
+    return resolveAddressMigration({
+      oldProvince: row.province,
+      oldDistrict: row.district,
+      oldWard: row.ward,
+    });
+  }
+
+  return resolveAddressMigration({ oldProvince: null, oldDistrict: null, oldWard: null });
+}
+
 function phoneVariantsOf(phoneNormalized: string): string[] {
   return [phoneNormalized, '+' + phoneNormalized, '0' + phoneNormalized.slice(2)];
 }
@@ -110,7 +134,7 @@ export async function previewContactImport(
   orgId: string,
 ): Promise<ContactImportPreviewResult> {
   const prepared = rows.map((row) => {
-    const addressMigration = resolveAddressMigration(row);
+    const addressMigration = resolveImportAddressMigration(row);
     const migratedRow = addressMigration.status === 'applied' && addressMigration.new
       ? { ...row, province: addressMigration.new.province, district: null, ward: addressMigration.new.ward }
       : row;

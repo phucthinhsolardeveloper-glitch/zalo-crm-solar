@@ -83,6 +83,11 @@ Backend: `address-kit-client.ts` (mới), `address-kit-routes.ts` (mới),
 `contact-import-service.ts`, `contact-export-routes.ts`, `schema.prisma`,
 migration `20260930142600_contact_address_2tier`.
 
+- **Bổ sung 2026-10-01:** import tự nhận diện địa chỉ legacy cả khi file dùng
+  ba cột thông thường `Tỉnh/TP + Quận/Huyện + Phường/Xã` (không bắt buộc đổi
+  tên cột thành `... cũ`). Có `Quận/Huyện` thì chạy bảng sáp nhập; dữ liệu mới
+  hai cấp chỉ có `Tỉnh/TP + Phường/Xã` thì giữ nguyên và resolve mã hiện hành.
+
 Frontend: `use-address-kit.ts` (mới), `ProvinceWardPicker.vue` (mới),
 `CustomerProfileDialog.vue`, `AddCustomerQuickDialog.vue`,
 `ContactDetailDialog.vue`, `ContactDetailPanel.vue`, `ContactsView.vue`,
