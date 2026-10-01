@@ -16,3 +16,5 @@ Integration là ranh giới failure/security riêng, không chỉ là một conf
 Storage driver là `local`, MinIO không chạy trong profile mặc định; ClamAV bật fail-closed; OmiCall và ZCC disabled. Database mới đang chờ initial setup nên chưa có integration nào được kết luận là live. Trạng thái credential/runtime của Zalo, Telegram, AI, ads và webhook riêng lẻ không được suy ra từ việc có code/config. Mọi snapshot phải được kiểm lại trước release.
 
 Integration chưa có test contract/negative path hoặc runtime evidence phải ghi `NEEDS VERIFICATION`; provider quota/SLA/capacity chưa benchmark phải ghi `UNKNOWN` hoặc `CAPACITY NOT YET BENCHMARKED`.
+
+Checklist credential, API contract và release gate: [Feature activation và API readiness](../09-decisions/20261001-feature-activation-api-readiness.md).

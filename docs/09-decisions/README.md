@@ -13,5 +13,6 @@ Các quyết định cần ADR tiếp theo:
 Quyết định đã ghi nhận:
 
 - [Mô hình vận hành Zalo an toàn và lộ trình triển khai 2026-09-29](20260929-zalo-safe-operating-model.md): tách Zalo cá nhân/OA, policy gate, queue, credential và tenant hardening.
+- [Feature activation và API readiness 2026-10-01](20261001-feature-activation-api-readiness.md): inventory tính năng chưa bật, API/provider cần chuẩn bị, acceptance gate và thứ tự triển khai.
 
 ADR mới nên ghi context, decision, alternatives, consequences, migration và verification; không dùng ADR để mô tả state tạm thời.

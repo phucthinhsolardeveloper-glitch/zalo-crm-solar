@@ -4,7 +4,7 @@ Luồng end-to-end cho auth, Contact, chat, friend/group/tag, appointment, media
 
 ## Working/implemented
 
-Auth/session, organization/user, Zalo account/chat/friend/group, Contact CRM, appointments, tags, scoring/engagement, media, notifications, search, customer lists, reports cơ bản, OmiCall softphone/history/recording, Telegram bridge, AI suggestion/RAG.
+Auth/session, organization/user, Zalo account/chat/friend/group, Contact CRM, appointments, tags, scoring/engagement, media, notifications, search, customer lists, reports cơ bản.
 
 ## Partial/duplicated
 
@@ -12,10 +12,14 @@ Auth/session, organization/user, Zalo account/chat/friend/group, Contact CRM, ap
 - Dashboard/report analytics có nhiều placeholder zero/TODO.
 - Mobile/desktop contact detail và edit path trùng.
 - Extension schema/feature artifacts tồn tại nhưng Community `_ee` absent.
+- OmiCall, Telegram bridge và AI có code/route nhưng cần credential/provider
+  runtime; không coi là live chỉ vì module được mount.
 
 ## Missing/unknown
 
 Telephony grant resource, stable role-based E2E, capacity benchmark, provider SLA/rate limits, fully verified DR. Feature status chi tiết phải theo code/test của module, không theo marketing README legacy.
+
+Checklist triển khai và inventory API/provider hiện tại: [Feature activation và API readiness](../09-decisions/20261001-feature-activation-api-readiness.md).
 
 ## Trạng thái kích hoạt thật trên production (xác minh 2026-09-29 qua SSH runtime + DB)
 
