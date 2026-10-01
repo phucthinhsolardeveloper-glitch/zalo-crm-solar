@@ -6,6 +6,8 @@
 
 `DefaultLayout.vue` mount softphone global sau login. PWA service worker chưa được bật theo code/comment đã kiểm; không mô tả offline/PWA là feature hiện hành.
 
+App shell desktop và banner login dùng bảng màu nhận diện canonical của website Phúc Thịnh Solar: nền navy sâu `#061537`/`#0a2251`, gold `#c9962e` và chữ trắng xanh nhạt. Wordmark chính thức nằm tại `frontend/public/brand/phuc-thinh-solar-wordmark.png`; `LoginBrandBanner.vue` là owner dùng chung cho `/login` và preview trong Hồ sơ tổ chức; `DefaultLayout.vue` là owner của wordmark, tab active, search và icon trên navbar. Các token này không dùng để ghi đè `primary` hoặc màu semantic/trạng thái của module CRM.
+
 ## Router và access UX
 
 `frontend/src/router/index.ts` dùng history mode. Public/exception routes gồm login, initial setup, forced password setup và appointment action token. Authenticated routes bao phủ dashboard, chat, contacts/profile/activity, friends, groups, media, appointments, call history, reports/analytics, settings/RBAC, marketing Community screens và list/group-scan.

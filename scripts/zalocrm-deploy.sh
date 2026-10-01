@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP="zalo-crm-app"; DB="zalo-crm-db"
-CORE_SERVICES=(app db redis minio minio-init)   # clamav/backup là tuỳ chọn → không bật
+CORE_SERVICES=(app db redis minio minio-init backup)   # clamav vẫn tuỳ chọn → không bật; backup DB tự động (GFS) là bắt buộc, không được tắt lại
 PORT_DEFAULT="3080"
 
 c_blue=$'\033[1;36m'; c_grn=$'\033[1;32m'; c_yel=$'\033[1;33m'; c_red=$'\033[1;31m'; c_off=$'\033[0m'
@@ -156,7 +156,13 @@ wait_app() {
 
 migrate() {
   log "Áp migration database (prisma migrate deploy)…"
-  docker exec "$APP" npx prisma migrate deploy || die "migrate thất bại — xem docker logs $APP"
+  # Migration phải chạy bằng DB_USER (admin/migration role), không dùng DB_APP_USER
+  # runtime vì role runtime cố ý NOSUPERUSER/NOBYPASSRLS và không sở hữu schema.
+  local admin_user admin_password admin_db_url
+  admin_user="$(env_val DB_USER)"; admin_user="${admin_user:-crmuser}"
+  admin_password="$(env_val DB_PASSWORD)"
+  admin_db_url="postgresql://${admin_user}:${admin_password}@db:5432/${DBNAME}"
+  docker exec -e DATABASE_URL="$admin_db_url" "$APP" npx prisma migrate deploy || die "migrate thất bại — xem docker logs $APP"
   ok "Migration đã áp xong."
 }
 

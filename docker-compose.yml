@@ -11,7 +11,10 @@ services:
       - .env
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://${DB_USER:-crmuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-zalocrm}
+      # Optional tenant/RLS rollout: set DB_APP_USER + DB_APP_PASSWORD only after
+      # scripts/prepare-tenant-app-role.sh --apply has created/granted the role.
+      # Empty values intentionally fall back to the existing DB_USER/DB_PASSWORD.
+      - DATABASE_URL=postgresql://${DB_APP_USER:-${DB_USER:-crmuser}}:${DB_APP_PASSWORD:-${DB_PASSWORD}}@db:5432/${DB_NAME:-zalocrm}
       # STORAGE 2026-06-20: storage config (STORAGE_DRIVER, S3_*, LOCAL_PUBLIC_URL,
       # APP_URL) đến từ env_file .env — KHÔNG override ở đây nữa để keys R2 không bị
       # ghi đè bằng MINIO_ROOT_*. Mặc định STORAGE_DRIVER=local (lưu vào volume bên dưới).
@@ -176,7 +179,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./backups:/backups
-      - ./scripts/prune-backups.sh:/hooks/10-retain-two:ro
+      - ./scripts/prune-backups.sh:/hooks/10-retain-gfs:ro
     environment:
       # TZ giờ VN → SCHEDULE '@daily' chạy 00:00 giờ VN (trước đây UTC = 07:00 sáng VN);
       # tên file backup cũng theo giờ VN. Dữ liệu dump vẫn là UTC y như DB lưu.
@@ -186,9 +189,15 @@ services:
       POSTGRES_USER: ${DB_USER:-crmuser}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       SCHEDULE: "@daily"
-      # Hook 10-retain-two is the authoritative retention policy. The image's
-      # native age-based rotation cannot express "exactly two snapshots".
-      BACKUP_KEEP_COUNT: 2
+      # Hook 10-retain-gfs is the authoritative retention policy (GFS: giữ riêng
+      # số lượng theo daily/weekly/monthly/last). Image tự sắp file vào 4 thư
+      # mục này theo lịch @daily; hook chỉ dọn từng thư mục theo giới hạn riêng.
+      # BACKUP_KEEP_DAYS/WEEKS/MONTHS để rất cao để image không tự xoá theo tuổi
+      # — hook là nơi quyết định duy nhất.
+      BACKUP_KEEP_DAILY: "${BACKUP_KEEP_DAILY:-7}"
+      BACKUP_KEEP_WEEKLY: "${BACKUP_KEEP_WEEKLY:-4}"
+      BACKUP_KEEP_MONTHLY: "${BACKUP_KEEP_MONTHLY:-6}"
+      BACKUP_KEEP_LAST: "${BACKUP_KEEP_LAST:-1}"
       BACKUP_KEEP_DAYS: 3650
       BACKUP_KEEP_WEEKS: 520
       BACKUP_KEEP_MONTHS: 120

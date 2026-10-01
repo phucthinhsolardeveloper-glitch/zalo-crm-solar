@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Keep only the newest N physical database snapshots.
-# postgres-backup-local normally creates hard links in daily/weekly/monthly/last,
-# but copies between Windows and WSL can expand them into separate files. Count
-# snapshots by SHA-256 so both representations follow the same retention rule.
+# Per-bucket backup retention: daily/weekly/monthly/last each keep their own
+# newest-N snapshots, independent of the others. New backup arrives → oldest
+# in that bucket gets deleted once the bucket is over its limit (FIFO).
+#
+# postgres-backup-local writes the SAME dump into daily/ + weekly/ (Sundays) +
+# monthly/ (1st of month) + last/ simultaneously; count by SHA-256 so a file
+# that got copied instead of hard-linked (Windows/WSL round-trip) still counts
+# once per bucket, and collapse duplicates back to hard links to avoid paying
+# disk cost per bucket for the same content.
 set -euo pipefail
 
 # Docker's hook runner calls every hook for error, pre-backup and post-backup.
@@ -13,57 +18,87 @@ if (( $# > 0 )) && [[ "$1" != "post-backup" ]]; then
 fi
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
+BACKUP_KEEP_DAILY="${BACKUP_KEEP_DAILY:-7}"
+BACKUP_KEEP_WEEKLY="${BACKUP_KEEP_WEEKLY:-4}"
+BACKUP_KEEP_MONTHLY="${BACKUP_KEEP_MONTHLY:-6}"
+BACKUP_KEEP_LAST="${BACKUP_KEEP_LAST:-1}"
+# Fallback bucket size for any subfolder that isn't one of the 4 known names
+# (keeps old callers using a flat BACKUP_DIR/ with no subfolders working).
 BACKUP_KEEP_COUNT="${BACKUP_KEEP_COUNT:-2}"
 
-if ! [[ "$BACKUP_KEEP_COUNT" =~ ^[1-9][0-9]*$ ]]; then
-  echo "[ERROR] BACKUP_KEEP_COUNT must be a positive integer" >&2
-  exit 1
-fi
+keep_count_for() {
+  case "$1" in
+    daily) echo "$BACKUP_KEEP_DAILY" ;;
+    weekly) echo "$BACKUP_KEEP_WEEKLY" ;;
+    monthly) echo "$BACKUP_KEEP_MONTHLY" ;;
+    last) echo "$BACKUP_KEEP_LAST" ;;
+    *) echo "$BACKUP_KEEP_COUNT" ;;
+  esac
+}
 
 [ -d "$BACKUP_DIR" ] || exit 0
 
-mapfile -d '' entries < <(
-  find "$BACKUP_DIR" -type f \( -name '*.sql' -o -name '*.sql.gz' \) \
-    -printf '%T@\t%p\0' | sort -z -t $'\t' -k1,1nr
-)
+prune_bucket() {
+  local bucket_dir="$1"
+  local keep_n="$2"
 
-declare -A kept=()
-declare -A pruned=()
-declare -A canonical=()
-kept_count=0
+  if ! [[ "$keep_n" =~ ^[1-9][0-9]*$ ]]; then
+    echo "[ERROR] keep count for $bucket_dir must be a positive integer (got: $keep_n)" >&2
+    return 1
+  fi
 
-for entry in "${entries[@]}"; do
-  path="${entry#*$'\t'}"
-  [ -f "$path" ] || continue
-  snapshot_hash="$(sha256sum "$path" | cut -d ' ' -f 1)"
+  mapfile -d '' entries < <(
+    find "$bucket_dir" -maxdepth 1 -type f \( -name '*.sql' -o -name '*.sql.gz' \) \
+      -printf '%T@\t%p\0' | sort -z -t $'\t' -k1,1nr
+  )
 
-  if [[ -n "${kept[$snapshot_hash]+x}" ]]; then
-    # Collapse copied duplicates back to hard links without changing the paths
-    # expected by postgres-backup-local.
-    if ! [ "$path" -ef "${canonical[$snapshot_hash]}" ]; then
-      rm -f -- "$path"
-      ln -- "${canonical[$snapshot_hash]}" "$path"
+  local -A kept=() pruned=() canonical=()
+  local kept_count=0
+
+  for entry in "${entries[@]}"; do
+    local path="${entry#*$'\t'}"
+    [ -f "$path" ] || continue
+    local snapshot_hash; snapshot_hash="$(sha256sum "$path" | cut -d ' ' -f 1)"
+
+    if [[ -n "${kept[$snapshot_hash]+x}" ]]; then
+      if ! [ "$path" -ef "${canonical[$snapshot_hash]}" ]; then
+        rm -f -- "$path"
+        ln -- "${canonical[$snapshot_hash]}" "$path"
+      fi
+      continue
     fi
-    continue
-  fi
-  if [[ -n "${pruned[$snapshot_hash]+x}" ]]; then
+    if [[ -n "${pruned[$snapshot_hash]+x}" ]]; then
+      rm -f -- "$path"
+      continue
+    fi
+
+    if (( kept_count < keep_n )); then
+      kept["$snapshot_hash"]=1
+      canonical["$snapshot_hash"]="$path"
+      ((kept_count += 1))
+      continue
+    fi
+
+    echo "$path"
     rm -f -- "$path"
-    continue
-  fi
+    pruned["$snapshot_hash"]=1
+  done
 
-  if (( kept_count < BACKUP_KEEP_COUNT )); then
-    kept["$snapshot_hash"]=1
-    canonical["$snapshot_hash"]="$path"
-    ((kept_count += 1))
-    continue
-  fi
+  find "$bucket_dir" -maxdepth 1 -xtype l -name '*-latest.sql*' -print -delete
+  echo "[INFO] $bucket_dir: kept $kept_count newest snapshot(s) (limit $keep_n)"
+}
 
-  echo "$path"
-  rm -f -- "$path"
-  pruned["$snapshot_hash"]=1
+# Known GFS buckets as direct subfolders of BACKUP_DIR.
+found_bucket=0
+for name in daily weekly monthly last; do
+  d="$BACKUP_DIR/$name"
+  [ -d "$d" ] || continue
+  found_bucket=1
+  prune_bucket "$d" "$(keep_count_for "$name")"
 done
 
-# Remove dangling latest pointers left after pruning an old snapshot.
-find "$BACKUP_DIR" -xtype l -name '*-latest.sql*' -print -delete
-
-echo "[INFO] Backup retention: kept $kept_count newest snapshot(s) in $BACKUP_DIR"
+# Back-compat: BACKUP_DIR itself holds backup files directly (no subfolders) —
+# treat it as one flat bucket under BACKUP_KEEP_COUNT, same as before.
+if [ "$found_bucket" -eq 0 ]; then
+  prune_bucket "$BACKUP_DIR" "$BACKUP_KEEP_COUNT"
+fi
