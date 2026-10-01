@@ -239,10 +239,10 @@
                     <span class="at-quota__nm" :style="n.isPrivate ? 'color:var(--at-atlas-warning)' : ''">
                       <Lock v-if="n.isPrivate" :size="12" :stroke-width="2" />{{ n.displayName }}
                     </span>
-                    <span class="at-quota__vl">{{ n.isPrivate ? '—' : (n.messagesToday + '/300') }}</span>
+                    <span class="at-quota__vl">{{ n.isPrivate ? '—' : (n.messagesToday + '/' + n.messageLimit) }}</span>
                   </div>
                   <div class="at-bar">
-                    <div v-if="!n.isPrivate" class="at-bar__seg" :style="quotaSeg(n.messagesToday)"></div>
+                    <div v-if="!n.isPrivate" class="at-bar__seg" :style="quotaSeg(n.messagesToday, n.messageLimit)"></div>
                     <div v-else class="at-bar__seg" style="width:100%;background:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 4px,#f1f5f9 4px,#f1f5f9 8px)"></div>
                   </div>
                 </div>
@@ -605,10 +605,11 @@ function apptHM(iso: string, time: string | null): string {
   const d = new Date(iso);
   return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
 }
-function quotaSeg(msgs: number | null): string {
+function quotaSeg(msgs: number | null, limit: number | null): string {
   const v = msgs ?? 0;
-  const pct = Math.min(100, Math.round((v / 300) * 100));
-  const color = v > 270 ? 'var(--at-atlas-danger)' : v > 210 ? 'var(--at-atlas-warning)' : 'var(--at-atlas-success)';
+  const cap = Math.max(1, limit ?? 1);
+  const pct = Math.min(100, Math.round((v / cap) * 100));
+  const color = pct >= 90 ? 'var(--at-atlas-danger)' : pct >= 70 ? 'var(--at-atlas-warning)' : 'var(--at-atlas-success)';
   return `width:${pct}%;background:${color}`;
 }
 function bandSeg(mid: number | undefined, hi: number | undefined, midColor: string, hiColor: string): string {

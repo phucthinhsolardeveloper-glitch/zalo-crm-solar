@@ -134,7 +134,7 @@ describe('processBroadcastTick — cổng an toàn', () => {
     prismaMock.automationBroadcast.findUnique.mockResolvedValue(baseBroadcast({ segmentSpec: { contactIds: ['c1', 'c2'] } }));
     prismaMock.contact.findUnique.mockResolvedValue({ id: 'c1', consentStatus: 'implicit' });
     prismaMock.friend.findFirst.mockResolvedValue({ zaloUidInNick: 'uid-1' });
-    sendCampaignMessageMock.mockRejectedValue(new FakeZaloOpError('rate limited', 'RATE_LIMITED'));
+    sendCampaignMessageMock.mockRejectedValue(new FakeZaloOpError('Đã đạt giới hạn 50 campaign_message/ngày', 'RATE_LIMITED'));
 
     const result = await processBroadcastTick('bc-1');
 
@@ -144,6 +144,21 @@ describe('processBroadcastTick — cổng an toàn', () => {
     // failedCount không được tăng lên — hết quota là "tạm dừng", không phải "gửi lỗi".
     expect(updateData.failedCount?.increment ?? 0).toBe(0);
     expect(updateData.workerStats.lastError).toBe('quota_exhausted');
+  });
+
+  it('burst limit → giữ running và tự chờ, không bắt bấm Resume', async () => {
+    prismaMock.automationBroadcast.findUnique.mockResolvedValue(baseBroadcast({ segmentSpec: { contactIds: ['c1'] } }));
+    prismaMock.contact.findUnique.mockResolvedValue({ id: 'c1', consentStatus: 'implicit' });
+    prismaMock.friend.findFirst.mockResolvedValue({ zaloUidInNick: 'uid-1' });
+    sendCampaignMessageMock.mockRejectedValue(new FakeZaloOpError('Quá nhanh (>5 campaign_message/60s)', 'RATE_LIMITED'));
+
+    const result = await processBroadcastTick('bc-1');
+
+    expect(result.state).toBe('running');
+    expect(result.nextDelayMs).toBe(60_000);
+    const updateData = lastBroadcastUpdateData();
+    expect(updateData.state).toBe('running');
+    expect(updateData.workerStats.lastError).toBe('rate_limited_wait');
   });
 
   it('kill switch đang bật (SENDING_PAUSED) → pause broadcast', async () => {

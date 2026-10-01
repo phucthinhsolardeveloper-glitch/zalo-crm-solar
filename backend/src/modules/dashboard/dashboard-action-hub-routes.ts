@@ -25,6 +25,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import { getOwnerScope } from '../rbac/owner-scope.js';
 import { userHasGrant } from '../rbac/permission-group-service.js';
+import { getEffectiveLimit } from '../zalo/sdk-limit-service.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -355,10 +356,11 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
               displayName: 'Nick riêng tư',
               isPrivate: true,
               messagesToday: null,
+              messageLimit: null,
               friendsToday: null,
             };
           }
-          const [msgs, friends] = await Promise.all([
+          const [msgs, friends, messageLimit] = await Promise.all([
             prisma.message.count({
               where: {
                 conversation: { zaloAccountId: n.id },
@@ -372,12 +374,14 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
                 queuedAt: { gte: today, lt: tomorrow },
               },
             }),
+            getEffectiveLimit(n.id, 'message'),
           ]);
           return {
             id: n.id,
             displayName: n.displayName,
             isPrivate: false,
             messagesToday: msgs,
+            messageLimit: messageLimit.daily,
             friendsToday: friends,
           };
         }),

@@ -38,6 +38,11 @@ export const BROADCAST_CHUNK_SIZE = 10;
 
 interface SegmentSpec { contactIds: string[] }
 
+interface PacingSpec {
+  batchSize: number;
+  intervalSec: number;
+}
+
 interface WorkerStats {
   skipped?: Array<{ contactId: string; reason: string; at: string }>;
   lastError?: string | null;
@@ -56,6 +61,17 @@ function extractPlainText(content: unknown): string | null {
 export interface TickResult {
   state: 'running' | 'paused' | 'completed';
   processed: number;
+  nextDelayMs?: number;
+}
+
+function readPacing(value: unknown): PacingSpec {
+  const pacing = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const rawBatch = Number(pacing.batchSize ?? BROADCAST_CHUNK_SIZE);
+  const rawInterval = Number(pacing.intervalSec ?? 30);
+  return {
+    batchSize: Number.isFinite(rawBatch) ? Math.min(50, Math.max(1, Math.floor(rawBatch))) : BROADCAST_CHUNK_SIZE,
+    intervalSec: Number.isFinite(rawInterval) ? Math.min(86_400, Math.max(30, Math.floor(rawInterval))) : 30,
+  };
 }
 
 export async function processBroadcastTick(broadcastId: string): Promise<TickResult> {
@@ -83,6 +99,7 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
     return { state: 'paused', processed: 0 };
   }
   const nickId = block.ownerNickId;
+  const pacing = readPacing(broadcast.pacing);
 
   if (zaloPool.getStatus(nickId) !== 'connected') {
     await pauseWithError(broadcastId, 'nick_not_connected');
@@ -108,12 +125,14 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
     return { state: 'completed', processed: 0 };
   }
 
-  const chunk = contactIds.slice(startIdx, startIdx + BROADCAST_CHUNK_SIZE);
+  const chunk = contactIds.slice(startIdx, startIdx + pacing.batchSize);
   let processed = 0;
   let sentDelta = 0;
   let failedDelta = 0;
   let lastCursor = broadcast.resumeCursor;
   let pausedReason: string | null = null;
+  let waitReason: string | null = null;
+  let nextDelayMs: number | undefined;
 
   for (const contactId of chunk) {
     const contact = await prisma.contact.findUnique({
@@ -157,8 +176,15 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
       sentDelta++;
     } catch (err) {
       if (err instanceof ZaloOpError && err.code === 'RATE_LIMITED') {
-        // Cổng an toàn #4 — hết quota campaign_message → PAUSE, không fail.
-        pausedReason = 'quota_exhausted';
+        // Burst limit chỉ là cửa sổ chờ ngắn: giữ broadcast ở running và
+        // retry contact hiện tại sau 60s. Chỉ daily quota mới pause để admin
+        // chủ động quyết định resume ngày hôm sau.
+        if (/Đã đạt giới hạn .*\/ngày/i.test(err.message)) {
+          pausedReason = 'quota_exhausted';
+        } else {
+          waitReason = 'rate_limited_wait';
+          nextDelayMs = 60_000;
+        }
         break;
       }
       if (err instanceof ZaloOpError && err.code === 'SENDING_PAUSED') {
@@ -182,7 +208,7 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
     workerStats: {
       ...stats,
       skipped,
-      lastError: pausedReason,
+      lastError: pausedReason ?? waitReason,
       lastTickAt: new Date().toISOString(),
     } as any,
   };
@@ -201,10 +227,14 @@ export async function processBroadcastTick(broadcastId: string): Promise<TickRes
       where: { id: broadcastId },
       select: { state: true },
     });
-    return { state: latest?.state === 'running' ? 'running' : 'paused', processed };
+    return { state: latest?.state === 'running' ? 'running' : 'paused', processed, nextDelayMs };
   }
 
-  return { state: nextState, processed };
+  return {
+    state: nextState,
+    processed,
+    nextDelayMs: nextState === 'running' ? (nextDelayMs ?? pacing.intervalSec * 1000) : undefined,
+  };
 }
 
 async function pauseWithError(broadcastId: string, reason: string): Promise<void> {

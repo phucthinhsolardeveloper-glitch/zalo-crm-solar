@@ -45,7 +45,7 @@ export type OpCategory =
   | 'profile'       // update name, avatar, status
   | 'query'         // getUserInfo, getGroupInfo — read-only
   // Mục C (2026-09-30) — gửi hàng loạt (AutomationBroadcast) từ nick cá nhân.
-  // TÁCH RIÊNG khỏi 'message' 300/ngày (tin trả lời khách thật) — 1 đợt chiến
+  // TÁCH RIÊNG khỏi 'message' 5000/ngày (tin chat bình thường) — 1 đợt chiến
   // dịch không được phép ăn hết quota khiến sale không trả lời khách trong
   // ngày. Trần mặc định thấp hơn hẳn organic (xem sdk-limit-service.ts).
   | 'campaign_message';

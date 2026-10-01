@@ -95,6 +95,7 @@ export interface QuotaNick {
   displayName: string;
   isPrivate: boolean;
   messagesToday: number | null;
+  messageLimit: number | null;
   friendsToday: number | null;
 }
 

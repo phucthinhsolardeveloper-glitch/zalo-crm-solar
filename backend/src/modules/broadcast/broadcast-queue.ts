@@ -86,7 +86,7 @@ export function startBroadcastWorker(): Worker<BroadcastJobData> {
       const result = await processBroadcastTick(job.data.broadcastId);
       if (result.state === 'running') {
         // Vẫn còn contact chưa xử lý → tự enqueue tick kế tiếp, có giãn cách.
-        await enqueueBroadcastTick(job.data.broadcastId, TICK_DELAY_MS);
+        await enqueueBroadcastTick(job.data.broadcastId, result.nextDelayMs ?? TICK_DELAY_MS);
       }
       return result;
     },

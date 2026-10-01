@@ -472,10 +472,10 @@ model ZaloAccount {
   ownedBlockFolders  BlockFolder[]         @relation("BlockFolderOwnerNick")
   // assignedTasks   AutomationTask[]      @relation("TaskAssignedNick")  ← REMOVED 2026-06-01 Luồng Mục Tiêu M0
 
-  // Phase 7 — Per-nick automation caps (configurable, default theo memory rule:
-  //   300 msg/day/nick, 30-50 friend-add/day/nick)
+  // Phase 7 — Per-nick automation caps (configurable; chat thường hiện dùng
+  // sdk_limits.message với fallback 5000/day, còn field này giữ tương thích cũ).
   dailyFriendAddCap       Int       @default(30) @map("daily_friend_add_cap")
-  dailyMessageCap         Int       @default(300) @map("daily_message_cap")
+  dailyMessageCap         Int       @default(5000) @map("daily_message_cap")
   // Per-nick throttle gate cross-campaign (memory: project_zalocrm_per_nick_throttle_gate)
   lastFriendReqSentAt     DateTime? @map("last_friend_req_sent_at")
   lastMessageSentAt       DateTime? @map("last_message_sent_at")

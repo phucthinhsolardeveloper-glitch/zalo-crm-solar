@@ -88,7 +88,7 @@ import { api } from '@/api/index';
 const props = defineProps<{ nicks: Array<{ id: string; displayName: string | null }>; embedded?: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
 
-type Cat = 'message' | 'reaction' | 'chat_action' | 'group_admin' | 'group_read' | 'friend_action' | 'friend_lookup' | 'contact_sync' | 'friend_read' | 'profile' | 'query';
+type Cat = 'message' | 'campaign_message' | 'reaction' | 'chat_action' | 'group_admin' | 'group_read' | 'friend_action' | 'friend_lookup' | 'contact_sync' | 'friend_read' | 'profile' | 'query';
 const CAT_LABEL: Record<string, { nm: string; ds: string }> = {
   friend_action: { nm: 'Gửi lời mời kết bạn', ds: 'gửi/thu hồi lời mời' },
   // 2026-06-06 (Anh chốt) — tách findUser + đồng bộ danh bạ riêng.
@@ -96,6 +96,7 @@ const CAT_LABEL: Record<string, { nm: string; ds: string }> = {
   contact_sync: { nm: 'Đồng bộ danh bạ', ds: 'getAllFriends — tải bạn bè từ Zalo (chạy nền)' },
   friend_read: { nm: 'Đọc khác (lời mời/gợi ý)', ds: 'online, recommendations, sent-requests' },
   message: { nm: 'Gửi tin nhắn', ds: 'tin sale + bot gửi đi' },
+  campaign_message: { nm: 'Gửi theo lịch/danh sách', ds: 'campaign đã chia đợt' },
   reaction: { nm: 'Thả cảm xúc', ds: 'tim, like, hoa...' },
   chat_action: { nm: 'Thao tác hội thoại', ds: 'đọc, gõ, ghim...' },
   query: { nm: 'Xem thông tin', ds: 'getUserInfo — read-only' },
@@ -105,7 +106,7 @@ const CAT_LABEL: Record<string, { nm: string; ds: string }> = {
 };
 const GROUPS = [
   { title: '🤝 Kết bạn & tìm khách', cats: ['friend_action', 'friend_lookup', 'contact_sync', 'friend_read'] as Cat[] },
-  { title: '💌 Tin nhắn & tương tác', cats: ['message', 'reaction', 'chat_action'] as Cat[] },
+  { title: '💌 Tin nhắn & tương tác', cats: ['message', 'campaign_message', 'reaction', 'chat_action'] as Cat[] },
   { title: '🔍 Đọc thông tin', cats: ['query', 'profile'] as Cat[] },
   { title: '👥 Nhóm Zalo', cats: ['group_read', 'group_admin'] as Cat[] },
 ];

@@ -20,7 +20,9 @@ export interface CategoryLimit {
 // Fallback CUỐI CÙNG nếu DB chưa cấu hình (= giá trị hardcode lịch sử). KHÔNG còn là
 // nguồn chính — chỉ dùng khi org chưa có hàng sdk_limits cho category đó.
 export const DEFAULT_SDK_LIMITS: Record<OpCategory, CategoryLimit> = {
-  message:       { daily: 200,  burst: 20, burstWindowMs: 30_000 },
+  // Chat bình thường đi theo từng hội thoại; giữ burst guard nhưng không dùng
+  // trần 200/300 cũ để chặn hoạt động vận hành cả ngày.
+  message:       { daily: 5000, burst: 20, burstWindowMs: 30_000 },
   reaction:      { daily: 300,  burst: 10, burstWindowMs: 30_000 },
   chat_action:   { daily: 500,  burst: 15, burstWindowMs: 30_000 },
   group_admin:   { daily: 50,   burst: 5,  burstWindowMs: 60_000 },
@@ -34,7 +36,7 @@ export const DEFAULT_SDK_LIMITS: Record<OpCategory, CategoryLimit> = {
   // contact_sync THẤP (đồng bộ danh bạ nền chỉ vài lần/ngày khi reconnect).
   friend_lookup: { daily: 1000, burst: 15, burstWindowMs: 30_000 },
   contact_sync:  { daily: 100,  burst: 5,  burstWindowMs: 60_000 },
-  // Mục C (2026-09-30) — gửi hàng loạt cá nhân. Thấp hơn hẳn `message` (200/ngày
+  // Mục C (2026-09-30) — gửi hàng loạt cá nhân. Thấp hơn hẳn `message` (5000/ngày
   // organic) và burst chậm hơn nhiều — cùng nội dung gửi nhiều người trong thời
   // gian ngắn là đúng pattern Zalo dò spam gắt nhất, cần trần riêng chặt hơn.
   campaign_message: { daily: 50, burst: 5, burstWindowMs: 60_000 },

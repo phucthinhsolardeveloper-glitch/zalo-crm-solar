@@ -22,6 +22,9 @@ interface CreateBody {
   nickId?: unknown;
   messageText?: unknown;
   contactIds?: unknown;
+  batchSize?: unknown;
+  intervalSec?: unknown;
+  scheduledAt?: unknown;
 }
 
 export async function broadcastRoutes(app: FastifyInstance) {
@@ -56,10 +59,21 @@ export async function broadcastRoutes(app: FastifyInstance) {
     const contactIds = Array.isArray(body.contactIds)
       ? [...new Set(body.contactIds.filter((v): v is string => typeof v === 'string' && v.length > 0))]
       : [];
+    const batchSize = Number(body.batchSize ?? 5);
+    const intervalSec = Number(body.intervalSec ?? 60);
+    const scheduledAt = typeof body.scheduledAt === 'string' && body.scheduledAt.trim()
+      ? new Date(body.scheduledAt)
+      : null;
 
     if (!name) return reply.status(400).send({ error: 'name_required' });
     if (!messageText) return reply.status(400).send({ error: 'message_text_required' });
     if (contactIds.length === 0) return reply.status(400).send({ error: 'contact_ids_required' });
+    if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 50)
+      return reply.status(400).send({ error: 'batch_size_invalid', hint: 'batchSize phải từ 1 đến 50' });
+    if (!Number.isInteger(intervalSec) || intervalSec < 30 || intervalSec > 86_400)
+      return reply.status(400).send({ error: 'interval_invalid', hint: 'intervalSec phải từ 30 đến 86400 giây' });
+    if (scheduledAt && Number.isNaN(scheduledAt.getTime()))
+      return reply.status(400).send({ error: 'scheduled_at_invalid' });
 
     const nick = await prisma.zaloAccount.findFirst({ where: { id: nickId, orgId: user.orgId, archivedAt: null } });
     if (!nick) return reply.status(400).send({ error: 'nick_not_found' });
@@ -96,7 +110,9 @@ export async function broadcastRoutes(app: FastifyInstance) {
           channel: 'zalo_user',
           blockId,
           segmentSpec: { contactIds: validIds },
-          scheduleKind: 'now',
+          scheduleKind: scheduledAt ? 'scheduled' : 'now',
+          scheduledAt,
+          pacing: { batchSize, intervalSec },
           state: 'draft',
           totalRecipients: validIds.length,
           createdById: user.id,
@@ -105,7 +121,14 @@ export async function broadcastRoutes(app: FastifyInstance) {
     ]);
 
     logger.info(`[broadcast-routes] created broadcast=${broadcastId} nick=${nickId} recipients=${validIds.length} skipped_invalid=${contactIds.length - validIds.length}`);
-    return reply.status(201).send({ id: broadcastId, totalRecipients: validIds.length, skippedInvalidContactIds: contactIds.length - validIds.length });
+    return reply.status(201).send({
+      id: broadcastId,
+      totalRecipients: validIds.length,
+      skippedInvalidContactIds: contactIds.length - validIds.length,
+      batchSize,
+      intervalSec,
+      scheduledAt,
+    });
   });
 
   app.post<{ Params: { id: string } }>(`${BASE}/:id/start`, { preHandler: requireGrant('broadcast', 'edit') }, async (request, reply) => {
@@ -115,12 +138,15 @@ export async function broadcastRoutes(app: FastifyInstance) {
     if (broadcast.state !== 'draft' && broadcast.state !== 'paused') {
       return reply.status(409).send({ error: 'invalid_state', message: `Chiến dịch đang ở trạng thái "${broadcast.state}", không thể start` });
     }
+    const delayMs = broadcast.scheduledAt
+      ? Math.max(0, broadcast.scheduledAt.getTime() - Date.now())
+      : 0;
     await prisma.automationBroadcast.update({
       where: { id: broadcast.id },
       data: { state: 'running', startedAt: broadcast.startedAt ?? new Date() },
     });
-    await enqueueBroadcastTick(broadcast.id);
-    return { success: true, state: 'running' };
+    await enqueueBroadcastTick(broadcast.id, delayMs);
+    return { success: true, state: 'running', delayMs };
   });
 
   app.post<{ Params: { id: string } }>(`${BASE}/:id/pause`, { preHandler: requireGrant('broadcast', 'edit') }, async (request, reply) => {

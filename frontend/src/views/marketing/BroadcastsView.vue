@@ -37,6 +37,7 @@
             <th>Tên chiến dịch</th>
             <th>Trạng thái</th>
             <th>Tiến độ</th>
+            <th>Nhịp gửi</th>
             <th>Bỏ qua</th>
             <th>Tạo lúc</th>
             <th></th>
@@ -47,6 +48,7 @@
             <td class="bc-name">{{ b.name }}</td>
             <td><span class="bc-pill" :class="'st-' + b.state">{{ stateLabel(b.state) }}</span></td>
             <td class="num">{{ b.sentCount }}/{{ b.totalRecipients }}</td>
+            <td class="num">{{ pacingLabel(b) }}</td>
             <td class="num">{{ skippedCount(b) }}</td>
             <td>{{ formatDate(b.createdAt) }}</td>
             <td class="bc-actions">
@@ -97,6 +99,25 @@
             <textarea v-model="form.messageText" class="bc-input bc-textarea" rows="4" placeholder="Nội dung sẽ gửi cho tất cả người nhận bên dưới..."></textarea>
           </label>
 
+          <div class="bc-grid">
+            <label class="bc-field">
+              <span class="bc-label">Số người mỗi đợt</span>
+              <input v-model.number="form.batchSize" class="bc-input" type="number" min="1" max="50" />
+              <span class="bc-help">Tối đa 50 người/lượt.</span>
+            </label>
+            <label class="bc-field">
+              <span class="bc-label">Khoảng cách giữa các đợt (giây)</span>
+              <input v-model.number="form.intervalSec" class="bc-input" type="number" min="30" max="86400" />
+              <span class="bc-help">Tối thiểu 30 giây.</span>
+            </label>
+          </div>
+
+          <label class="bc-field">
+            <span class="bc-label">Bắt đầu lúc (tuỳ chọn)</span>
+            <input v-model="form.startAt" class="bc-input" type="datetime-local" />
+            <span class="bc-help">Để trống để bấm “Bắt đầu” là gửi ngay.</span>
+          </label>
+
           <div class="bc-field">
             <span class="bc-label">Người nhận ({{ form.contacts.length }} đã chọn)</span>
             <input v-model="contactQuery" class="bc-input" placeholder="Gõ tên/SĐT để tìm khách hàng..." @input="onSearchContacts" />
@@ -145,6 +166,8 @@ const CAMPAIGN_QUOTA_HINT = 'mặc định 50 tin/ngày/nick, chỉnh được �
 interface BroadcastRow {
   id: string; name: string; state: string;
   sentCount: number; failedCount: number; totalRecipients: number;
+  scheduledAt?: string | null;
+  pacing?: { batchSize?: number; intervalSec?: number } | null;
   createdAt: string;
   workerStats?: { skipped?: unknown[]; lastError?: string | null } | null;
 }
@@ -190,6 +213,11 @@ function stateLabel(s: string): string {
 function skippedCount(b: BroadcastRow): number {
   return b.workerStats?.skipped?.length ?? 0;
 }
+function pacingLabel(b: BroadcastRow): string {
+  const batch = Number(b.pacing?.batchSize ?? 5);
+  const interval = Number(b.pacing?.intervalSec ?? 60);
+  return `${batch}/${interval}s`;
+}
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
@@ -227,6 +255,9 @@ const form = ref({
   nickId: '',
   messageText: '',
   contacts: [] as ContactOption[],
+  batchSize: 5,
+  intervalSec: 60,
+  startAt: '',
 });
 
 const canSubmit = computed(() =>
@@ -237,7 +268,7 @@ const canSubmit = computed(() =>
 );
 
 function openCreate() {
-  form.value = { name: '', nickId: '', messageText: '', contacts: [] };
+  form.value = { name: '', nickId: '', messageText: '', contacts: [], batchSize: 5, intervalSec: 60, startAt: '' };
   contactQuery.value = '';
   contactSuggestions.value = [];
   createError.value = '';
@@ -281,6 +312,9 @@ async function submitCreate() {
       nickId: form.value.nickId,
       messageText: form.value.messageText.trim(),
       contactIds: form.value.contacts.map((c) => c.id),
+      batchSize: Number(form.value.batchSize),
+      intervalSec: Number(form.value.intervalSec),
+      scheduledAt: form.value.startAt ? new Date(form.value.startAt).toISOString() : null,
     });
     toast.success('Đã tạo chiến dịch (đang ở trạng thái Nháp, bấm "Bắt đầu" để gửi)');
     showCreate.value = false;
@@ -335,8 +369,10 @@ onMounted(() => {
 }
 .bc-x { border: none; background: none; cursor: pointer; color: #6b7280; padding: 4px; }
 .bc-dialog-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.bc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .bc-field { display: flex; flex-direction: column; gap: 5px; position: relative; }
 .bc-label { font-size: 12px; font-weight: 600; color: #475569; }
+.bc-help { font-size: 11px; color: #94a3b8; }
 .bc-input {
   padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px;
   background: var(--surface, #fff); color: var(--ink, #141a24);
