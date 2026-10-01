@@ -68,20 +68,29 @@ Plan đầy đủ: `/home/admin01/.claude/plans/generic-bouncing-thimble.md`.
   hồ sơ, và < ~2400 nếu mở từ `ContactDetailDialog.vue` dùng Vuetify). Nâng
   z-index `AppointmentEditor` lên 5000, verify bằng ảnh chụp trước/sau.
 
-## REMAINING — CHƯA deploy (theo đúng yêu cầu user)
+## ĐÃ DEPLOY (2026-10-01, cập nhật — mục này từng ghi "chưa deploy", nay lỗi thời)
 
-- **Chưa rebuild/restart app container** — toàn bộ code này (+ mục E, + A4 từ
-  trước) chỉ nằm trong working tree, chờ user báo mới deploy. Runtime hiện chưa
-  có backend Broadcast hoặc asset `BroadcastsView`.
-- **Phase 2 (frontend) đã code và browser-verify ở môi trường cô lập** — màn
-  tạo/theo dõi chiến dịch đã có, nhưng chưa được verify trên Full Docker `:3080`
-  và chưa có API thật trong runtime cho tới khi deploy.
+- **User đã rebuild/restart Full Docker** — container `zalo-crm-app` hiện chạy
+  image mới (`Created: 2026-10-01T03:56:21Z`). Verify thật: `/app/dist/modules/broadcast`
+  và `/app/dist/shared/address-kit-client.js` có trong container;
+  `curl localhost:3080/api/v1/broadcasts` và `.../api/v1/address/provinces`
+  trả `401` (đúng — route tồn tại, chỉ thiếu token), KHÔNG còn `404`.
+- Phần lớn code phiên này (A4, E, C Phase 1+2, fix z-index AppointmentEditor)
+  đã được commit vào git (`cce3cbe1 feat: ship safe Zalo CRM workflows` +
+  các commit fix/test theo sau).
+- Chính sách canonical đã cập nhật theo:
+  `docs/09-decisions/20260929-zalo-safe-operating-model.md` — mục 1, Tranche 1,
+  Tranche 2, checklist vận hành (2026-10-01).
+
+## REMAINING
+
 - **Segment chỉ nhận contactIds cố định** — chưa có bộ lọc động theo tag/status.
 - **Multi-nick 1 broadcast** — chưa hỗ trợ, phải tạo nhiều broadcast riêng.
-- **Chưa test tay bằng dữ liệu thật** — mới có unit test (mock), chưa chạy thử
-  với 1 nick + vài contact thật của chính user như plan yêu cầu (mục 5 phần
-  Verification) — nên làm việc này SAU khi deploy, TRƯỚC khi dùng cho khách
-  hàng thật.
+- **Chỉ gửi text** — chưa hỗ trợ ảnh/album/video/file qua broadcast.
+- **Chưa test tay bằng dữ liệu thật trên Full Docker** — mới có unit test
+  (mock) + browser-verify ở dev server cô lập (trước khi deploy). Theo đúng
+  plan mục 5 Verification: PHẢI tự test bằng 1 nick + vài contact thật của
+  chính user TRƯỚC khi dùng cho khách hàng thật — chưa làm bước này.
 
 ## RELEVANT FILES
 
@@ -93,7 +102,7 @@ Plan đầy đủ: `/home/admin01/.claude/plans/generic-bouncing-thimble.md`.
 
 ## NEXT
 
-1. User báo khi nào xong "nâng cấp" riêng → deploy 1 lần cho cả A4 + E + C.
-2. Sau deploy: test tay bằng contact/nick thật của chính user trước (chưa
-   dùng cho khách thật).
-3. Khi cần: lên plan Phase 2 (frontend tạo/theo dõi chiến dịch).
+1. **Đã deploy** — bước còn lại: user tự test tay bằng contact/nick thật của
+   chính mình trên Full Docker thật (`:3080`) TRƯỚC khi dùng cho khách thật.
+2. Khi cần: Phase 3 — gửi ảnh/media, multi-nick, bộ lọc động (xem mục
+   "Tính năng dự kiến" trong policy doc).
