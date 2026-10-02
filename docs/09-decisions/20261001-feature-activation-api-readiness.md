@@ -160,6 +160,49 @@ Các placeholder nghiệp vụ đang thấy trong chat:
 - “Liên kết CRM”/“Đẩy lên Getfly” disabled;
 - “Sản phẩm quan tâm” mới là vùng hiển thị, chưa có extractor/rule lưu dữ liệu.
 
+### Marketing — parity với giao diện bản gốc/EE
+
+Ảnh tham chiếu từ bản gốc cho thấy Marketing đầy đủ gồm: Mục tiêu, Phiên chăm
+sóc, Luồng kịch bản, Khối nội dung, Mẫu tin nhắn, Gửi tin hàng loạt và Tệp
+khách hàng. Đối chiếu source hiện tại:
+
+- Community đã có màn `Marketing → Tệp khách hàng` với thống kê tổng tệp/Lead
+  Ads/Paste-File/SĐT, tab Đang dùng/Lưu trữ/Tất cả, tìm kiếm, lọc nguồn, tạo
+  tệp bằng paste/Excel/CSV/Lead Ads, kiểm tra trùng/hợp lệ/có Zalo, quét lại,
+  lưu trữ, khôi phục và xoá.
+- Community đã có `Gửi hàng loạt` cá nhân theo batch/thời gian; đây là luồng
+  riêng của ZCRM, không phải toàn bộ Campaign/Sequence của EE.
+- Các menu `Mục tiêu`, `Phiên chăm sóc`, `Luồng kịch bản`, `Khối nội dung` và
+  `Mẫu tin nhắn` chưa được mount khi `_ee` bundle absent. Không mở menu giả hoặc
+  coi route UI là tính năng hoạt động nếu backend/worker Community chưa có.
+- Nút `Import CSV` trên header hiện đang disabled; import thật nằm trong modal
+  `Tạo tệp` qua các tab Paste/Excel/CSV.
+- Các nút nhanh `Tạo campaign từ tệp`, `Export CSV` và mũi tên mở tệp trong bảng
+  đang có giao diện nhưng chưa có handler hoàn chỉnh; cần nối API/điều hướng và
+  test trước khi quảng bá là chức năng đã hoạt động.
+- Tệp Lead Ads hiện có schema/UI tạo tệp và `integrationKey`, nhưng việc lead
+  tự chảy từ Facebook/TikTok/Google/Zalo cần extension/provider, webhook,
+  identity, queue và worker; Community hiện chưa đủ điều kiện để gọi là live.
+
+#### Backlog triển khai Marketing
+
+1. Giữ màn `Tệp khách hàng` và broadcast cá nhân là scope Community hiện tại.
+2. Nối `Export CSV` theo quyền/scope của tệp; test file, encoding, số dòng và
+   không rò dữ liệu cross-org.
+3. Nối `Tạo campaign từ tệp` vào luồng broadcast/sequence đã được chọn; không
+   tạo thêm một queue/campaign owner song song.
+4. Nối nút mở chi tiết và kiểm tra hành vi trên mobile, keyboard và RBAC.
+5. Nếu cần giao diện giống ảnh đầy đủ, chọn một trong hai hướng: mount `_ee`
+   có contract/worker thật, hoặc thiết kế Community-native cho từng module
+   (Mục tiêu → Sequence → Blocks → Follow-up) với API, queue, idempotency,
+   pause khi khách trả lời và audit log.
+
+**Acceptance gate:** browser smoke trên Full Docker `:3080` cho tạo/import tệp,
+lọc, archive/restore, rescan, export và chuyển tệp sang broadcast; test
+anonymous/role không quyền/manager/admin, cross-org, duplicate job và worker
+restart. Cho tới khi đạt gate, trạng thái các module EE là `NOT AVAILABLE IN
+COMMUNITY`, còn các nút placeholder phải hiển thị rõ hoặc được ẩn.
+
 ## Thứ tự triển khai đề xuất
 
 1. **Chốt edition/scope:** trước mắt chỉ coi Zalo core + broadcast + CRM nội bộ
